@@ -11,6 +11,7 @@ import { CommentPanel } from './comment-panel';
 import { CompatOverlay } from './compat-overlay';
 import { CoverBackdrop } from './cover-backdrop';
 import { ErrorBar } from './error-bar';
+import { HevcInstallCard } from './hevc-install-card';
 import { ImmersiveInfoOverlay } from './immersive-info-overlay';
 import { KeyboardHint } from './keyboard-hint';
 import { Loadbar } from './loadbar';
@@ -18,6 +19,7 @@ import { LoadingPanel } from './loading-panel';
 import { MiniDragBar } from './mini-drag-bar';
 import {
   useDanmaku,
+  usePlaybackCapability,
   useSeriesDetailMeta,
   useSeriesEpisodes,
   useSettings,
@@ -224,6 +226,8 @@ export function PlayerView({
   // 当前集的公开计数（detail 接口下发；右栏 ♥/💬 数字）
   const currentEpisode = currentSeries?.episodes.find((e) => e.vidIndex === vidIndex);
   const danmakuQuery = useDanmaku(currentVid ? `${currentVid}:${seriesId}` : '');
+  // 无 HEVC 扩展机器的安装引导数据源（false 才弹卡，探测未落定不渲染）
+  const { data: hevcPlayable } = usePlaybackCapability();
   const { danmakuOn, danmakuDisplay, updateDanmakuDisplay, toggleDanmaku } = useDanmakuSettings();
   // 弹幕拉取失败不能静默：画面照常播，但用户该知道弹幕为什么没了
   useEffect(() => {
@@ -668,6 +672,18 @@ export function PlayerView({
                 {/* 兜底转码浮层。转一集要几十秒，没有它用户只能盯着黑屏，
                   不知道是卡住了还是在慢慢转。z-30：压过封面占位。 */}
                 {compat && <CompatOverlay compat={compat} />}
+
+                {/* 无 HEVC 扩展机器的安装引导（底部悬浮，不打断在播内容）：
+                  兜底转码进行中不弹（CompatOverlay 在场说明已经在自救）；
+                  装好且画面没在播时借 retryOnline 的换 URL 通道重试起播。 */}
+                {hevcPlayable === false && !compat && (
+                  <HevcInstallCard
+                    hevcPlayable={false}
+                    onInstalled={() => {
+                      if (!videoLive) retryOnline();
+                    }}
+                  />
+                )}
 
                 {/* 加载反馈 = 顶部 2px 细进度条（hg-loadbar，样式见 index.css）：
                   切换在途/首帧未出/缓冲中任何一种未就绪都亮。中央的
