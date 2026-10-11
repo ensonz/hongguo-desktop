@@ -15,7 +15,7 @@
 ///
 /// 与 `signer::ticket::encode_component` 字符集完全一致（`-_.!~*'()`
 /// 不转义）——login 的 form body 会过同一套服务端解析。
-pub(crate) fn encode_component(s: &str) -> String {
+pub fn encode_component(s: &str) -> String {
     const UNRESERVED: &str = "-_.!~*'()";
     let mut out = String::with_capacity(s.len());
     for byte in s.bytes() {
@@ -33,9 +33,10 @@ pub(crate) fn encode_component(s: &str) -> String {
 ///
 /// register 旧版 form（body = query 的 urlencode）抓包重放用的字符集，
 /// `!'()` 在这里**会**被转义——与 [`encode_component`] 的差异见模块注释。
-/// 当前仅 register 重放测试在用（原测试内私有 `urlencode`）。
-#[cfg(test)]
-pub(crate) fn encode_rfc3986(s: &str) -> String {
+///
+/// 不再 `#[cfg(test)]` 门控：下游 crate 的重放测试要调它（依赖 crate 对
+/// 下游以非 test 方式编译，门控项会消失）。
+pub fn encode_rfc3986(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {

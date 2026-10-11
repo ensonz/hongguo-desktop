@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 use crate::media::capability::probe::DecodeCapability;
 use crate::service::download_service::events::names::COMPAT_PROGRESS;
 use crate::service::play_service::compat_play::{self, CompatSource};

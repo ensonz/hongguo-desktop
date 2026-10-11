@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 
-use crate::domain::model::{Settings, VideoDefinition};
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::{Settings, VideoDefinition};
+use hongguo_common::{AppError, AppResult};
 use crate::protocol::stream::{ProgressiveStream, StreamCache};
 
 /// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::domain::model::settings::Settings;
+use hongguo_common::model::settings::Settings;
 use crate::service::download_service::queue::DownloadQueue;
 use crate::service::download_service::scheduler::DownloadScheduler;
 use crate::store::Store;
@@ -222,7 +222,7 @@ mod tests {
         let state = AppState::default();
         let a = state.queue();
         let b = state.queue();
-        a.enqueue(crate::domain::model::DownloadTask::new(
+        a.enqueue(hongguo_common::model::DownloadTask::new(
             "1", "t", 1, "v", "",
         ));
         assert_eq!(b.all().len(), 1, "多次获取应指向同一队列");
@@ -244,7 +244,7 @@ mod tests {
             .save_playback_position(
                 "A",
                 1,
-                &crate::domain::model::PlaybackPosition::new(1.0, 2.0),
+                &hongguo_common::model::PlaybackPosition::new(1.0, 2.0),
             )
             .expect("内存库写入");
         assert_eq!(

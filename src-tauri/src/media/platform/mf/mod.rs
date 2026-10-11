@@ -49,7 +49,7 @@ use windows::Win32::System::Variant::{VARIANT, VARIANT_0_0, VARIANT_0_0_0, VT_UI
 use windows::core::{GUID, Interface};
 
 use crate::domain::mp4::sample_table::TrackInfo;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 use super::PlatformRequest;
 

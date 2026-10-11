@@ -20,7 +20,7 @@ pub mod wic;
 
 use std::path::Path;
 
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 平台硬编的一次转码请求（与 ffmpeg 侧的 [`crate::media::ffmpeg::TranscodeRequest`] 同构）。
 pub struct PlatformRequest<'a> {

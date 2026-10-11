@@ -20,7 +20,7 @@
 
 use crate::domain::mp4::r#box::{BoxHeader, build_box, find_box, parse_boxes};
 use crate::domain::mp4::sample_table::{TrackInfo, collect_track};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 一个输入文件里的一条轨道：解析结果 + 要原样搬进产物的 box。
 pub struct SourceTrack {

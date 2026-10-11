@@ -31,7 +31,7 @@ use std::time::Instant;
 use parking_lot::RwLock;
 
 use crate::domain::mp4::sample_table::TrackInfo;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 use super::PlatformRequest;
 

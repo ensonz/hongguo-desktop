@@ -7,7 +7,7 @@
 ///
 /// 来源：bootstrap/device.rs 的 `now_ms`（退避窗口、注册时间戳等需要
 /// 参与有符号运算与落库）。
-pub(crate) fn now_ms() -> i64 {
+pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -18,7 +18,7 @@ pub(crate) fn now_ms() -> i64 {
 ///
 /// 日历的日期桶按北京时间的"当天"划分；时间戳 0（未定档）不归任何一天。
 /// 来源：calendar/mod.rs 的 `beijing_date`。
-pub(crate) fn beijing_date(ts_ms: i64) -> String {
+pub fn beijing_date(ts_ms: i64) -> String {
     if ts_ms <= 0 {
         return String::new();
     }

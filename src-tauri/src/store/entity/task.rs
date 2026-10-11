@@ -2,8 +2,8 @@
 
 use turso::{Connection, Value};
 
-use crate::domain::model::DownloadTask;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::DownloadTask;
+use hongguo_common::{AppError, AppResult};
 use crate::store::db::Db;
 
 use super::{col_text, map_db_err, status_text};

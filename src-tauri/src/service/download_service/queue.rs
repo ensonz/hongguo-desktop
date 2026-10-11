@@ -17,7 +17,7 @@ mod query;
 
 use parking_lot::RwLock;
 
-use crate::domain::model::{DownloadTask, TaskStatus};
+use hongguo_common::model::{DownloadTask, TaskStatus};
 
 /// 下载队列。
 pub struct DownloadQueue {

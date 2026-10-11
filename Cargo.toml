@@ -11,11 +11,21 @@
 # 虚拟 manifest 必须显式声明 resolver，否则默认退回 "1"——edition 2024 的
 # feature 解析语义会静默变化。
 resolver = "3"
-members = ["src-tauri"]
+members = ["crates/hongguo-common", "src-tauri"]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被
 # path/patch 引用的包会被 Cargo 自动收成 member；若不排除，门禁会去 lint
 # 上游代码（clippy -D warnings 必挂），cargo test 也会跑它们的用例。
 exclude = ["vendor/*"]
+
+# 各 crate 共享的 package 字段：发版只改这里一处（另需改 package.json 与
+# tauri.conf.json），成员用 `xxx.workspace = true` 继承。
+[workspace.package]
+version = "0.4.3"
+edition = "2024"
+# MSRV 跟随当前 stable 工具链（1.99）。应用不是库，MSRV 只影响依赖解析。
+rust-version = "1.99"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = ["hongguo-desktop contributors"]
 
 # 根治「测试高并发间歇崩」：rusty_h264-common 默认给整个进程强装第三方分配器
 # rusty_alloc 1.1.6（`rusty_alloc-api = "=1.1.6"` 锁死版本；rusty_h264 default 转发

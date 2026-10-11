@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 use crate::media::transcode::{TranscodeOptions, TranscodeResult};
 use crate::service::transcode_service::cache;
 
@@ -31,7 +31,7 @@ pub fn transcode(
     on_progress: Option<&(dyn Fn(f64) + Send + Sync)>,
 ) -> AppResult<TranscodeResult> {
     if !source.exists() {
-        return Err(crate::error::AppError::NotFound(
+        return Err(hongguo_common::AppError::NotFound(
             source.display().to_string(),
         ));
     }

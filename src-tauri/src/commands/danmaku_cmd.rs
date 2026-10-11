@@ -8,7 +8,7 @@ use crate::domain::api::danmaku::{
     fetch_comments_page, fetch_danmaku_all, fetch_review_replies, fetch_series_comments_page,
     send_series_review,
 };
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 拉一集的全部弹幕（后端按 30 秒窗口循环到 has_more=false）。
 ///

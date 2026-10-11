@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::domain::mp4::r#box::find_box;
 use crate::domain::mp4::sample_table::TrackInfo;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 音轨的封装参数。
 #[derive(Debug, Clone, Copy, PartialEq)]

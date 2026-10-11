@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use crate::domain::mp4::sample_table::{TrackInfo, collect_tracks};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 一条可处理的轨道。
 #[derive(Debug, Clone)]

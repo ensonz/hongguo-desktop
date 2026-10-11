@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 解密一个 MP4 文件。
 ///

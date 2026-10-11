@@ -9,7 +9,7 @@ use super::calendar::{CalendarPage, SUBSCRIBE_LIST_PATH, parse_calendar};
 use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
 use super::discover::check_code;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 预约 / 取消预约端点（2026-10-04 抓 hgplayer 1.1.3 实操锁定）。///
 /// `POST`，body 为 **gzip 压缩的 JSON**（带 `Content-Encoding: gzip`）：
@@ -289,7 +289,7 @@ pub(crate) mod probe {
             Ok(c) if !c.is_empty() => {
                 let device = crate::signer::video_device();
                 ApiEnv {
-                    proxy: crate::domain::model::ProxyConfig::default(),
+                    proxy: hongguo_common::model::ProxyConfig::default(),
                     device,
                     cookie: Some(c),
                     x_tt_token: None,
@@ -336,7 +336,7 @@ pub(crate) mod probe {
             std::env::var("HG_RESERVE_SERIES").unwrap_or_else(|_| "7692797468404091929".into());
         let device = crate::signer::video_device();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             device,
             cookie: Some(cookies),
             x_tt_token: None,

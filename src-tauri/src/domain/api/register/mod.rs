@@ -46,7 +46,7 @@ use serde_json::{Value, json};
 #[cfg(test)]
 use super::client::api_call_full;
 use super::client::{ApiEnv, api_call_full_response};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 pub const REGISTER_ORIGIN: &str = "https://log.snssdk.com";
 pub const REGISTER_PATH: &str = "/service/2/device_register/";
@@ -584,8 +584,8 @@ mod tests {
 mod probe {
     use super::*;
     use crate::domain::api::client::ApiEnv;
-    use crate::domain::model::ProxyConfig;
-    use crate::utils::url::encode_rfc3986;
+    use hongguo_common::model::ProxyConfig;
+    use hongguo_common::utils::url::encode_rfc3986;
 
     fn anon_env() -> ApiEnv {
         ApiEnv::anonymous(ProxyConfig::default())

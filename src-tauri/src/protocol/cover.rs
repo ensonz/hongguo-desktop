@@ -16,7 +16,7 @@
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
-use crate::utils::hex;
+use hongguo_common::utils::hex;
 
 use super::range::ProtocolResponse;
 

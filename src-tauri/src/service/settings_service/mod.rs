@@ -4,8 +4,8 @@
 
 pub mod proxy;
 
-use crate::domain::model::Settings;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::Settings;
+use hongguo_common::{AppError, AppResult};
 
 /// 归一化并校验设置。
 ///

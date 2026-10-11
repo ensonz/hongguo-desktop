@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::client::{ApiEnv, api_call_full_with_headers, reading_headers};
 use super::danmaku::LQ_API_ORIGIN;
 use super::discover::{check_code, int_field, str_field};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 pub const SEARCH_TAB_PATH: &str = "/reading/bookapi/search/tab/v";
 
@@ -441,7 +441,7 @@ mod probe {
     async fn probe_search_and_paginate() {
         let device = crate::signer::video_device();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             cookie: Some(crate::signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,
@@ -473,7 +473,7 @@ mod probe {
     async fn probe_search_daoye() {
         let device = crate::signer::video_device();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             cookie: Some(crate::signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,
@@ -505,7 +505,7 @@ mod probe {
     async fn probe_search_suggest() {
         let device = crate::signer::video_device();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             cookie: Some(crate::signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,

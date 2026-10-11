@@ -6,8 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::model::ProxyConfig;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::ProxyConfig;
+use hongguo_common::{AppError, AppResult};
 
 /// HEVC 视频扩展 appx 的下载直链与期望 SHA-256。
 ///

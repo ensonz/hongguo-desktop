@@ -6,8 +6,8 @@ use tauri::{AppHandle, Emitter, State};
 
 use super::persist;
 use crate::app_state::AppState;
-use crate::domain::model::DownloadTask;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::DownloadTask;
+use hongguo_common::{AppError, AppResult};
 use crate::service::download_service::events::names;
 
 /// 提交一批下载任务。

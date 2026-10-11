@@ -5,7 +5,7 @@
 use tauri::{AppHandle, Emitter, State};
 
 use crate::app_state::AppState;
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 use super::persist;
 use crate::service::download_service::events::names;

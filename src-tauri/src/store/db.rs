@@ -16,7 +16,7 @@ use std::path::Path;
 
 use turso::{Builder, Connection, Database};
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 当前 schema 版本。每次结构性变更（加表/加列）时 +1，
 /// 并在 [`MIGRATIONS`] 追加一段从上一版本到新版本的 SQL。

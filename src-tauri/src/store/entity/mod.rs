@@ -11,7 +11,7 @@
 
 use turso::Value;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 use crate::store::db::Db;
 
 // ---------- 取列小工具 ----------
@@ -157,8 +157,8 @@ fn mem_db() -> Db {
 mod tests {
     use super::*;
 
-    use crate::domain::model::settings::Settings;
-    use crate::domain::model::{
+    use hongguo_common::model::settings::Settings;
+    use hongguo_common::model::{
         DownloadTask, MergeMode, MergeTask, PlaybackPosition, Series, TaskStatus,
     };
 

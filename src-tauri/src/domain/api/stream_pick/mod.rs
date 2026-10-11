@@ -163,9 +163,9 @@ fn definition_digits(s: &str) -> Option<u32> {
 
 /// 一集实际提供的清晰度档位，供前端渲染切换菜单。
 ///
-/// 就是 [`crate::domain::model::VideoDefinition`]：取流与 IPC 两头都要用，
+/// 就是 [`hongguo_common::model::VideoDefinition`]：取流与 IPC 两头都要用，
 /// 另立一个类型只会在中间多一层转换。
-pub use crate::domain::model::VideoDefinition as Definition;
+pub use hongguo_common::model::VideoDefinition as Definition;
 
 /// 列出一集**能播**的清晰度档位，按高到低。
 ///

@@ -1,6 +1,6 @@
 //! 详情域数据模型（相关作品 / 分集列表 / 头部剧集元信息）。
 
-use crate::domain::model::Episode;
+use hongguo_common::model::Episode;
 
 /// 相关作品 / 猜你喜欢里的一条。
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]

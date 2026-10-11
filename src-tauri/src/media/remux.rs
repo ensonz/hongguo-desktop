@@ -11,7 +11,7 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 mod index;
 

@@ -7,8 +7,8 @@
 //! 输入只收剧集 ID（收藏/历史/详情的档案回退都传 ID）。分享链接解析
 //! 已随找剧输入框的链接支持一起下线（2026-10-09）。
 
-use crate::domain::model::Series;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::Series;
+use hongguo_common::{AppError, AppResult};
 
 /// 解析剧集：输入是纯数字剧集 ID。
 pub async fn resolve_series(
@@ -50,7 +50,7 @@ mod tests {
     #[tokio::test]
     async fn empty_input_errors() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         assert!(resolve_series("", &env).await.is_err());
         assert!(resolve_series("   ", &env).await.is_err());
@@ -59,7 +59,7 @@ mod tests {
     #[tokio::test]
     async fn non_numeric_input_errors() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         assert!(resolve_series("随便一段文字", &env).await.is_err());
         // 分享链接形态也不再支持：当普通非法输入拒掉

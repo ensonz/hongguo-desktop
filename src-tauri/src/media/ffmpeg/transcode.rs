@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use super::probe::{Encoder, ffmpeg_path};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 一次转码的输入。
 pub struct TranscodeRequest<'a> {

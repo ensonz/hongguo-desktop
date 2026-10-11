@@ -3,7 +3,7 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 本机 WebView2 能否解 HEVC。
 ///

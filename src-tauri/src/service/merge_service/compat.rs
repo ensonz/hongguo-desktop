@@ -12,8 +12,8 @@ use super::done_inputs;
 use super::guard::RunningMerge;
 use super::progress::ProgressSink;
 use crate::app_state::AppState;
-use crate::domain::model::MergeTask;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::MergeTask;
+use hongguo_common::{AppError, AppResult};
 use crate::media::transcode::TranscodeOptions;
 use crate::service::transcode_service::{cache, pipeline};
 
@@ -365,7 +365,7 @@ fn episode_progress<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::DownloadTask;
+    use hongguo_common::model::DownloadTask;
 
     #[test]
     fn single_episode_progress_climbs_fractionally() {

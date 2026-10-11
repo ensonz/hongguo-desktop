@@ -12,7 +12,7 @@
 
 use super::sample_table::collect_tracks;
 use crate::domain::crypto::cenc;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 在内存中解密整个 MP4。
 pub fn decrypt_mp4_buffer(data: &[u8], key: &[u8; 16]) -> AppResult<Vec<u8>> {

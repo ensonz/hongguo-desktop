@@ -31,12 +31,12 @@ mod tests {
     /// 线程可调）。async fn 里 `tokio::time::sleep` 这类**在运行时内**的
     /// 调用不在禁止之列；测试代码允许自建 runtime。
     ///
-    /// 源码清单由目录自动发现（[`crate::utils::source_guard`]），不再手工登记——
+    /// 源码清单由目录自动发现（[`crate::testing::source_guard`]），不再手工登记——
     /// 新增 command 文件漏登记曾让本守护静默失效。
     #[test]
     fn commands_do_not_touch_tokio_context_directly() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
-        let sources = crate::utils::source_guard::collect_sources(&dir);
+        let sources = crate::testing::source_guard::collect_sources(&dir);
         assert!(!sources.is_empty(), "没扫到命令层源码：{}", dir.display());
         for (path, text) in &sources {
             // 内联测试段允许自建 runtime，先截掉再扫

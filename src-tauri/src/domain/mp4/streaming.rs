@@ -27,7 +27,7 @@ use parking_lot::{Condvar, Mutex};
 
 use super::deprotect::rebuild_moov_region;
 use super::sample_table::collect_tracks;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 一个待解密的样本段（跨轨合并后的原子单位）。
 #[derive(Debug, Clone)]

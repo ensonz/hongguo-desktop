@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::domain::model::settings::Settings;
-use crate::domain::model::{DownloadTask, MergeTask, PlaybackPosition, Series};
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::settings::Settings;
+use hongguo_common::model::{DownloadTask, MergeTask, PlaybackPosition, Series};
+use hongguo_common::{AppError, AppResult};
 use crate::store::db::Db;
 use crate::store::entity;
 

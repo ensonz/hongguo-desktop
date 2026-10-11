@@ -10,7 +10,7 @@
 
 use super::av_base64;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 逐字节变换用的三个初值。
 const W10: u8 = 0xeb;

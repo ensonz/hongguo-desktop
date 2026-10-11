@@ -1,13 +1,11 @@
 [package]
 name = "hongguo-desktop"
-version = "0.4.3"
 description = "红果短剧桌面客户端（Tauri 桌面版）"
-authors = ["hongguo-desktop contributors"]
-license = "PolyForm-Noncommercial-1.0.0"
-edition = "2024"
-# MSRV 声明跟随当前 stable 工具链（1.99）。这是个应用不是库，MSRV 只影响
-# cargo 依赖解析的版本上限，实际开发与 CI 都跑最新 stable。
-rust-version = "1.99"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
 
 # 本 crate 是 workspace 成员（根 Cargo.toml 的 members），[patch.crates-io] /
 # [profile.*] 都在根 manifest，不在此处。
@@ -20,6 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量（自身不依赖 tauri）。
+hongguo-common = { path = "../crates/hongguo-common" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"

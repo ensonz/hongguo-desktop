@@ -20,8 +20,8 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter};
 
 use crate::app_state::AppState;
-use crate::domain::model::DownloadTask;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::DownloadTask;
+use hongguo_common::{AppError, AppResult};
 use crate::service::download_service::events::{ProgressThrottle, names};
 use crate::service::download_service::worker::{self, EpisodeDownload, ProgressSink};
 

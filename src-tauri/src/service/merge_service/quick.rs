@@ -6,8 +6,8 @@ use super::done_inputs;
 use super::guard::RunningMerge;
 use super::progress::ProgressSink;
 use crate::app_state::AppState;
-use crate::domain::model::MergeTask;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::MergeTask;
+use hongguo_common::{AppError, AppResult};
 
 /// 快速合并某剧已下载的分集。
 ///

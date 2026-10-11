@@ -7,7 +7,7 @@ use super::r#box::{find_box, parse_boxes};
 use super::cenc_info;
 use super::chunk_map;
 use super::timing;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 视频轨的样本描述。
 #[derive(Debug, Clone, Default, PartialEq)]

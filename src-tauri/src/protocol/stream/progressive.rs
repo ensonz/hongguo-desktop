@@ -35,7 +35,7 @@ pub struct ProgressiveStream {
     /// CDN 视频地址（恢复填充直接按 Range 续拉）
     pub cdn_url: String,
     /// 取流时的代理配置（恢复填充重建 client 用）
-    pub proxy: crate::domain::model::ProxyConfig,
+    pub proxy: hongguo_common::model::ProxyConfig,
 }
 
 /// 读者需求登记表：serve 在等哪个区间，填充调度器就先下哪个区间。

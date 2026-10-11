@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 use crate::service::transcode_service::cache;
 
 /// 兜底转码的结果。

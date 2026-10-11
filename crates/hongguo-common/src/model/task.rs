@@ -27,7 +27,7 @@ impl TaskStatus {
 
 /// 一个下载任务（对应一集）。
 ///
-/// 落盘沿用 Electron 版的 snake_case 键名（见 [`crate::domain::model::series`]），
+/// 落盘沿用 Electron 版的 snake_case 键名（见 [`crate::model::series`]），
 /// 发给前端时转 camelCase（前端 `downloadTaskSchema`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

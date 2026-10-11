@@ -10,8 +10,8 @@ use crate::app_state::AppState;
 use crate::domain::api::login::{
     self, LoginOutcome, MfaContext, MfaFlow, PassportUser, UpsmsState,
 };
-use crate::domain::model::AccountState;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::AccountState;
+use hongguo_common::{AppError, AppResult};
 use crate::service::login_service::{account, csrf, polling};
 
 /// 发送短信验证码。发码会话的 csrf 凭据暂存 AppState（sms_login 消费）。

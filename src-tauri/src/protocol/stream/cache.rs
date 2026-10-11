@@ -6,7 +6,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use super::progressive::ProgressiveStream;
-use crate::domain::model::VideoDefinition;
+use hongguo_common::model::VideoDefinition;
 use crate::domain::mp4::streaming::SparseBuffer;
 
 /// 一档正在准备的流。

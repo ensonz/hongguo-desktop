@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 use crate::media::demux::demux_file;
 
 /// 某一条轨道的编码指纹。全部字段相同才算同一条编码。

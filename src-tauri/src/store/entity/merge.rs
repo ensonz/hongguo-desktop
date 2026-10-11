@@ -2,8 +2,8 @@
 
 use turso::Value;
 
-use crate::domain::model::MergeTask;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::MergeTask;
+use hongguo_common::{AppError, AppResult};
 use crate::store::db::Db;
 
 use super::{col_text, map_db_err};
@@ -54,7 +54,7 @@ pub async fn delete_merge_task(db: &Db, id: &str) -> AppResult<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{MergeMode, MergeStatus};
+    use hongguo_common::model::{MergeMode, MergeStatus};
     use crate::store::entity::{mem_db, rt};
 
     #[test]

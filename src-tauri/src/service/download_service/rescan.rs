@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::app_state::AppState;
-use crate::domain::model::{DownloadTask, Series, Settings};
-use crate::error::AppResult;
+use hongguo_common::model::{DownloadTask, Series, Settings};
+use hongguo_common::AppResult;
 
 /// 判定「磁盘上这个文件是一条有效分集」的最小体积。
 ///
@@ -186,7 +186,7 @@ fn trailing_index(stem: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{Episode, TaskStatus};
+    use hongguo_common::model::{Episode, TaskStatus};
 
     /// 临时目录 + **数据目录重定向守卫**。
     ///
@@ -344,7 +344,7 @@ mod tests {
         let state = AppState::default();
         series_in(&state, series_with("我的剧", vec![7]));
         let mut settings = settings_with_dir(&root);
-        settings.naming = crate::domain::model::settings::NamingTemplate::TitleIndexEpisode;
+        settings.naming = hongguo_common::model::settings::NamingTemplate::TitleIndexEpisode;
         state.replace_settings(settings);
         let dir = make_series_dir(&root, "我的剧");
 

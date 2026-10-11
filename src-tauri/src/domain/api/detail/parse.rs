@@ -3,9 +3,9 @@
 use serde_json::Value;
 
 use super::model::{EpisodeList, RelatedItem, RelatedSeries, SeriesMeta};
-use crate::domain::model::Episode;
-use crate::error::{AppError, AppResult};
-use crate::utils::json::{check_code_in, int_field, str_field, str_field_any};
+use hongguo_common::model::Episode;
+use hongguo_common::{AppError, AppResult};
+use hongguo_common::utils::json::{check_code_in, int_field, str_field, str_field_any};
 
 /// 解析 plan/v 响应为相关作品两块内容。
 pub(super) fn parse_related_series(value: &Value) -> AppResult<RelatedSeries> {
