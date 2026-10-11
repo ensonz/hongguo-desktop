@@ -16,12 +16,12 @@ interface Props {
 }
 
 /**
- * 选集器。
+ * 选集器（区间语法）。
  *
  * 三种勾选方式并存：网格逐集点选、快捷区间（前 10 / 前 30 / 后 30）、区间语法输入。
  * 区间语法是现版的核心能力——短剧动辄几百集，手动勾选不现实。
  */
-export function EpisodePicker({ episodes, selected, onChange }: Props) {
+export function EpisodeRangePicker({ episodes, selected, onChange }: Props) {
   const [rangeText, setRangeText] = useState('');
   const [rangeError, setRangeError] = useState(false);
 
