@@ -1,6 +1,6 @@
 //! 在线播放：取流 → 解密 → 推进内存流。
 //!
-//! 数据面在 [`crate::protocol::stream`]，这里只负责把数据推进去。
+//! 数据面在 [`hongguo_stream`]，这里只负责把数据推进去。
 //!
 //! 两条取流路径：
 //! - **渐进**（首选）：首探头部 256KB → 盒游走定位 moov → 精确补齐 → 建
@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 
-use crate::protocol::stream::{ProgressiveStream, StreamCache};
 use hongguo_common::model::{Settings, VideoDefinition};
 use hongguo_common::{AppError, AppResult};
+use hongguo_stream::{ProgressiveStream, StreamCache, cache};
 
 /// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，
 /// 顶层盒表从这里算出 moov 落点。
@@ -48,13 +48,6 @@ pub struct Prepared {
     pub definitions: Vec<VideoDefinition>,
 }
 
-/// 全局流缓存。
-pub fn cache() -> &'static StreamCache {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<StreamCache> = OnceLock::new();
-    CACHE.get_or_init(StreamCache::default)
-}
-
 /// 填充门闸：同时只允许一路「下载+解密」。
 ///
 /// 拿着门闸时才真正开始下载；等门闸的调用方在 `begin_fetch` 已登记取流权，
@@ -63,7 +56,7 @@ static FILL_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 /// 准备在线播放，返回流地址与档位信息。
 ///
-/// 缓存按 (vid, 档位) 分条目（见 [`crate::protocol::stream`]），所以切清晰度
+/// 缓存按 (vid, 档位) 分条目（见 [`hongguo_stream`]），所以切清晰度
 /// 既不用下载、也不会动到正在播的那一档：切回去直接命中内存里的旧数据。
 pub async fn prepare(
     app: &tauri::AppHandle,
@@ -599,7 +592,7 @@ fn next_target(sparse: &hongguo_mp4::streaming::SparseBuffer, frontier: u64) -> 
 
 /// 三级填充调度器：
 ///
-/// 1. **需求优先**：任一等待中的读者（[`crate::protocol::stream::ReaderDemand`])
+/// 1. **需求优先**：任一等待中的读者（[`hongguo_stream::ReaderDemand`])
 ///    的区间先填，按登记到达顺序（FIFO，多读者不互相饿死）；**回跳的 seek
 ///    与前进的一视同仁**——旧版单调 `seek_hint` 降不下来、回绕又被它顶住
 ///    的死循环，在机制上不再可能。
@@ -864,7 +857,7 @@ mod scheduler_tests {
     /// 这正是旧版单调 seek_hint 做不到的「回跳」。
     #[test]
     fn demand_points_backwards_into_early_hole() {
-        use crate::protocol::stream::ReaderDemand;
+        use hongguo_stream::ReaderDemand;
 
         let sparse = hongguo_mp4::streaming::SparseBuffer::new(100);
         sparse.write(90, &[0u8; 10]); // 尾部已就绪（seek 到片尾之类的场景）

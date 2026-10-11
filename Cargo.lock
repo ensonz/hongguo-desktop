@@ -2350,6 +2350,7 @@ dependencies = [
  "hongguo-mp4",
  "hongguo-signer",
  "hongguo-store",
+ "hongguo-stream",
  "jpeg-encoder",
  "log",
  "md-5",
@@ -2425,6 +2426,16 @@ dependencies = [
  "serde_json",
  "tokio",
  "turso",
+]
+
+[[package]]
+name = "hongguo-stream"
+version = "0.4.3"
+dependencies = [
+ "hongguo-common",
+ "hongguo-mp4",
+ "log",
+ "parking_lot",
 ]
 
 [[package]]

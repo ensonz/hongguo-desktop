@@ -191,7 +191,8 @@ hongguo-desktop/
 │   ├── hongguo-signer/  # 字节系请求签名 + 设备注册原语（JS 1:1 移植，常量黑盒锁定勿改）
 │   ├── hongguo-mp4/     # MP4 解析与 CENC 解密
 │   ├── hongguo-api/     # 官方 App 接口客户端（14 域，按端点域目录化）
-│   └── hongguo-store/   # Turso 内嵌数据库（entity/ 按聚合拆分 / 迁移链 / 坏档恢复）
+│   ├── hongguo-store/   # Turso 内嵌数据库（entity/ 按聚合拆分 / 迁移链 / 坏档恢复）
+│   └── hongguo-stream/  # 在线流契约（渐进流 / 按 (vid, 档位) 分条的缓存 / Range 应答）
 ├── src-tauri/src/
 │   ├── service/         # 应用服务：下载调度、播放编排、合并、转码、存储清理……
 │   ├── commands/        # Tauri command 薄层（约 80 个，与 service 同名同构）

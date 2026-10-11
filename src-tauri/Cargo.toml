@@ -28,6 +28,8 @@ hongguo-mp4 = { path = "../crates/hongguo-mp4" }
 hongguo-api = { path = "../crates/hongguo-api" }
 # 持久化（Turso 内嵌库）；依赖 common + signer，不依赖 tauri。
 hongguo-store = { path = "../crates/hongguo-store" }
+# 在线流契约（内存渐进流 + 缓存 + Range 应答）；依赖 common + mp4，不依赖 tauri。
+hongguo-stream = { path = "../crates/hongguo-stream" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"

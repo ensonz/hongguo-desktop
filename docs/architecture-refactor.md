@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
 > 版本：2026-10-11（rev3，定序已确认）
-> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1 条（common / signer / mp4 / api）与第 2 条（store）已落地，其余按 §8 分批执行
+> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1 条（common / signer / mp4 / api）、第 2 条（store）与第 3 条 3a（stream）已落地，3b/3c 与第 4~6 步按 §8 分批执行
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -106,15 +106,20 @@
 
 ### 4.2 流契约、媒体与协议
 
-| Crate | 职责 | 依赖 |
-| --- | --- | --- |
-| `hongguo-stream` | **新增薄契约**：流源类型、明文供给抽象、读者需求登记等**共用数据类型**（把今天的 `ProgressiveStream` / `StreamCache` / `ReaderDemand` / `StreamingPlan` 收拢到这里） | mp4 + common |
-| `hongguo-media` | `media/`——demux / remux / 纯 Rust 软解 / 能力探测 / 后端选择器 | mp4 + common |
-| `hongguo-media-platform` | `media/platform`（MF / VT / WIC）+ `media/ffmpeg`——平台硬编与 ffmpeg 执行，feature 门控 | media |
-| `hongguo-protocol` | `protocol/`——自定义 URI 逻辑（`hongguo-local/stream/cover`）+ Range 应答。**注意命名：这是 URI 协议，不是 HTTP/传输协议** | stream + mp4 + common |
+| Crate | 职责 | 依赖 | 状态 |
+| --- | --- | --- | --- |
+| `hongguo-stream` | 流数据面：`ProgressiveStream` / `StreamCache` / `ReaderDemand` / `serve`（Range 应答 + 窗口策略）+ `range.rs`（`RangeSpec` / `ProtocolResponse`）+ 进程级缓存 `cache()` | mp4 + common | **已落地 2026-10-11** |
+| `hongguo-media` | `media/` 纯 Rust 编解码——backend / demux / hevc / transcode / remux / codec_probe / disk_space / heif | mp4 + common | 待 3b |
+| `hongguo-media-platform` | `media/platform`（MF / VT / WIC）+ `media/ffmpeg` + `media/capability`——平台硬编、ffmpeg 执行与能力探测 | media | 待 3c |
+| `hongguo-protocol` | `protocol/`——自定义 URI 逻辑（`hongguo-local/stream/cover`）+ 路由。**注意命名：这是 URI 协议，不是 HTTP/传输协议** | stream + media + media-platform + common | 待第 4 条 |
+
+> **依赖修正（2026-10-11 实测，v1/rev3 原表有误）**：
+> - **`capability/` 必须随 platform、ffmpeg 一起进 `hongguo-media-platform`**。实测 `media/platform/{vt,mf}` 调 `media::{demux,hevc,transcode}`（19 处），而 `media/capability` 反手调 `media::{platform,ffmpeg}`（14 处）——照原表把 capability 留在 `hongguo-media` 里会成环。
+> - **`hongguo-protocol` 的依赖不止 stream + mp4 + common**：`protocol/cover.rs` 还要 `media::heif` / `media::platform::wic` / `media::ffmpeg`（封面 HEIC→JPEG 的三级阶梯）。
+> - **`hongguo-stream` 同时收 `range.rs` 与进程级 `cache()`**：`RangeSpec` / `ProtocolResponse` 是流应答的线格式；`cache()` 是填充侧与应答侧唯一的共享句柄——不搬它，`serve()` 只能回头调 `service::play_service::online::cache()`，反向边消不掉。原表把 stream 描述为「只放共用数据类型」，偏窄。
 
 > **不设 `hongguo-media-gpu`**：GPU 路径尚不存在，有真需求再立 crate（§14）。
-> **`service` 不再依赖 `protocol`**：今天 `service/play_service` 直接 `use protocol::stream::{ProgressiveStream, StreamCache}`——收拢进 `hongguo-stream` 后，service → stream，protocol → stream，去掉这层别扭耦合。
+> **`service` 不再依赖 `protocol`**（**已落地 2026-10-11**）：`service/play_service/online` 改为 `use hongguo_stream::{ProgressiveStream, StreamCache, cache}`，`protocol::register` 改为 `hongguo_stream::serve`——两侧都只往下依赖 `hongguo-stream`，那条「协议层回头找服务层要缓存」的反向边没了。
 
 ### 4.3 业务与壳
 
@@ -139,7 +144,7 @@ v1 预列了 9 个 `hongguo-gpui-*` crate（theme/player/discover/series/downloa
 ```
 选流   domain/api/stream_pick 算分 + media::capability::playback::hevc_playable() 能力过滤
 取数   service/play_service/online：建 ProgressiveStream{ sparse 密文 + StreamingPlan }
-       注册进 protocol/stream（此刻起可应答 Range），后台 fill 顺序填充（三级调度）
+       注册进 hongguo-stream（此刻起可应答 Range），后台 fill 顺序填充（三级调度）
 解密   domain/mp4/streaming::StreamingPlan 惰性解密（按明文 Range 反推依赖密文区间）
 供给   protocol/register.rs 的异步 handler 按 HTTP Range 应答（渐进 4MB 窗口 / 30s 超时）
 解码   ★ WebView 自己 demux + decode——Rust 侧到此为止
@@ -186,6 +191,9 @@ pub trait PlainStream: Send + Sync {
 
 - 契约引用 `hongguo-mp4` 的 `StreamingPlan` / `SparseBuffer`，**不引用 media 的编解码实现**——这是「契约与实现分离」的落点。
 - 归属：源实现（`OnlineEncryptedSource` / `LocalFileSource` / `CoverSource`）落 `hongguo-protocol`；编解码实现落 media / media-platform。
+
+> **落地与草案的差异（2026-10-11，3a 实际做完）**：`hongguo-stream` 只做「搬」，**没有引入**上面草案里的 `StreamSource` enum 与 `PlainStream` trait。现有两种形态——`ProgressiveStream`（渐进，稀疏密文 + 解密计划）与 `StreamCache`（整集，明文原子写入）——已覆盖今天全部供数路径，且都是具体类型、无动态分发；在第二套投递末端（GPUI 帧流，§5.3）落地前引入 trait 就是「为将来铺路」，与「零无用抽象」冲突。`read_range(&self, spec: RangeSpec)` 的语义由 `serve(vid, definition, range_header)` + `StreamCache` 的区间读承担。
+> 实测结论：**先搬后抽象**——等 §5.3 spike 有结论，再决定要不要真的引入这层抽象。
 
 ### 5.3 GPUI 帧流是新增末端（前置 spike）
 
@@ -267,7 +275,7 @@ hongguo-desktop/
 
 1. **抽枢纽底层**（**全部完成 2026-10-11**）：`hongguo-common` → `hongguo-signer` → `hongguo-mp4` → `hongguo-api`
 2. **抽持久化**（**已完成 2026-10-11**）：`hongguo-store`——13 文件 / 1,820 行迁出，`cargo metadata` 725 → 726 包（仅新增本 crate，无版本漂移）。两处解耦：`persist_tasks` 从 store 移入 `service::download_service`（去掉 store → `AppState` 反向依赖）；`paths::ScopedDataDir` 由 `#[cfg(test)]` 改 feature `test-support` 门控（跨 crate 后 `#[cfg(test)]` 对下游测试不可见）
-3. **立流契约再抽媒体**：`hongguo-stream`（先落 §5.2 边界）→ `hongguo-media` → `hongguo-media-platform`
+3. **立流契约再抽媒体**：**3a 已完成 2026-10-11**——`hongguo-stream` 落地（`protocol/stream/*` + `protocol/range.rs` 共 4 文件 / 1,459 行迁出，进程级 `cache()` 单例随迁）；`cargo metadata` 726 → 727 包（仅新增本 crate）。**3b `hongguo-media`（16 文件 / 4,477 行）→ 3c `hongguo-media-platform`（11 文件 / 4,084 行，含 `capability/`）** 待做，切法见 §4.2 的依赖修正。编译基线见 `docs/build-baseline.md`（拆分前已采，3a 复测持平）
 4. **抽协议与业务**：`hongguo-protocol` → `hongguo-service`（service 改为只依赖 stream 契约）
 5. **薄化 Tauri**：`commands/app_state/bootstrap/diagnostics` 迁入 `hongguo-tauri`，`src-tauri` 退化为纯配置与入口
 6. **清理**：删过渡代码、回收 vendor 补丁、补齐文档与测试
@@ -335,6 +343,9 @@ hongguo-desktop/
 | 两端长期共存 | 是（本方案前提，非待决项） | ✅ 已定 |
 | **GPUI 帧流 → 纹理集成** | —— | ❓ 待 spike（§5.3） |
 | 遗留结构项的执行时机 | 前置项已完成；前端项并行；重叠项（`domain/api` 拆分 / `rank` 域对齐 / 载荷 struct 化）并入对应 crate（§8） | ✅ 已定 |
+| `hongguo-stream` 的物理边界 | 全量数据面（`ProgressiveStream`/`StreamCache`/`ReaderDemand`/`serve`）+ `range.rs` + 进程级 `cache()` 单例一起进；**不引入** `PlainStream` trait / `StreamSource` enum（先搬后抽象） | ✅ 已定（3a，2026-10-11） |
+| `media/capability` 归属 | 随 `platform` + `ffmpeg` 进 `hongguo-media-platform`（留 `media` 会成环） | ✅ 已定（实测，2026-10-11） |
+| 编译基线 | 已采：clean build 208.8 s，单文件增量 check 1.4 s / build ≈18 s（链接主导）；3a 后复测持平 | ✅ 已采（`docs/build-baseline.md`） |
 
 ---
 
@@ -346,6 +357,7 @@ hongguo-desktop/
 | `docs/refactor-plan.md` | **已删**（git 历史可找回，`git log --follow`）。前期前后端重构计划 P0~P6 已落地 |
 | `docs/platform-transcode-progress.md` | **已删**（提交 `dd982a2` 清理转码档案）。转码决策档案见 git 历史 |
 | `docs/hongguo-api-endpoints.md` | 对接官方接口的唯一事实源；改 `domain/api` 前必读 |
+| `docs/build-baseline.md` | 编译基线：拆分前实测 + 各步复测口径（§11 的对照依据） |
 | `AGENTS.md` | 项目硬红线与开发约定，迁移过程必须遵守 |
 
 ---
@@ -365,7 +377,7 @@ hongguo-desktop/
 - 根 `Cargo.toml` workspace members + 依赖关系图（含 §9 机械耦合清单的核对）
 - `docs/stream-contract.md`：§5.2 契约定稿（依赖 §5.3 spike）
 - `hongguo-gpui` 单壳 + 播放 spike（`CVPixelBuffer → Metal → GPUI 上屏`）
-- 编译基线报告（clean build 耗时 + 增量重编译范围）
+- ~~编译基线报告（clean build 耗时 + 增量重编译范围）~~ → **已交付**：`docs/build-baseline.md`
 - 迁移 Checklist（按 PR 粒度）
 
 ---

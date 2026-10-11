@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 use hongguo_common::utils::hex;
 
-use super::range::ProtocolResponse;
+use hongguo_stream::range::ProtocolResponse;
 
 /// 供给封面/头像转码。
 ///
