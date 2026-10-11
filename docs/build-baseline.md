@@ -135,6 +135,20 @@ rusty_h265 那种重型 codegen）；壳文件持平（16 s）。check 稳定 1.
 `test-support` feature，`cargo build` 是无 feature 的另一套指纹——测试后第一轮
 build 要为新配置重做 codegen（实测 45 s），**复测必须等预热后的第二轮**再读数。
 
+### 第 4/5 条 `hongguo-protocol` / `hongguo-service` / `hongguo-tauri` 之后（2026-10-12）
+
+| 探针 | check | build | 重建的 hongguo crate |
+| --- | --- | --- | --- |
+| S1 `crates/hongguo-service/src/download_service/scheduler.rs` | 1.7 s | **18.8 s** | `hongguo-service`, `hongguo-tauri`, `hongguo-desktop`（三级级联） |
+| T1 `crates/hongguo-tauri/src/commands/download/actions.rs` | 1.5 s | **22.9 s** | `hongguo-tauri`, `hongguo-desktop` |
+
+**结论：装配层成为新的级联底座。** service 文件改动经 `hongguo-tauri`（依赖
+service）级联到壳，三级重建 18.8 s——绝对值与 3c 的平台层（21.5 s）相当甚至
+更低，因为 service 是轻 codegen 的胶水层；装配层（86 个 command +
+generate_handler）自身较重（22.9 s）。check 全线 1.3~1.7 s。链路形态：
+`service → hongguo-tauri → 壳` 与 `hongguo-tauri → 壳`，仍是线性级联、无交叉
+误伤。`hongguo-gpui` 不在 Tauri 的依赖链上（平行叶子），壳的改动不会重编它。
+
 ## 6. 附带发现：本机 `make lint` 在 `cargo clean` 后会挂在 `objc2-exception-helper`
 
 两个 macOS 交叉 clippy 用 `CC_...=true` / `AR_...=true` 占位，让

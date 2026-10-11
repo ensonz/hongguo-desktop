@@ -10,6 +10,7 @@
 
 pub mod app_state;
 pub mod capability_service;
+pub mod device;
 pub mod download_service;
 pub mod login_service;
 pub mod merge_service;

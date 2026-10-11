@@ -268,7 +268,7 @@ fn build_app_state() -> std::sync::Arc<hongguo_service::AppStateInner> {
     // 在老版本号下退化为扁平结构），真实设备升级 app 也是同理。
     // 阵亡名单/远古快照的淘汰重铺与启动后的健康探针、失效轮换都在
     // [`bootstrap::device`]（对齐 hgplayer 的 deviceBootstrap）。
-    let (device, device_source) = bootstrap::device::adopt_sync(&db);
+    let (device, device_source) = hongguo_service::device::adopt_sync(&db);
     log::info!(
         "[Device] 现役档案 iid={}（{device_source}）",
         device.get("iid")

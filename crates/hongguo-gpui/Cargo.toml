@@ -1,0 +1,32 @@
+[package]
+name = "hongguo-gpui"
+description = "红果桌面版 GPUI 壳：直接消费 hongguo-service，操作与 Tauri 客户端一致"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# 操作一致约定（docs/architecture-refactor.md §7）：本壳**不复制业务**——
+# 设备引导（hongguo_service::device）、全局状态（AppStateInner）、接口调用
+# （state.api_env() + hongguo_api）与 Tauri 壳走同一段服务面；壳内只做窗口、
+# 装配与渲染。视频帧流（GPUI 直接出帧）是 §5.3 的独立 spike，不在单壳范围。
+
+# cargo test 会把无测试框架的 bin 当用例**直接执行**（本壳一跑就开窗口，
+# 把全仓测试挂死——实测发生过）。应用 bin 一律关掉 test 集成。
+[[bin]]
+name = "hongguo-gpui"
+test = false
+
+[dependencies]
+gpui = "0.2"
+# 与 Tauri 壳同一业务面。
+hongguo-service = { path = "../hongguo-service" }
+hongguo-api = { path = "../hongguo-api" }
+hongguo-common = { path = "../hongguo-common" }
+hongguo-store = { path = "../hongguo-store" }
+# service 的 async 函数族依赖 tokio 运行时设施（sleep / Semaphore）；GPUI 的
+# 执行器不是 tokio，本壳自带一个运行时线程做桥（oneshot 回传，见 main.rs）。
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+log = "0.4"
+env_logger = "0.11"

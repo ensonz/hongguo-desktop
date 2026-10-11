@@ -14,6 +14,7 @@ resolver = "3"
 members = [
     "crates/hongguo-api",
     "crates/hongguo-common",
+    "crates/hongguo-gpui",
     "crates/hongguo-media",
     "crates/hongguo-media-platform",
     "crates/hongguo-mp4",

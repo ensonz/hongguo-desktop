@@ -19,6 +19,12 @@ help:
 dev:
 	pnpm tauri dev
 
+# GPUI 壳（起步单壳）：直接消费 hongguo-service，操作与 Tauri 客户端一致。
+# 与 Tauri dev 并行无冲突（不同进程、不同窗口系统），但共享同一个数据库——
+# 同时开两个壳会撞库锁，后启动者按重试口径等 1s 后仍锁着就退出。
+gpui:
+	cargo run -p hongguo-gpui
+
 build:
 	pnpm build
 
@@ -42,8 +48,11 @@ lint:
 	pnpm lint
 	pnpm format:check
 	cargo clippy --workspace --all-targets -- -D warnings -D clippy::allow_attributes
-	CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true cargo clippy --workspace --target aarch64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
-	CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true cargo clippy --workspace --target x86_64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
+	# macOS 双目标交叉：排除 hongguo-gpui——gpui 的依赖（gpui_media 等）在
+	# build script 里 bindgen Apple 框架头文件，Windows 宿主没有 macOS SDK
+	# 生不出来（真 macOS 环境原生 clippy 不受影响，CI 的 macOS job 覆盖）。
+	CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true cargo clippy --workspace --exclude hongguo-gpui --target aarch64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
+	CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true cargo clippy --workspace --exclude hongguo-gpui --target x86_64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
 
 fmt:
 	cargo fmt --all
