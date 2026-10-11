@@ -686,8 +686,8 @@ fn parse_reply_page(v: &Value) -> AppResult<ReplyPage> {
 mod tests {
     use super::*;
 
-    /// 剧评发送形态抓包锚点（known-issues 后续对齐，2026-10-10 hgplayer
-    /// 1.1.6 实测发满分剧评）：data_type=2 / commit_source=12 /
+    /// 剧评发送形态抓包锚点（2026-10-10 hgplayer 1.1.6 实测发满分剧评）：
+    /// data_type=2 / commit_source=12 /
     /// comment_type=0，评分在 business_param.score（十分制）。任何改形
     /// 都会被服务端 103008「无社区功能」拒收。
     #[test]

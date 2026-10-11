@@ -190,8 +190,7 @@ async fn run_one(
 
     // 1) 取流地址（签名 + 清晰度择优）
     // 下载固定取最高档：清晰度切换是播放时的交互，下载侧没有这个概念。
-    // 选流模式保持 Full：下载件是否按解码能力翻转见 hevc-playback-plan 开放问题，
-    // 下载件的播放走既有 compat 兜底。
+    // 选流模式保持 Full（下载件不做解码能力翻转），下载件的播放走既有 compat 兜底。
     let play = crate::domain::api::play_url::fetch_play_url(
         &task.vid,
         None,

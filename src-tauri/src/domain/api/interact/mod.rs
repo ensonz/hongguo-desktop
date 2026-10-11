@@ -493,7 +493,7 @@ pub async fn fetch_bookshelf(target_user_id: &str, env: &ApiEnv) -> AppResult<Ve
         if series_id.is_empty() {
             continue;
         }
-        // 时间量级防错（known-issues B6）：候选字段秒/毫秒形态可能并存，
+        // 时间量级防错：候选字段秒/毫秒形态可能并存，
         // 按值判量级（1e12 ≈ 2001 年起的毫秒时间戳）——毫秒原样用，
         // 秒形态 ×1000，字段名顺序不再决定正确性。
         let collect_time_ms = ["collect_time_ms", "collect_time", "create_time"]

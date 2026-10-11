@@ -1,8 +1,8 @@
 //! 播放解码能力服务：HEVC 视频扩展的按需下载安装。
 //!
 //! 安装包不捆绑外部二进制（与 tauri.conf 的 longDescription 一致）——缺扩展
-//! 的机器由应用现场下载微软商店签名的官方扩展包安装。计划与包身份考证见
-//! `docs/hevc-playback-plan.md`，用户侧手动指引见 `docs/faq.md`。
+//! 的机器由应用现场下载微软商店签名的官方扩展包安装。用户侧手动指引见
+//! `docs/faq.md`。
 
 use std::path::{Path, PathBuf};
 

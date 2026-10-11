@@ -75,7 +75,7 @@ pub(crate) fn str_field_paths(v: &Value, paths: &[&str]) -> Option<String> {
 
 /// 数字字段容忍字符串形态（平台对大数偶发走字符串），缺失给 0。
 ///
-/// 量级超限不归零（known-issues B7）：超 i64 的 u64 饱和到 i64::MAX、
+/// 量级超限不归零：超 i64 的 u64 饱和到 i64::MAX、
 /// 浮点形态截断——字段在位说明服务端发了数，静默给 0 会把「播 9500 万」
 /// 变成「播 0」这类展示事故；字符串解析失败才是真正的脏数据，维持 0。
 pub(crate) fn int_field(v: &Value, key: &str) -> i64 {

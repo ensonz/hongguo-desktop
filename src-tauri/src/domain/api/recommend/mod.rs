@@ -74,7 +74,7 @@ fn known_tab_config(tab: &str) -> Option<RecommendTabConfig> {
 
 /// 配置进程内缓存（首页 cr=4 与翻页共享；失败回落抓包已知值）。
 ///
-/// 条目带时间戳做 TTL 过期（known-issues B3）：cell_id/bookstore_id 原本
+/// 条目带时间戳做 TTL 过期：cell_id/bookstore_id 原本
 /// 按服务端常量假设永不重取，运营调整后只能靠重启恢复。现在超过
 /// [`TAB_CONFIG_TTL`] 后下次使用会先重取一次，重取失败继续用旧值
 /// （stale-while-error）——翻页不会因此重打配置请求。
