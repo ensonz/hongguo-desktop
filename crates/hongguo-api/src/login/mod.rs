@@ -552,9 +552,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_send_code_invalid_number() {
-        let mut env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let mut env =
+            crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         // 实验分支：HG_LOGIN_DEVICE=random 换随机 device_id/iid（测发码
         // 是否依赖 install 注册/关联）；legacy 用 1694 旧档案。
         match std::env::var("HG_LOGIN_DEVICE").as_deref() {
@@ -597,9 +596,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_sms_login_real() {
-        let env0 = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env0 = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let mobile = std::env::var("HG_LOGIN_MOBILE").expect("HG_LOGIN_MOBILE 必填");
         let Ok(code) = std::env::var("HG_LOGIN_CODE") else {
             // 第一段：只发码，打印 csrf 供第二段使用（短信真实下发）
@@ -659,9 +656,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_user_info_with_cookies() {
-        let mut env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let mut env =
+            crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         env.cookie = Some(std::env::var("HG_LOGIN_COOKIES").expect("HG_LOGIN_COOKIES 必填"));
         match user_info(&env).await {
             Ok(u) => {
@@ -692,9 +688,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_sms_login_invalid_number() {
-        let env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         match sms_login(&env, "10000000000", "123456", None).await {
             Ok(outcome) => println!("[probe-sms] 意外成功: {outcome:?}"),
             Err(e) => println!("[probe-sms] 拒绝: {e}"),

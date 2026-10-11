@@ -756,9 +756,8 @@ mod probe {
     #[tokio::test]
     #[ignore = "需要先跑 python 生成 register_body.hex"]
     async fn probe_register_ttencript_v5() {
-        let hex =
-            std::fs::read_to_string(crate::capture_dir().join("register_body.hex"))
-                .expect("先跑 python 生成 register_body.hex");
+        let hex = std::fs::read_to_string(crate::capture_dir().join("register_body.hex"))
+            .expect("先跑 python 生成 register_body.hex");
         let hex = hex.trim();
         let body: Vec<u8> = (0..hex.len())
             .step_by(2)
@@ -772,10 +771,7 @@ mod probe {
 
         // meta 里有与 body 配套的 cdid/openudid/时间戳（query 必须与 body 一致）
         let meta: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(
-                crate::capture_dir().join("register_body_meta.json"),
-            )
-            .unwrap(),
+            &std::fs::read_to_string(crate::capture_dir().join("register_body_meta.json")).unwrap(),
         )
         .unwrap();
         let cdid = meta["cdid"].as_str().unwrap();
@@ -800,19 +796,16 @@ mod probe {
     #[tokio::test]
     #[ignore = "需要先跑 python 生成 register_body2.hex"]
     async fn probe_register_applog_json() {
-        let hex =
-            std::fs::read_to_string(crate::capture_dir().join("register_body2.hex"))
-                .expect("先跑 python 生成 register_body2.hex");
+        let hex = std::fs::read_to_string(crate::capture_dir().join("register_body2.hex"))
+            .expect("先跑 python 生成 register_body2.hex");
         let body: Vec<u8> = (0..hex.trim().len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&hex.trim()[i..i + 2], 16).unwrap())
             .collect();
 
         let meta: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(
-                crate::capture_dir().join("register_body2_meta.json"),
-            )
-            .unwrap(),
+            &std::fs::read_to_string(crate::capture_dir().join("register_body2_meta.json"))
+                .unwrap(),
         )
         .unwrap();
         let now_ms = meta["_rticket"].as_str().unwrap().parse::<u64>().unwrap();

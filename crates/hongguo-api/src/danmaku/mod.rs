@@ -21,10 +21,9 @@ use serde_json::Value;
 
 use super::client::ApiEnv;
 use crate::params::interaction::{
-    COMMENT_TYPE_COMMENT, COMMENT_TYPE_DANMAKU, COMMENT_TYPE_REVIEW,
-    COMMENT_TYPE_REVIEW_SEND, COMMIT_SOURCE_REVIEW, DATA_TYPE_REVIEW,
-    GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, LIST_SOURCE_COMMENT,
-    LIST_SOURCE_COMMENT_REPLIES, LIST_SOURCE_DANMAKU, LIST_SOURCE_REVIEW,
+    COMMENT_TYPE_COMMENT, COMMENT_TYPE_DANMAKU, COMMENT_TYPE_REVIEW, COMMENT_TYPE_REVIEW_SEND,
+    COMMIT_SOURCE_REVIEW, DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW,
+    LIST_SOURCE_COMMENT, LIST_SOURCE_COMMENT_REPLIES, LIST_SOURCE_DANMAKU, LIST_SOURCE_REVIEW,
     LIST_SOURCE_REVIEW_REPLIES, SERVER_CHANNEL_COMMENT, SERVER_CHANNEL_DANMAKU,
     SERVER_CHANNEL_REVIEW,
 };
@@ -729,7 +728,10 @@ mod tests {
         let p = comments_payload("g", "b", "");
         assert_eq!(p["comment_type"], COMMENT_TYPE_COMMENT);
         assert_eq!(p["comment_source"], 4);
-        assert_eq!(p["server_channel"], SERVER_CHANNEL_COMMENT, "评论走 18，弹幕才是 1000");
+        assert_eq!(
+            p["server_channel"], SERVER_CHANNEL_COMMENT,
+            "评论走 18，弹幕才是 1000"
+        );
         assert_eq!(p["business_param"]["need_count"], true);
         assert_eq!(p["business_param"]["req_type"], 0);
         assert_eq!(p["count"], 20);
@@ -745,7 +747,10 @@ mod tests {
         // series_id、group_type=1、source=1/type=2/channel=34，
         // business_param 是全量字段组（照抄抓包）
         let p = series_comments_payload("7687941387362257982", "");
-        assert_eq!(p["group_type"], GROUP_TYPE_REVIEW, "1 = 书/剧维度，30 是单集");
+        assert_eq!(
+            p["group_type"], GROUP_TYPE_REVIEW,
+            "1 = 书/剧维度，30 是单集"
+        );
         assert_eq!(p["comment_source"], LIST_SOURCE_REVIEW);
         assert_eq!(p["comment_type"], COMMENT_TYPE_REVIEW);
         assert_eq!(p["server_channel"], SERVER_CHANNEL_REVIEW);
@@ -782,7 +787,10 @@ mod tests {
         // source=501/type=2/ch=34 + real_level=2 + 首屏无 cursor 键 +
         // need_count 首页 true 翻页 false
         let p = review_replies_payload("s", "c", "");
-        assert_eq!(p["comment_source"], LIST_SOURCE_REVIEW_REPLIES, "剧评回复拉取走 501");
+        assert_eq!(
+            p["comment_source"], LIST_SOURCE_REVIEW_REPLIES,
+            "剧评回复拉取走 501"
+        );
         assert_eq!(p["comment_type"], COMMENT_TYPE_REVIEW);
         assert_eq!(p["server_channel"], SERVER_CHANNEL_REVIEW);
         assert_eq!(p["group_type"], GROUP_TYPE_REVIEW);

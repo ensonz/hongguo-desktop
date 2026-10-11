@@ -97,12 +97,7 @@ pub async fn fetch_episode_list(
     let payload = serde_json::to_vec(&crate::params::detail_payload(series_id))
         .map_err(|e| AppError::Signer(e.to_string()))?;
 
-    let bytes = crate::client::api_call(
-        crate::params::DETAIL_PATH,
-        Some(payload),
-        env,
-    )
-    .await?;
+    let bytes = crate::client::api_call(crate::params::DETAIL_PATH, Some(payload), env).await?;
 
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析响应失败: {e}")))?;
@@ -156,20 +151,12 @@ mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_detail_counts() {
-        let env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
-        let payload = serde_json::to_vec(&crate::params::detail_payload(
-            "7690883800057777177",
-        ))
-        .unwrap();
-        let bytes = crate::client::api_call(
-            crate::params::DETAIL_PATH,
-            Some(payload),
-            &env,
-        )
-        .await
-        .expect("detail");
+        let env = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
+        let payload =
+            serde_json::to_vec(&crate::params::detail_payload("7690883800057777177")).unwrap();
+        let bytes = crate::client::api_call(crate::params::DETAIL_PATH, Some(payload), &env)
+            .await
+            .expect("detail");
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let series = &v["data"]["7690883800057777177"];
         let first_ep = &series["video_data"]["video_list"][0];
@@ -385,20 +372,12 @@ mod probe2 {
     #[ignore = "直连真实接口的探测用例"]
     #[tokio::test]
     async fn probe_detail_related_series() {
-        let env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
-        let payload = serde_json::to_vec(&crate::params::detail_payload(
-            "7689382439004671038",
-        ))
-        .unwrap();
-        let bytes = crate::client::api_call(
-            crate::params::DETAIL_PATH,
-            Some(payload),
-            &env,
-        )
-        .await
-        .expect("detail");
+        let env = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
+        let payload =
+            serde_json::to_vec(&crate::params::detail_payload("7689382439004671038")).unwrap();
+        let bytes = crate::client::api_call(crate::params::DETAIL_PATH, Some(payload), &env)
+            .await
+            .expect("detail");
         let v: Value = serde_json::from_slice(&bytes).unwrap();
         let node = &v["data"]["7689382439004671038"];
         let mut keys: Vec<_> = node.as_object().unwrap().keys().cloned().collect();
@@ -436,9 +415,7 @@ mod probe_related {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_related_series_live() {
-        let env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let rel = fetch_related_series("7687961503718198334", &env)
             .await
             .expect("相关作品");

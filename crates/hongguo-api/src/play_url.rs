@@ -45,12 +45,7 @@ pub async fn fetch_play_url(
     let payload = serde_json::to_vec(&crate::params::model_payload(vid))
         .map_err(|e| AppError::Signer(e.to_string()))?;
 
-    let bytes = crate::client::api_call(
-        crate::params::MODEL_PATH,
-        Some(payload),
-        env,
-    )
-    .await?;
+    let bytes = crate::client::api_call(crate::params::MODEL_PATH, Some(payload), env).await?;
 
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析响应失败: {e}")))?;
