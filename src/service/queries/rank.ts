@@ -82,10 +82,15 @@ function newDramaItems(pages: RankPage[]) {
 export function useNewDrama(gender: number) {
   const query = useInfiniteQuery({
     queryKey: keys.newDrama(gender),
-    queryFn: ({ pageParam }) => rank.newDrama(gender, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (last, allPages) =>
-      last.items.length > 0 ? allPages.reduce((n, p) => n + p.items.length, 0) : undefined,
+    // pageParam 结构化：offset + 上一页回传的 session_id（抓包实锤翻页
+    // 必须回传；首页不传）
+    queryFn: ({ pageParam }) => rank.newDrama(gender, pageParam.offset, pageParam.sessionId),
+    initialPageParam: { offset: 0, sessionId: '' },
+    getNextPageParam: (last, allPages) => {
+      if (last.items.length === 0) return undefined;
+      const offset = allPages.reduce((n, p) => n + p.items.length, 0);
+      return { offset, sessionId: last.sessionId };
+    },
     staleTime: 0,
   });
   return useInfiniteStream(query, newDramaItems);
@@ -107,6 +112,26 @@ export function useReservations(isOnline: boolean) {
     queryKey: keys.reservations(isOnline),
     queryFn: () => rank.reservations(isOnline),
     staleTime: 60_000,
+  });
+}
+
+/** 批量删除预约（subscribe_delete；两个 tab 的列表一起失效）。 */
+export function useReservationsDelete() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      itemIds: string[];
+      allSelect?: boolean;
+      notDelItemIds?: string[];
+      isOnline: boolean;
+    }) =>
+      rank.deleteReservations(
+        input.itemIds,
+        input.allSelect ?? false,
+        input.notDelItemIds ?? [],
+        input.isOnline,
+      ),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT }),
   });
 }
 

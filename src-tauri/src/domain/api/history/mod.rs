@@ -118,6 +118,70 @@ fn num_to_string(v: &Value) -> String {
     }
 }
 
+/// 批量删除云端观看历史（2026-10-11 逆向 hgplayer 1.1.8 delete.go 逐字段锁定）：
+/// 复用 `read_history/update`，每条带 `is_delete=true + use_soft_delete=true`，
+/// 其余进度字段全零（官方删除样本形态）。响应 `update_fail_datas` 非空 =
+/// 部分失败，报错给上层。
+pub async fn delete_watch_history(
+    items: &[(String, String, i64)],
+    env: &ApiEnv,
+) -> AppResult<()> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let now = now_ms();
+    let update_datas: Vec<Value> = items
+        .iter()
+        .map(|(series_id, vid, vid_index)| {
+            serde_json::json!({
+                "book_id": str_or_num(series_id),
+                "book_type": 2,
+                "chapter_index": 0,
+                "current_play_position": 0,
+                "digged_count": 0,
+                "duration": 0,
+                "episode_cnt": 0,
+                "is_delete": true,
+                "is_interactive_game": false,
+                "is_listen_mode": false,
+                "is_multi_season": 0,
+                "meet_guide_comment_tag": false,
+                "origin_novel_book_id": 0,
+                "player_accumulate_total_time": 0,
+                "read_timestamp_ms": 0,
+                "recent_reads": 0,
+                "retain_video_play_time": 0,
+                "season_index": 0,
+                "series_play_cnt": 0,
+                "tone_id": 0,
+                "update_timestamp_ms": now,
+                "use_soft_delete": true,
+                "user_digg": false,
+                "user_playlet_comment_flag": false,
+                "vid": str_or_num(vid),
+                "vid_index": vid_index,
+            })
+        })
+        .collect();
+    let body = serde_json::json!({ "update_datas": update_datas });
+    let raw = serde_json::to_vec(&body)
+        .map_err(|e| AppError::Media(format!("构造历史删除请求失败: {e}")))?;
+    let bytes = api_call_reading(LQ_API_ORIGIN, READ_HISTORY_UPDATE_PATH, Some(raw), &[], env)
+        .await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析历史删除响应失败: {e}")))?;
+    check_code(&value)?;
+    let fail_datas = value
+        .pointer("/data/update_fail_datas")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    if fail_datas > 0 {
+        return Err(AppError::Media(format!("部分历史删除失败（{fail_datas} 条）")));
+    }
+    Ok(())
+}
+
 /// 观看进度上报（2026-10-06 抓 hgplayer 1.1.5 双接口逐字段锁定）：
 /// 官方客户端播片时同时打 `read_history/update` 与 `read_progress/upload`，
 /// 云端「历史」页的写入端。hgplayer 约每分钟一次 + 切集时触发。
@@ -202,6 +266,7 @@ pub async fn report_watch_progress(
     let v: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析历史上报响应失败: {e}")))?;
     check_code(&v)?;
+    check_update_fails(&v)?;
 
     let upload_raw = serde_json::to_vec(&upload_body)
         .map_err(|e| AppError::Media(format!("构造进度上传失败: {e}")))?;
@@ -226,9 +291,34 @@ fn str_or_num(s: &str) -> Value {
         .unwrap_or_else(|_| serde_json::json!(s))
 }
 
+/// 官方 update_fail_datas（模型 UpdateReadHistoryData.updateFailDatas）：
+/// code==0 也可能带被拒明细，非空=进度上报被服务端拒绝，不当成功静默。
+fn check_update_fails(v: &Value) -> AppResult<()> {
+    match v
+        .pointer("/data/update_fail_datas")
+        .and_then(Value::as_array)
+    {
+        Some(fails) if !fails.is_empty() => Err(AppError::Media(format!(
+            "历史上报被服务端拒绝 {} 条",
+            fails.len()
+        ))),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod probe {
     use super::*;
+
+    #[test]
+    fn update_fail_datas_non_empty_is_error() {
+        let ok = serde_json::json!({ "code": 0, "data": { "update_fail_datas": [] } });
+        assert!(check_update_fails(&ok).is_ok(), "空明细=成功");
+        let absent = serde_json::json!({ "code": 0 });
+        assert!(check_update_fails(&absent).is_ok(), "缺席字段=成功");
+        let bad = serde_json::json!({ "code": 0, "data": { "update_fail_datas": [1, 2] } });
+        assert!(check_update_fails(&bad).is_err(), "非空明细=被拒");
+    }
 
     /// 实证云端历史真实返回（对号入座：同账号在 hgplayer 显示最近记录）。
     /// `PROBE_DEVICE` / `PROBE_COOKIE` 由真实库导出；`PROBE_COOKIE_HG` /

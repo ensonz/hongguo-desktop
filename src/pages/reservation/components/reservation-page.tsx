@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BellRing, CalendarClock, Loader2, LogIn, Play, Star, Tv } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,7 +11,16 @@ import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LoginDialog } from '@/pages/settings/components/login-dialog';
 import { rank as rankApi } from '@/service/commands';
-import { RESERVATIONS_KEY_ROOT, useAccount, useReservations, useWebCover } from '@/service/queries';
+import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
+import { useBatchSelect } from '@/hooks/use-batch-select';
+import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
+import {
+  RESERVATIONS_KEY_ROOT,
+  useAccount,
+  useReservations,
+  useReservationsDelete,
+  useWebCover,
+} from '@/service/queries';
 import { isRenderableCover } from '@/utils/cover';
 import { t, tf, locale } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
@@ -19,21 +29,34 @@ import type { CalendarItem } from '@/service/schema';
 /**
  * 我的预约（对齐 hgplayer 1.1.3）：已上线 / 待上线两个 tab（带计数），
  * 卡片 = 封面（左下上线日期角标 / 右下集数角标）+ 标题 + 简介一行 +
- * 分类标签。待上线条目可直接取消预约；已上线点击进详情。
+ * 分类标签。卡片一律进详情（排行榜预约榜同款口径，未上线剧落地
+ * 「即将上线」降级视图）；行尾动作列已上线 = 播放 + 详情，
+ * 未上线 = 取消预约。
  *
  * 预约列表接口需要登录，匿名返回空表——未登录时给登录入口而不是空列表。
  */
 
 export function ReservationPage() {
-  const [online, setOnline] = useState(true);
-  const [query, setQuery] = useState('');
+  // tab/搜索词会话级保留：进详情再返回，停在离开时的 tab（此前回落到
+  // 已上线 tab，是返回体验的头号槽点）
+  const [online, setOnline] = useSessionState('hongguo.reservation.tab', true);
+  const [query, setQuery] = useSessionState('hongguo.reservation.query', '');
   const { data: account } = useAccount();
   const onlineQ = useReservations(true);
   const offlineQ = useReservations(false);
   const current = online ? onlineQ : offlineQ;
+  // 批量管理（hgplayer v1.1.8 subscribe_delete 同款）：多选后一请求删除
+  const batch = useBatchSelect();
+  const batchDelete = useReservationsDelete();
   // 标题搜索（对齐参考端 v1.1.6「搜索预约的剧」）：客户端过滤，条目自带标题
   const shown = (current.data?.items ?? []).filter((item) =>
     matchListQuery(query, item.title, item.seriesId),
+  );
+  // 返回保留浏览位置（页面滚在 app-shell 的 #content）
+  useScrollRestore(
+    'hongguo.reservation.scroll',
+    () => document.getElementById('content'),
+    !current.isLoading && shown.length > 0,
   );
 
   // 角标计数：total 优先、条数兜底（后端已翻页拉全并兜底，这里双保险；
@@ -52,9 +75,6 @@ export function ReservationPage() {
         : null,
     },
   ];
-
-  const playSeries = usePlaySeries();
-  const handleSelect = (item: CalendarItem) => playSeries(item.seriesId);
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -86,6 +106,9 @@ export function ReservationPage() {
           onChange={setQuery}
           placeholder={t('reservation.searchPlaceholder')}
         />
+        {account != null && (
+          <ManageToggle managing={batch.managing} onEnter={batch.enter} onExit={batch.exit} />
+        )}
       </div>
 
       {account == null ? (
@@ -112,11 +135,48 @@ export function ReservationPage() {
           <p className="text-xs opacity-70">{t('reservation.emptyHint')}</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {shown.map((item) => (
-            <ReservationCard key={item.seriesId} item={item} onSelect={handleSelect} />
-          ))}
-        </div>
+        <>
+          <div className="flex flex-col gap-2">
+            {shown.map((item) => (
+              <ReservationCard
+                key={item.seriesId}
+                item={item}
+                managing={batch.managing}
+                picked={batch.selected.has(item.seriesId)}
+                onPick={() => batch.toggle(item.seriesId)}
+              />
+            ))}
+          </div>
+          {batch.managing && (
+            <BatchBar
+              count={batch.selected.size}
+              total={shown.length}
+              deleting={batchDelete.isPending}
+              deleteLabel={t('reservation.cancel')}
+              confirmTitle={t('reservation.batchCancelTitle')}
+              onToggleAll={() => batch.toggleAll(shown.map((i) => i.seriesId))}
+              onDelete={() => {
+                const count = batch.selected.size;
+                batchDelete.mutate(
+                  {
+                    itemIds: shown
+                      .filter((i) => batch.selected.has(i.seriesId))
+                      .map((i) => i.seriesId),
+                    isOnline: online,
+                  },
+                  {
+                    onSuccess: () => {
+                      toast.success(tf('batch.done', { count }));
+                      batch.exit();
+                    },
+                    onError: (e: Error) =>
+                      toast.error(tf('batch.partialFail', { error: e.message })),
+                  },
+                );
+              }}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -148,14 +208,22 @@ function NotLoggedIn() {
   );
 }
 
-/** 预约卡：封面（角标）+ 标题/简介/标签 + 上线信息 / 取消预约。 */
+/** 预约卡：封面（角标）+ 标题/简介/标签 + 上线信息 / 取消预约。
+ *  卡片一律进详情（排行榜预约榜同款口径：未上线剧落地「即将上线」
+ *  降级视图，行内档案快照 prefill）；管理模式下点击卡 = 切换选中。 */
 function ReservationCard({
   item,
-  onSelect,
+  managing,
+  picked,
+  onPick,
 }: {
   item: CalendarItem;
-  onSelect: (item: CalendarItem) => void;
+  managing: boolean;
+  picked: boolean;
+  onPick: () => void;
 }) {
+  const navigate = useNavigate();
+  const playSeries = usePlaySeries();
   const qc = useQueryClient();
   const { data: webCover } = useWebCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
@@ -173,15 +241,36 @@ function ReservationCard({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // 详情带上行内档案快照：未上线剧详情解析分集必然失败，prefill 支撑
+  // 详情页渲染「即将上线」降级视图（而非整页报错）
+  const openDetail = () =>
+    void navigate({
+      to: '/detail',
+      search: {
+        seriesId: item.seriesId,
+        title: item.title,
+        cover: item.cover,
+        tags: item.recTags.join(','),
+        desc: item.description,
+      },
+    });
+
   const publishDate = item.publishTime > 0 ? formatOnlineDate(item.publishTime) : '';
   const tags = item.recTags.filter((x) => x !== '');
+  const select = () => (managing ? onPick() : openDetail());
 
   return (
-    <article className="bg-card hover:border-foreground/30 flex items-stretch gap-4 overflow-hidden rounded-xl border p-3 transition-colors hover:shadow-md">
+    <article
+      className={cn(
+        'bg-card hover:border-foreground/30 flex items-stretch gap-4 overflow-hidden rounded-xl border p-3 transition-colors hover:shadow-md',
+        picked && 'border-primary/60 bg-primary/5',
+      )}
+    >
+      {managing && <PickDot checked={picked} onToggle={onPick} />}
       <button
         type="button"
         className="bg-muted relative aspect-[3/4] w-[92px] shrink-0 cursor-pointer overflow-hidden rounded-lg text-left"
-        onClick={() => onSelect(item)}
+        onClick={select}
         aria-label={item.title}
       >
         {showImg ? (
@@ -213,7 +302,7 @@ function ReservationCard({
             type="button"
             className="cursor-pointer truncate text-left text-sm font-semibold hover:underline"
             title={item.title}
-            onClick={() => onSelect(item)}
+            onClick={select}
           >
             {item.title}
           </button>
@@ -249,28 +338,44 @@ function ReservationCard({
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-col items-end justify-center gap-2">
-        {item.isOnline ? (
-          <Button size="sm" variant="outline" onClick={() => onSelect(item)}>
-            <Play className="size-4" aria-hidden />
-            {t('reservation.watch')}
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={cancel.isPending}
-            onClick={() => cancel.mutate()}
-          >
-            {cancel.isPending ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <BellRing className="size-4" aria-hidden />
-            )}
-            {t('reservation.cancel')}
-          </Button>
-        )}
-      </div>
+      {!managing && (
+        <div className="flex shrink-0 flex-col items-stretch justify-center gap-1.5">
+          {item.isOnline ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={() => playSeries(item.seriesId)}
+              >
+                <Play className="size-3.5" aria-hidden />
+                {t('player.play')}
+              </Button>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground cursor-pointer text-center text-xs transition-colors"
+                onClick={openDetail}
+              >
+                {t('rank.detail')}
+              </button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={cancel.isPending}
+              onClick={() => cancel.mutate()}
+            >
+              {cancel.isPending ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <BellRing className="size-4" aria-hidden />
+              )}
+              {t('reservation.cancel')}
+            </Button>
+          )}
+        </div>
+      )}
     </article>
   );
 }

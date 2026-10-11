@@ -120,6 +120,14 @@ fn parse_suggest(value: &Value) -> AppResult<Vec<SuggestItem>> {
             ),
             None => (str_field(raw, "keyword"), String::new(), String::new()),
         };
+        let (book_title, book_cover, book_score) = match raw.get("book_data") {
+            Some(b) => (
+                str_field(b, "title"),
+                str_field(b, "cover"),
+                str_field(b, "score"),
+            ),
+            None => (String::new(), String::new(), String::new()),
+        };
         items.push(SuggestItem {
             parts: highlight_parts(&word, raw.pointer("/search_high_light/high_light_position")),
             word,
@@ -127,6 +135,9 @@ fn parse_suggest(value: &Value) -> AppResult<Vec<SuggestItem>> {
             vid,
             cover,
             abstract_text: str_field(raw, "sug_abstract"),
+            book_title,
+            book_cover,
+            book_score,
         });
     }
     Ok(items)
@@ -217,6 +228,7 @@ fn parse_search(value: &Value) -> AppResult<SearchPage> {
             else {
                 continue;
             };
+            let (tags, heat_text) = parse_sub_titles(raw);
             items.push(SearchResult {
                 series_id: series_id.to_string(),
                 title: str_field(raw, "title"),
@@ -227,6 +239,8 @@ fn parse_search(value: &Value) -> AppResult<SearchPage> {
                 play_cnt: int_field(raw, "play_cnt"),
                 episode_cnt: int_field(raw, "episode_cnt").max(0) as u32,
                 description: str_field(raw, "video_desc"),
+                tags,
+                heat_text,
             });
         }
     }
@@ -239,6 +253,32 @@ fn parse_search(value: &Value) -> AppResult<SearchPage> {
         search_id: str_field(tab, "search_id"),
         items,
     })
+}
+
+/// 副标题列表双键名双形态归一（2026-10-11 dev 实测修正）：hgplayer 的
+/// rawSeries 叫 `series_sub_title_list`（JSON 字符串内嵌数组形态），
+/// 本项目抓包台账里推荐流/榜单条目是 `sub_title_list[]`（直数组形态，
+/// 见台账「条目标记字段」）——两个键都认，谁在场用谁。热度行取含
+/// 「热度」的那条（hgplayer hotText 同语义，搜索结果卡的热度行）。
+fn parse_sub_titles(raw: &Value) -> (Vec<String>, String) {
+    let field = raw
+        .get("series_sub_title_list")
+        .or_else(|| raw.get("sub_title_list"));
+    let entries: Vec<String> = match field {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        Some(Value::String(s)) => serde_json::from_str::<Vec<String>>(s).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let heat = entries
+        .iter()
+        .find(|e| e.contains("热度"))
+        .cloned()
+        .unwrap_or_default();
+    (entries, heat)
 }
 
 #[cfg(test)]
@@ -287,6 +327,27 @@ mod tests {
         assert!(validate_pagination(6, "####11@x").is_ok());
     }
 
+    /// series_sub_title_list 双形态（2026-10-11 逆向 hgplayer hotText）：
+    /// JSON 字符串内嵌数组或直接数组，都要归一；热度行取含「热度」的那条。
+    #[test]
+    fn sub_title_list_dual_shape_and_heat() {
+        let raw = serde_json::json!({ "series_sub_title_list": "[\"脑洞\",\"玄幻\",\"4105万热度\"]" });
+        let (tags, heat) = parse_sub_titles(&raw);
+        assert_eq!(tags, vec!["脑洞", "玄幻", "4105万热度"]);
+        assert_eq!(heat, "4105万热度");
+
+        let raw = serde_json::json!({ "series_sub_title_list": ["奇幻", "800万热度"] });
+        let (tags, heat) = parse_sub_titles(&raw);
+        assert_eq!(tags, vec!["奇幻", "800万热度"]);
+        assert_eq!(heat, "800万热度");
+
+        let (tags, heat) = parse_sub_titles(&serde_json::json!({}));
+        assert!(tags.is_empty() && heat.is_empty());
+        let (tags, heat) = parse_sub_titles(&serde_json::json!({ "series_sub_title_list": ["脑洞", "玄幻"] }));
+        assert_eq!(tags, vec!["脑洞", "玄幻"]);
+        assert!(heat.is_empty(), "没有含「热度」的条目时热度行为空");
+    }
+
     #[test]
     fn parses_suggest_v2_items() {
         let v: Value = serde_json::json!({
@@ -301,7 +362,8 @@ mod tests {
                           "high_light_position": [[0, 2]]
                       },
                       "video_data": { "series_id": "7644", "vid": "99", "cover": "https://x/heic",
-                                      "title": "不死帝师" } },
+                                      "title": "不死帝师" },
+                      "book_data": { "title": "不死帝师", "cover": "https://b/heic", "score": "9.2" } },
                     { "name": "纯词联想", "keyword": "纯词联想" },
                     { "name": "", "keyword": "废条目" }
                 ]
@@ -312,6 +374,9 @@ mod tests {
         assert_eq!(items[0].series_id, "7644");
         assert_eq!(items[0].vid, "99");
         assert_eq!(items[0].abstract_text, "第1季·玄幻·4105万热度");
+        assert_eq!(items[0].book_title, "不死帝师");
+        assert_eq!(items[0].book_cover, "https://b/heic");
+        assert_eq!(items[0].book_score, "9.2");
         assert_eq!(
             items[0].parts,
             vec![
@@ -329,6 +394,7 @@ mod tests {
         assert_eq!(items[1].series_id, "纯词联想", "无 video_data 退 keyword");
         assert_eq!(items[1].cover, "");
         assert!(items[1].parts.is_empty(), "无高亮信息 parts 空");
+        assert_eq!(items[1].book_title, "", "纯词联想无 book_data");
     }
 
     #[test]

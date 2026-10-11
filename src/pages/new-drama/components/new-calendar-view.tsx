@@ -1,22 +1,48 @@
 /** 上新日历视图：日期条（今天/周几换算）+ 当日上新列表。 */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonRows } from '@/components/skeletons';
 import { useNewCalendar } from '@/service/queries';
+import { useSessionState } from '@/hooks/use-scroll-restore';
 import { t } from '@/locales';
-import type { CalendarItem } from '@/service/schema';
 import { CalendarRow } from './calendar-row';
 
 /** 上新日历：日期条 + 当日上新列表（含未上线）。 */
-export function NewCalendarView({ onSelect }: { onSelect: (item: CalendarItem) => void }) {
-  const [date, setDate] = useState('');
+export function NewCalendarView() {
+  // 选中日期会话级保留：进详情再回来还停在离开的那天
+  const [date, setDate] = useSessionState('hongguo.new.calDate', '');
   const { data, isLoading, error, isFetching, refetch } = useNewCalendar(date);
   // 首次拿到日期列表后选中默认日（空串 = 默认日，这里显式化便于高亮）
   const active = date === '' ? (data?.defaultDate ?? '') : date;
   const dates = data?.dates ?? [];
+
+  // 渐进渲染（历史页同款）：热门日子几十条一次性挂载照样卡，首批 12 行
+  // 秒出，滚近底部续载；切日期重置批量（渲染期调整 state 的官方模式）
+  const items = data?.items ?? [];
+  const [visibleCount, setVisibleCount] = useState(12);
+  const [prevDate, setPrevDate] = useState('');
+  if (prevDate !== date) {
+    setPrevDate(date);
+    setVisibleCount(12);
+  }
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((n) => (n < items.length ? n + 24 : n));
+        }
+      },
+      { rootMargin: '600px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -63,9 +89,15 @@ export function NewCalendarView({ onSelect }: { onSelect: (item: CalendarItem) =
             <p className="text-muted-foreground py-16 text-center text-sm">{t('newDrama.empty')}</p>
           ) : (
             <div className="flex flex-col gap-2">
-              {(data?.items ?? []).map((item) => (
-                <CalendarRow key={item.seriesId} item={item} onSelect={onSelect} />
+              {items.slice(0, visibleCount).map((item) => (
+                <CalendarRow key={item.seriesId} item={item} />
               ))}
+              {/* 续载哨兵：滚近底部（600px 提前量）继续渲染下一批 */}
+              {visibleCount < items.length && <div ref={sentinelRef} className="h-px" />}
+              {/* 当日条目穷尽：hgplayer 同款「没有更多了」尾标 */}
+              {!isLoading && items.length > 0 && visibleCount >= items.length && (
+                <p className="text-muted-foreground py-2 text-center text-sm">{t('feed.end')}</p>
+              )}
             </div>
           )}
         </RefreshShade>

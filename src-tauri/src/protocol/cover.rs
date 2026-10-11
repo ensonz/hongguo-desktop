@@ -209,7 +209,10 @@ mod tests {
 
     #[test]
     fn jpeg_magic() {
-        assert_eq!(sniff_kind(&[0xFF, 0xD8, 0xFF, 0xE0, 1, 2]), Some(("jpg", "image/jpeg")));
+        assert_eq!(
+            sniff_kind(&[0xFF, 0xD8, 0xFF, 0xE0, 1, 2]),
+            Some(("jpg", "image/jpeg"))
+        );
     }
 
     #[test]
@@ -220,14 +223,18 @@ mod tests {
 
     #[test]
     fn webp_magic() {
-        let webp = [b'R', b'I', b'F', b'F', 1, 2, 3, 4, b'W', b'E', b'B', b'P', 0];
+        let webp = [
+            b'R', b'I', b'F', b'F', 1, 2, 3, 4, b'W', b'E', b'B', b'P', 0,
+        ];
         assert_eq!(sniff_kind(&webp), Some(("webp", "image/webp")));
     }
 
     #[test]
     fn heic_and_garbage_unknown() {
         // HEIC: ftyp box，major brand heic
-        let heic = [0u8, 0, 0, 24, b'f', b't', b'y', b'p', b'h', b'e', b'i', b'c'];
+        let heic = [
+            0u8, 0, 0, 24, b'f', b't', b'y', b'p', b'h', b'e', b'i', b'c',
+        ];
         assert_eq!(sniff_kind(&heic), None);
         assert_eq!(sniff_kind(b"not an image"), None);
         assert_eq!(sniff_kind(&[]), None);

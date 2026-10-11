@@ -7,7 +7,15 @@ import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { useResolveSeries, useWatchHistory, useWebCover } from '@/service/queries';
+import {
+  useResolveSeries,
+  useWatchHistory,
+  useWatchHistoryDelete,
+  useWebCover,
+} from '@/service/queries';
+import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
+import { useBatchSelect } from '@/hooks/use-batch-select';
+import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
@@ -44,8 +52,12 @@ export function HistoryPage() {
   const { data, isLoading, error, refetch } = useWatchHistory();
   const { mutate: resolve, isPending: resolving } = useResolveSeries();
 
-  const [tab, setTab] = useState<HistoryTab>('all');
-  const [query, setQuery] = useState('');
+  // tab/搜索词会话级保留（进详情再返回停在离开时的 tab）
+  const [tab, setTab] = useSessionState<HistoryTab>('hongguo.history.tab', 'all');
+  const [query, setQuery] = useSessionState('hongguo.history.query', '');
+  // 批量管理（hgplayer v1.1.6 同款「管理」）：多选后批量删除云端历史
+  const batch = useBatchSelect();
+  const deleteMutation = useWatchHistoryDelete();
 
   const items = data?.items ?? [];
   const shown = items.filter((item) => {
@@ -53,6 +65,12 @@ export function HistoryPage() {
     if (tab === 'unfinished' && isFinished(item)) return false;
     return matchListQuery(query, item.title, item.seriesId);
   });
+  // 返回保留浏览位置（页面滚在 app-shell 的 #content）
+  useScrollRestore(
+    'hongguo.history.scroll',
+    () => document.getElementById('content'),
+    !isLoading && shown.length > 0,
+  );
 
   // 渐进渲染：几百行一次性挂载是菜单点击卡顿的来源（实测 489 行 ~300ms
   // 主线程阻塞）。首批 20 行秒出，滚动到底部由哨兵续载，语义不变
@@ -151,6 +169,7 @@ export function HistoryPage() {
           onChange={setQuery}
           placeholder={t('history.searchPlaceholder')}
         />
+        <ManageToggle managing={batch.managing} onEnter={batch.enter} onExit={batch.exit} />
       </div>
 
       {shown.length === 0 ? (
@@ -166,45 +185,96 @@ export function HistoryPage() {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          {shown.slice(0, visibleCount).map((item) => (
-            <HistoryRow
-              key={`${item.seriesId}:${item.updatedAtMs}`}
-              item={item}
-              onOpen={() => open(item)}
+        <>
+          <div className="flex flex-col gap-2">
+            {shown.slice(0, visibleCount).map((item) => (
+              <HistoryRow
+                key={`${item.seriesId}:${item.updatedAtMs}`}
+                item={item}
+                onOpen={() => open(item)}
+                pick={
+                  batch.managing
+                    ? {
+                        checked: batch.selected.has(item.seriesId),
+                        onToggle: () => batch.toggle(item.seriesId),
+                      }
+                    : undefined
+                }
+              />
+            ))}
+            {/* 续载哨兵：滚近底部（600px 提前量）继续渲染下一批 */}
+            {visibleCount < shown.length && <div ref={sentinelRef} className="h-px" />}
+            {resolving && <p className="text-muted-foreground text-sm">{t('common.resolving')}</p>}
+          </div>
+          {batch.managing && (
+            <BatchBar
+              count={batch.selected.size}
+              total={shown.length}
+              deleting={deleteMutation.isPending}
+              deleteLabel={t('batch.deleteSelected')}
+              confirmTitle={t('history.deleteConfirmTitle')}
+              onToggleAll={() => batch.toggleAll(shown.map((i) => i.seriesId))}
+              onDelete={() => {
+                const count = batch.selected.size;
+                deleteMutation.mutate(
+                  items
+                    .filter((i) => batch.selected.has(i.seriesId))
+                    .map((i) => ({ seriesId: i.seriesId, vid: i.vid, vidIndex: i.vidIndex })),
+                  {
+                    onSuccess: () => {
+                      toast.success(tf('batch.done', { count }));
+                      batch.exit();
+                      void refetch();
+                    },
+                    onError: (e: Error) =>
+                      toast.error(tf('batch.partialFail', { error: e.message })),
+                  },
+                );
+              }}
             />
-          ))}
-          {/* 续载哨兵：滚近底部（600px 提前量）继续渲染下一批 */}
-          {visibleCount < shown.length && <div ref={sentinelRef} className="h-px" />}
-          {resolving && <p className="text-muted-foreground text-sm">{t('common.resolving')}</p>}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-/** 历史行：官方同款「看到第N集/共M集 时长」进度徽标 + 继续播放。 */
-function HistoryRow({ item, onOpen }: { item: WatchHistoryItem; onOpen: () => void }) {
+/** 历史行：官方同款「看到第N集/共M集 时长」进度徽标 + 继续播放。
+ *  管理模式下 pick 在场：行首圆钮多选，点击行=切换选中。 */
+function HistoryRow({
+  item,
+  onOpen,
+  pick,
+}: {
+  item: WatchHistoryItem;
+  onOpen: () => void;
+  pick?: { checked: boolean; onToggle: () => void };
+}) {
   const { data: webCover } = useWebCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
   const [brokenFor, setBrokenFor] = useState('');
   const imgBroken = brokenFor !== '' && brokenFor === cover;
   const showImg = cover !== '' && !imgBroken;
+  const open = () => (pick ? pick.onToggle() : onOpen());
 
   return (
     <article
       role="button"
       tabIndex={0}
       aria-label={item.title}
-      onClick={onOpen}
+      onClick={open}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         e.preventDefault();
-        onOpen();
+        open();
       }}
-      className="bg-card hover:border-foreground/30 focus-visible:border-foreground/30 flex cursor-pointer items-center gap-4 rounded-xl border p-3 text-left transition-colors [contain-intrinsic-size:auto_104px] [content-visibility:auto] hover:shadow-md focus-visible:outline-none"
+      className={cn(
+        'bg-card hover:border-foreground/30 focus-visible:border-foreground/30 flex cursor-pointer items-center gap-4 rounded-xl border p-3 text-left transition-colors [contain-intrinsic-size:auto_104px] [content-visibility:auto] hover:shadow-md focus-visible:outline-none',
+        pick?.checked && 'border-primary/60 bg-primary/5',
+      )}
     >
+      {pick && <PickDot checked={pick.checked} onToggle={pick.onToggle} />}
       <div className="bg-muted relative aspect-[3/4] w-[72px] shrink-0 overflow-hidden rounded-lg">
         {showImg ? (
           <img

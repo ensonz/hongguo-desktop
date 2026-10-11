@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@/components/ui/button';
 import { TopBarTab, TopBarTabsPortal } from '@/components/layout/top-bar-tabs';
 import { t } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
+import { useSessionState } from '@/hooks/use-scroll-restore';
 import { NewCalendarView } from './new-calendar-view';
 import { NewDramaRecommends } from './new-drama-recommends';
+import type { RankItem } from '@/service/schema';
 
 /**
  * 新剧页：新剧推荐 + 上新日历两个视图。
@@ -20,14 +22,41 @@ const GENDERS: { value: number; labelKey: string }[] = [
 ];
 
 export function NewDramaPage() {
-  // 频道筛选在页面层：官方把它放在标题行右侧，对推荐/日历两个视图都可见
-  const [gender, setGender] = useState(2);
+  // 频道筛选在页面层：官方把它放在标题行右侧，对推荐/日历两个视图都可见。
+  // 会话级保留（hgplayer 1.1.7 同款：去播放再回来频道与位置都在）
+  const [gender, setGender] = useSessionState('hongguo.new.gender', 2);
   // 视图 tab（推荐/日历）：状态自持——tab 胶囊 portal 进 AppShell 顶栏，
   // 不能再依赖 Radix Tabs 的组件树上下文（Trigger 必须长在 Tabs 里）
-  const [view, setView] = useState<'recommend' | 'calendar'>('recommend');
+  const [view, setView] = useSessionState<'recommend' | 'calendar'>(
+    'hongguo.new.view',
+    'recommend',
+  );
 
   const playSeries = usePlaySeries();
-  const handleSelect = (item: { seriesId: string }) => playSeries(item.seriesId);
+  const navigate = useNavigate();
+  // 点击分流（对齐排行榜预约榜口径）：未上线剧进详情——详情解析分集必然
+  // 失败，带上行内档案快照撑起「即将上线」降级视图 + 预约；已上线直接播
+  const goDetailUpcoming = (item: {
+    seriesId: string;
+    title: string;
+    cover: string;
+    tags?: string[];
+    description: string;
+  }) =>
+    void navigate({
+      to: '/detail',
+      search: {
+        seriesId: item.seriesId,
+        title: item.title,
+        cover: item.cover,
+        tags: (item.tags ?? []).join(','),
+        desc: item.description,
+      },
+    });
+  const handleSelect = (item: RankItem) => {
+    if (item.upcoming) goDetailUpcoming(item);
+    else playSeries(item.seriesId);
+  };
 
   return (
     // 视图 tab 已上移 AppShell 顶栏（TopBarTabsPortal，见下）。
@@ -44,26 +73,28 @@ export function NewDramaPage() {
       </TopBarTabsPortal>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        {/* 顶行只留频道胶囊；页标题由侧栏高亮表达，不重复 */}
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-          {GENDERS.map(({ value, labelKey }) => (
-            <Button
-              key={value}
-              size="sm"
-              variant={gender === value ? 'default' : 'outline'}
-              className="rounded-full px-4"
-              onClick={() => setGender(value)}
-            >
-              {t(labelKey)}
-            </Button>
-          ))}
-        </div>
+        {/* 频道胶囊只属于新剧推荐（cell_gender 是推荐流参数，日历不分频道） */}
+        {view === 'recommend' && (
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            {GENDERS.map(({ value, labelKey }) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={gender === value ? 'default' : 'outline'}
+                className="rounded-full px-4"
+                onClick={() => setGender(value)}
+              >
+                {t(labelKey)}
+              </Button>
+            ))}
+          </div>
+        )}
 
         {view === 'recommend' ? (
           // key=gender：换频道重挂载，滚动归零（同排行榜切子榜的口径）
           <NewDramaRecommends key={gender} gender={gender} onSelect={handleSelect} />
         ) : (
-          <NewCalendarView onSelect={handleSelect} />
+          <NewCalendarView />
         )}
       </div>
     </div>

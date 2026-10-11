@@ -63,4 +63,8 @@ pub struct CalendarPage {
     /// 首页请求绝不能自带，否则命中服务端会话缓存——见 fetch_reservations）
     #[serde(default)]
     pub session_id: String,
+    /// 已上线未读文案（官方 UserSubscribeData.onlineUnreadCountText，
+    /// "3部上新"直接下发；官方模型对照新增、抓包样本未及，缺席为空）
+    #[serde(default)]
+    pub online_unread_count_text: String,
 }
