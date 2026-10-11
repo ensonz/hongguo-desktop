@@ -145,7 +145,7 @@
     "buffering": "Buffering {percent}% ({size})…",
     "compatFetching": "Fetching this episode…",
     "compatTranscoding": "Cannot decode, converting to a compatible format {percent}%",
-    "compatHint": "Playback resumes automatically once the conversion finishes",
+    "compatHint": "First conversion runs in software and may take a while; playback resumes automatically",
     "onlineInterrupted": "Online stream interrupted",
     "retry": "Retry",
     "hevcCardTitle": "HEVC Video Extension missing",

@@ -145,7 +145,7 @@
     "buffering": "正在缓存 {percent}%（{size}）…",
     "compatFetching": "正在取这一集…",
     "compatTranscoding": "画面解不出来，正在转成兼容格式 {percent}%",
-    "compatHint": "转好后会自动接着播放，只需等待这一次",
+    "compatHint": "首次兜底是纯软件转码，可能较慢；转好后自动接着播放，只需等这一次",
     "onlineInterrupted": "在线播放中断",
     "retry": "重试",
     "hevcCardTitle": "缺少 HEVC 视频扩展",

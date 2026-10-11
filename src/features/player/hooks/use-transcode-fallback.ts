@@ -133,5 +133,5 @@ export function useTranscodeFallback(params: {
     compatStarted.current = false;
   }, [episodeKey]);
 
-  return { compatSrc, compat, playSrc, streamKey };
+  return { compatSrc, compat, playSrc, streamKey, startCompat };
 }

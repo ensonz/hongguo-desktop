@@ -32,6 +32,7 @@ import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import { useIncognitoMode } from './incognito';
 import { useMinimizeAutoPause } from '../hooks/use-minimize-pause';
+import { classifyMediaError } from '../hooks/media-error';
 import { usePlaybackSource } from '../hooks/use-playback-source';
 import { useTranscodeFallback } from '../hooks/use-transcode-fallback';
 import { usePlaybackProgress } from '../hooks/use-playback-progress';
@@ -238,7 +239,7 @@ export function PlayerView({
 
   // 转码兜底与最终供流地址裁决抽在 use-transcode-fallback：
   // videoWidth==0 探测 + H.264 转码轮询 + 重试防缓存钉。
-  const { compatSrc, compat, playSrc, streamKey } = useTranscodeFallback({
+  const { compatSrc, compat, playSrc, streamKey, startCompat } = useTranscodeFallback({
     videoRef,
     seriesId,
     vidIndex,
@@ -424,9 +425,18 @@ export function PlayerView({
     // 重试也是白搭，直接报错。在线的失败把 <video> 撤下来，换成封面 +
     // 明确错误 + 重试按钮，不再是一根小小的报错条挂在冻结画面上。
     const online = playSrc?.includes('hongguo-stream') ?? false;
-    if (online && !compatSrc && !compat && retryTick < 1) {
-      retryOnline();
-      return;
+    if (online && !compatSrc && !compat) {
+      // 解码类（3/4）是确定性失败：重试同一 URL 必然复现，直接触发兜底转码。
+      // 无扩展机器的 HEVC 系黑屏原先会先空转一次重试再死在错误页，恰好
+      // 绕过 videoWidth 轮询兜底——这条通道把它接住。
+      if (classifyMediaError(me?.code) === 'decode') {
+        startCompat();
+        return;
+      }
+      if (retryTick < 1) {
+        retryOnline();
+        return;
+      }
     }
     setError(`${online ? t('player.onlineInterrupted') : t('error.media')}${detail}`);
     if (online) setSrc(null);
