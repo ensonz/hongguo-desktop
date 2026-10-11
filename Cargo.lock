@@ -2347,6 +2347,7 @@ dependencies = [
  "hex",
  "hongguo-api",
  "hongguo-common",
+ "hongguo-media",
  "hongguo-mp4",
  "hongguo-signer",
  "hongguo-store",
@@ -2355,20 +2356,16 @@ dependencies = [
  "log",
  "md-5",
  "mouse_position",
- "muxide",
  "objc2",
  "objc2-app-kit",
  "parking_lot",
  "percent-encoding",
  "rand 0.10.3",
  "reqwest",
- "rusty_h264",
- "rusty_h265",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "sm3",
- "sysinfo",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -2384,6 +2381,22 @@ dependencies = [
  "urlencoding",
  "uuid",
  "windows",
+]
+
+[[package]]
+name = "hongguo-media"
+version = "0.4.3"
+dependencies = [
+ "hongguo-common",
+ "hongguo-mp4",
+ "jpeg-encoder",
+ "log",
+ "muxide",
+ "rusty_h264",
+ "rusty_h265",
+ "serde",
+ "serde_json",
+ "sysinfo",
 ]
 
 [[package]]
