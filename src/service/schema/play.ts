@@ -68,3 +68,13 @@ export const playbackCapabilitySchema = z.boolean();
 
 /** HEVC 扩展安装结果：安装后的能力重探值。 */
 export const hevcInstallResultSchema = z.boolean();
+
+/** 播放链路的转码决策结果（本地直读 / 缓存命中 / 实时转码）。 */
+export const transcodePlaybackSchema = z.object({
+  url: z.string(),
+  cached: z.boolean(),
+  backend: z.string(),
+  elapsedMs: z.number(),
+});
+
+export type TranscodePlayback = z.infer<typeof transcodePlaybackSchema>;
