@@ -2298,6 +2298,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hongguo-common"
+version = "0.4.3"
+dependencies = [
+ "chrono",
+ "dirs",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "hongguo-desktop"
 version = "0.4.3"
 dependencies = [
@@ -2314,6 +2326,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
+ "hongguo-common",
  "jpeg-encoder",
  "log",
  "md-5",
