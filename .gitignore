@@ -8,7 +8,7 @@ dist-ssr/
 .idea/
 
 # Rust（workspace 化后 target 落在仓库根）
-/target/
+target/
 src-tauri/gen/schemas/
 
 # TypeScript 增量编译缓存
