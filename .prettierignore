@@ -18,3 +18,7 @@ src-tauri/vendor/
 # skill 资产不是本项目代码（对齐 eslint.config.js 的 .agents 豁免）；
 # 不 ignore 的话 format:check 会红在 skill 自带的示例文件上
 .agents/
+
+# docs 是中文散文文档不是代码：表格对齐、手动换行是内容的一部分，
+# prettier 的 markdown 重排只会制造 diff 噪音
+docs/
