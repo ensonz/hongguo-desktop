@@ -8,7 +8,7 @@ import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonRows } from '@/components/skeletons';
 import { useNewCalendar } from '@/service/queries';
 import { useSessionState } from '@/hooks/use-scroll-restore';
-import { t } from '@/locales';
+import { t, type MessageKey } from '@/locales';
 import { CalendarRow } from './calendar-row';
 
 /** 上新日历：日期条 + 当日上新列表（含未上线）。 */
@@ -123,7 +123,17 @@ function formatWeekday(d: string): string {
   if (d === todayKey) return t('newDrama.today');
   const dt = new Date(Number(d.slice(0, 4)), Number(d.slice(4, 6)) - 1, Number(d.slice(6, 8)));
   if (Number.isNaN(dt.getTime())) return '';
-  return t(`newDrama.weekday.${dt.getDay()}`);
+  // Date.getDay() 0=周日…6=周六，与 newDrama.weekday.0-6 词条一一对应
+  const keys: MessageKey[] = [
+    'newDrama.weekday.0',
+    'newDrama.weekday.1',
+    'newDrama.weekday.2',
+    'newDrama.weekday.3',
+    'newDrama.weekday.4',
+    'newDrama.weekday.5',
+    'newDrama.weekday.6',
+  ];
+  return t(keys[dt.getDay()] ?? 'newDrama.today');
 }
 
 /** "20261003" → "10/3"。 */

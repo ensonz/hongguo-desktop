@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { t, tf } from '@/locales';
+import { t, tf, type MessageKey } from '@/locales';
 import { shortcutKeyLabel, useShortcutsStore, type ShortcutAction } from '@/stores/shortcuts';
 
-const ACTIONS: { action: ShortcutAction; labelKey: string }[] = [
+const ACTIONS: { action: ShortcutAction; labelKey: MessageKey }[] = [
   { action: 'playPause', labelKey: 'settings.keyPlayPause' },
   { action: 'seekBack', labelKey: 'settings.keySeekBack' },
   { action: 'seekForward', labelKey: 'settings.keySeekForward' },

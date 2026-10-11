@@ -23,7 +23,7 @@ import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
-import { t, tf } from '@/locales';
+import { t, tf, type MessageKey } from '@/locales';
 import type { WatchHistoryItem } from '@/service/schema';
 
 /**
@@ -44,7 +44,7 @@ function isFinished(item: WatchHistoryItem): boolean {
   return item.episodeCnt > 0 && Math.max(1, item.vidIndex) >= item.episodeCnt;
 }
 
-const TABS: { key: HistoryTab; labelKey: string }[] = [
+const TABS: { key: HistoryTab; labelKey: MessageKey }[] = [
   { key: 'all', labelKey: 'history.tabAll' },
   { key: 'unfinished', labelKey: 'history.tabUnfinished' },
   { key: 'finished', labelKey: 'history.tabFinished' },

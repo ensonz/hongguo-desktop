@@ -8,9 +8,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useThemeStore, type Theme } from '@/stores/theme';
 import { useLocaleStore } from '@/stores/locale';
-import { t } from '@/locales';
+import { t, type MessageKey } from '@/locales';
 
-const THEMES: { value: Theme; labelKey: string }[] = [
+const THEMES: { value: Theme; labelKey: MessageKey }[] = [
   { value: 'auto', labelKey: 'settings.themeAuto' },
   { value: 'light', labelKey: 'settings.themeLight' },
   { value: 'dark', labelKey: 'settings.themeDark' },

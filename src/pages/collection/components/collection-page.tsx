@@ -34,14 +34,14 @@ import {
 } from '@/service/queries';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
-import { t, tf } from '@/locales';
+import { t, tf, type MessageKey } from '@/locales';
 import type { BookshelfEntry } from '@/service/schema';
 
 /** 内容类型筛选（对齐 hgplayer v1.1.7 收藏筛选；依据 bookshelf 条目的
  *  content_type：1=真人 1004=漫剧，0=未知不归入任何一类）。 */
 type TypeTab = 'all' | 'real' | 'comic';
 
-const TYPE_TABS: { key: TypeTab; labelKey: string }[] = [
+const TYPE_TABS: { key: TypeTab; labelKey: MessageKey }[] = [
   { key: 'all', labelKey: 'collections.filterAll' },
   { key: 'real', labelKey: 'collections.filterReal' },
   { key: 'comic', labelKey: 'collections.filterComic' },

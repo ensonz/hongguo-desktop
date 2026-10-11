@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { TopBarTab, TopBarTabsPortal } from '@/components/layout/top-bar-tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { t } from '@/locales';
+import { t, type MessageKey } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import { useSessionState } from '@/hooks/use-scroll-restore';
 import { NewCalendarView } from './new-calendar-view';
@@ -15,7 +15,7 @@ import type { RankItem } from '@/service/schema';
  * 日历 = 官方按日期排布的上新表（前后各一周，含未上线条目）。
  */
 
-const GENDERS: { value: number; labelKey: string }[] = [
+const GENDERS: { value: number; labelKey: MessageKey }[] = [
   { value: 2, labelKey: 'newDrama.gender.all' },
   { value: 1, labelKey: 'newDrama.gender.male' },
   { value: 0, labelKey: 'newDrama.gender.female' },

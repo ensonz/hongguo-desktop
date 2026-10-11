@@ -1,11 +1,11 @@
 /** 找剧筛选面板：官方多维选项的渲染与单选交互。 */
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { t } from '@/locales';
+import { t, type MessageKey } from '@/locales';
 import type { BrowseFilters } from '@/service/schema';
 
 /** 面板行 type → 行头标签（未知类型回落服务端行名去掉「全部」前缀）。 */
-const FILTER_LABEL_KEYS: Record<string, string> = {
+const FILTER_LABEL_KEYS: Record<string, MessageKey> = {
   genre: 'browse.fGenre',
   category_dim_theme: 'browse.fTheme',
   category_dim_role: 'browse.fRole',
@@ -97,7 +97,10 @@ export function FilterPanel({
       {rows.map((row) => {
         const key = row.rowType as keyof BrowseFilters;
         const current = rowValue(row.rowType);
-        const fallbackLabel = FILTER_LABEL_KEYS[row.rowType] ?? row.rowName.replace(/^全部/, '');
+        // 已知行类型走 i18n key；未知类型回落服务端行名（纯展示串，
+        // 查不到词条 t() 会回落原串）——服务端数据无法静态枚举才 cast
+        const fallbackLabel =
+          FILTER_LABEL_KEYS[row.rowType] ?? (row.rowName.replace(/^全部/, '') as MessageKey);
         return (
           <div key={row.rowType} className="flex items-start gap-3 text-sm">
             <span className="text-muted-foreground w-10 shrink-0 pt-1 text-xs">

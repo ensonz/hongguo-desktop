@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appErrorSchema } from '../schema';
-import { t } from '@/locales';
+import { t, type MessageKey } from '@/locales';
 import { COMMANDS, type CallRest, type CommandName, type CommandResponse } from './registry';
 
 /**
@@ -35,7 +35,9 @@ function toError(e: unknown): Error {
   if (e && typeof e === 'object' && 'kind' in e && 'message' in e) {
     const parsed = appErrorSchema.safeParse(e);
     if (parsed.success) {
-      const localized = t(parsed.data.kind);
+      // kind 的键集由 Rust 侧各命令的 AppError 变体定义，跨命令聚合
+      // 无法静态枚举才 cast；查不到词条时回落 message 原文
+      const localized = t(parsed.data.kind as MessageKey);
       const error = new Error(localized === parsed.data.kind ? parsed.data.message : localized);
       error.cause = parsed.data.message;
       return error;
