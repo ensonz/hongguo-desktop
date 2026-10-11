@@ -76,7 +76,7 @@ pub fn compat_merge(
     // 各集各转各的分辨率，最后死在拼接的宽高一致校验上——实测一部 11 集的
     // 剧（10 集 1080p、1 集 720p）在软解上白转十几分钟才失败。把失败提到
     // 转码之前，并告诉用户哪条路能解决。
-    if !odd.is_empty() && !crate::media::capability::scaling_available() {
+    if !odd.is_empty() && !hongguo_media_platform::capability::scaling_available() {
         return Err(AppError::Media(format!(
             "第 {} 集分辨率与首集不一致，当前转码后端（纯 Rust 软解）不支持缩放，无法合并；\
              安装 ffmpeg 或在支持硬件编码的机器上重试",
@@ -109,7 +109,7 @@ pub fn compat_merge(
     // 收敛不影响已完成的集——软解产物同样是能播的 H.264，只是慢，不值得重做。
     let live_cap = AtomicUsize::new(threads);
     let active = AtomicUsize::new(0);
-    let hw_expected = crate::media::capability::selected_backend().is_hardware();
+    let hw_expected = hongguo_media_platform::capability::selected_backend().is_hardware();
 
     std::thread::scope(|scope| {
         // 每个线程循环领下一集：谁先空出来谁接下一集。
@@ -280,9 +280,9 @@ fn merge_threads(episodes: usize) -> usize {
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
-    let cap = match crate::media::capability::selected_backend() {
+    let cap = match hongguo_media_platform::capability::selected_backend() {
         hongguo_media::Backend::Platform => {
-            if crate::media::platform::h264_hw_encoder_available() {
+            if hongguo_media_platform::platform::h264_hw_encoder_available() {
                 cores.clamp(1, 4)
             } else {
                 // Apple 软编会话：编码吃满 CPU，2 路封顶

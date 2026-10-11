@@ -1,7 +1,7 @@
 //! ffmpeg 可选加速（分流链的第二层）。
 //!
-//! 完整分流顺序见 [`crate::service::transcode_service::pipeline`]：
-//! **平台硬编（`media::platform`）→ ffmpeg → 纯 Rust 软解**。本模块只负责
+//! 完整分流顺序见壳内 `service::transcode_service::pipeline`：
+//! **平台硬编（`platform`）→ ffmpeg → 纯 Rust 软解**。本模块只负责
 //! 中间那层：
 //!
 //! - 有 ffmpeg：HEVC → H.264 转码交给 ffmpeg，可用 NVENC/QSV/AMF/MF 硬编码，

@@ -46,10 +46,10 @@ pub fn detect() -> DecodeCapability {
 /// 给出这条路后设置页就能提供「重新检测」，不必让用户去重启应用。
 pub fn redetect() -> DecodeCapability {
     *CAPABILITY.write() = None;
-    crate::media::ffmpeg::probe::reprobe();
+    crate::ffmpeg::probe::reprobe();
     redetect_platform();
     let c = detect();
-    let backend = crate::media::ffmpeg::backend_info();
+    let backend = crate::ffmpeg::backend_info();
     log::info!(
         "[Media] 重新探测：ffmpeg={} 编码器={} 硬件={} 平台={} → {}",
         c.has_ffmpeg,
@@ -63,34 +63,34 @@ pub fn redetect() -> DecodeCapability {
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn redetect_platform() {
-    crate::media::platform::clear_probe_cache();
+    crate::platform::clear_probe_cache();
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn redetect_platform() {}
 
 fn probe() -> DecodeCapability {
-    let has_ffmpeg = crate::media::ffmpeg::ffmpeg_path().is_some();
+    let has_ffmpeg = crate::ffmpeg::ffmpeg_path().is_some();
     // 「是不是硬件」由编码器自己报，**不能拿「不是 libx264」当硬件**：
     // h264_mf 默认走软件 MediaFoundation，把它算成硬件会让用户以为在用显卡。
-    let hardware = crate::media::ffmpeg::h264_encoder().is_some_and(|e| e.hardware);
+    let hardware = crate::ffmpeg::h264_encoder().is_some_and(|e| e.hardware);
     DecodeCapability {
         has_ffmpeg,
         h264_hw_encoder: hardware,
-        platform_encoder: crate::media::platform::encoder_available(),
-        platform_hw_encoder: crate::media::platform::h264_hw_encoder_available(),
+        platform_encoder: crate::platform::encoder_available(),
+        platform_hw_encoder: crate::platform::h264_hw_encoder_available(),
     }
 }
 
 /// 当前机器分流链会选中的最佳后端（不实际转码）。
 ///
-/// 分流顺序与 [`crate::service::transcode_service::pipeline`] 一致：
+/// 分流顺序与壳内 `service::transcode_service::pipeline` 一致：
 /// 平台编码层 → ffmpeg → 纯 Rust。并行度、超订预期都从这里的结论出发。
 pub fn selected_backend() -> Backend {
     if platform_available() {
         return Backend::Platform;
     }
-    match crate::media::ffmpeg::h264_encoder() {
+    match crate::ffmpeg::h264_encoder() {
         Some(e) if e.hardware => Backend::FfmpegHw,
         Some(_) => Backend::FfmpegSw,
         None => Backend::Rust,
@@ -98,7 +98,7 @@ pub fn selected_backend() -> Backend {
 }
 
 fn platform_available() -> bool {
-    !crate::media::platform::disabled_by_env() && crate::media::platform::encoder_available()
+    !crate::platform::disabled_by_env() && crate::platform::encoder_available()
 }
 
 /// 当前机器的转码链路能否统一分辨率（缩放）。
@@ -114,7 +114,7 @@ pub fn scaling_available() -> bool {
 /// 预热探测（启动时调用，避免首次转码时的额外延迟）。
 pub fn warm_up() {
     let c = detect();
-    let backend = crate::media::ffmpeg::backend_info();
+    let backend = crate::ffmpeg::backend_info();
     log::info!(
         "[Media] ffmpeg={} 编码器={} 硬件={} 平台={} → {}",
         c.has_ffmpeg,
@@ -158,14 +158,14 @@ mod tests {
     fn hardware_flag_is_not_derived_from_the_encoder_name() {
         // 回归钉住：曾经用 `encoder != "libx264"` 判硬件，
         // 于是 h264_mf（软件 MediaFoundation）被报成「硬件加速」。
-        if let Some(enc) = crate::media::ffmpeg::h264_encoder()
+        if let Some(enc) = crate::ffmpeg::h264_encoder()
             && enc.name == "h264_mf"
             && !enc.hardware
         {
             // 本机 h264_mf 只能软件编码：能力字段必须如实报 false
             assert!(
                 !detect().h264_hw_encoder
-                    || crate::media::ffmpeg::h264_encoder().is_some_and(|e| e.hardware),
+                    || crate::ffmpeg::h264_encoder().is_some_and(|e| e.hardware),
                 "软件编码的 h264_mf 不能报成硬件"
             );
         }

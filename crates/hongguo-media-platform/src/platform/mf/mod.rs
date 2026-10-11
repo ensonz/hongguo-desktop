@@ -90,7 +90,8 @@ pub fn transcode_h264(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
 
 /// 仅测试构建：以「回落软件编码器」的策略跑完整链路，让没有硬编的机器
 /// 也能验证管线本身（解码/Annex-B/封装/时间戳）。硬件与否由探测测试另行验证。
-#[cfg(test)]
+/// 门控对齐 [`crate::platform::transcode_h264_for_tests`]（壳 e2e 走 test-support）。
+#[cfg(any(test, feature = "test-support"))]
 pub fn transcode_h264_for_tests(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
     let demuxed = hongguo_media::demux::demux_file(req.input).ok()?;
     let video = demuxed.video_track()?;
@@ -1041,7 +1042,7 @@ enum EncoderKind {
     /// 硬件 MFT（`MFT_ENUM_FLAG_HARDWARE`），探测验证过才用
     Hardware,
     /// in-box 软件编码器（h264_mf，同步 MFT）——测试通道
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     Software,
 }
 
@@ -1073,7 +1074,7 @@ impl Encoder {
                 MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_ASYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER
             }
             // 没有 SOFTWARE 标志：软件 MFT = SYNCMFT（不带 HARDWARE）
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             EncoderKind::Software => MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER,
         };
         let activaes = enum_activates(
@@ -1084,7 +1085,7 @@ impl Encoder {
         )?;
         let label = match kind {
             EncoderKind::Hardware => "硬件",
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             EncoderKind::Software => "软件",
         };
         let mut last = AppError::Media(format!("没有可用的{label} H.264 编码 MFT"));

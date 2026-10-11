@@ -11,7 +11,6 @@ mod app_state;
 mod bootstrap;
 mod commands;
 mod diagnostics;
-mod media;
 mod protocol;
 mod service;
 mod testing;

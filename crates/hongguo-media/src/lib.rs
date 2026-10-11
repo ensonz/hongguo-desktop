@@ -10,9 +10,9 @@
 //! - [`heif`]：HEIC 封面纯 Rust 解码（封面阶梯的最后一级）
 //!
 //! 定位：**转码链路的纯 Rust 兜底层**（零外部依赖，不需要 ffmpeg 与平台硬编）。
-//! 平台硬编（VideoToolbox / Media Foundation / WIC）与 ffmpeg 执行在
-//! `media/platform` / `media/ffmpeg`，解码能力探测在 `media/capability`——
-//! 它们依赖本 crate，反向不成立（见 `docs/architecture-refactor.md` §4.2）。
+//! 平台硬编（VideoToolbox / Media Foundation / WIC）、ffmpeg 执行与解码能力
+//! 探测在 `crates/hongguo-media-platform`——它依赖本 crate，反向不成立
+//! （见 `docs/architecture-refactor.md` §4.2）。
 //!
 //! 本 crate 不依赖 tauri。
 

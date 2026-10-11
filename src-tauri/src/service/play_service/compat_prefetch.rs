@@ -33,7 +33,7 @@ pub fn schedule_next_episode(
     series_id: &str,
     next_vid_index: u32,
 ) {
-    if crate::media::capability::playback::hevc_playable() {
+    if hongguo_media_platform::capability::playback::hevc_playable() {
         return;
     }
     let key = format!("{series_id}:{next_vid_index}");

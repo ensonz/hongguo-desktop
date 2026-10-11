@@ -189,7 +189,7 @@ fn quality_args(encoder: &Encoder) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::ffmpeg::h264_encoder;
+    use crate::ffmpeg::h264_encoder;
 
     #[test]
     fn transcode_without_ffmpeg_errors() {

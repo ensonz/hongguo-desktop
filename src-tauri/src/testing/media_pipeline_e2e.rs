@@ -21,10 +21,10 @@ use std::time::Instant;
 
 use serde_json::Value;
 
-use crate::media::ffmpeg;
-use crate::media::ffmpeg::transcode_with_ffmpeg;
 use hongguo_media::remux::concat_copy;
 use hongguo_media::transcode;
+use hongguo_media_platform::ffmpeg;
+use hongguo_media_platform::ffmpeg::transcode_with_ffmpeg;
 
 /// 没设就整体跳过：真实文件不进 `make test-rust`。
 ///
@@ -86,8 +86,11 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 /// 不缩放、不报进度的转码请求——e2e 只关心产物对不对。
-fn plain_req<'a>(input: &'a Path, output: &'a Path) -> crate::media::ffmpeg::TranscodeRequest<'a> {
-    crate::media::ffmpeg::TranscodeRequest {
+fn plain_req<'a>(
+    input: &'a Path,
+    output: &'a Path,
+) -> hongguo_media_platform::ffmpeg::TranscodeRequest<'a> {
+    hongguo_media_platform::ffmpeg::TranscodeRequest {
         input,
         output,
         scale_to: None,
@@ -96,7 +99,7 @@ fn plain_req<'a>(input: &'a Path, output: &'a Path) -> crate::media::ffmpeg::Tra
 }
 
 /// 编码器的可读标签，带上是否走硬件。
-fn enc_label(e: &crate::media::ffmpeg::probe::Encoder) -> String {
+fn enc_label(e: &hongguo_media_platform::ffmpeg::probe::Encoder) -> String {
     if e.hardware {
         format!("{}/hw", e.name)
     } else {
@@ -391,8 +394,8 @@ fn platform_pipeline_produces_playable_h264() {
     let dir = scratch("platform-vt-pipeline");
     let out = dir.join("转码.mp4");
 
-    match crate::media::platform::transcode_h264_for_tests(
-        &crate::media::platform::PlatformRequest {
+    match hongguo_media_platform::platform::transcode_h264_for_tests(
+        &hongguo_media_platform::platform::PlatformRequest {
             input: &src,
             output: &out,
             scale_to: None,
@@ -437,7 +440,7 @@ fn platform_pipeline_produces_playable_h264() {
 /// （软会话路径由上一条用例在任何 mac 上覆盖）。
 #[test]
 fn platform_transcode_produces_playable_h264() {
-    if !crate::media::platform::h264_hw_encoder_available() {
+    if !hongguo_media_platform::platform::h264_hw_encoder_available() {
         eprintln!("[e2e] 平台硬编不可用，跳过");
         return;
     }
@@ -459,12 +462,14 @@ fn platform_transcode_produces_playable_h264() {
     let out = dir.join("转码.mp4");
 
     let started = Instant::now();
-    match crate::media::platform::transcode_h264(&crate::media::platform::PlatformRequest {
-        input: &src,
-        output: &out,
-        scale_to: None,
-        on_progress: None,
-    }) {
+    match hongguo_media_platform::platform::transcode_h264(
+        &hongguo_media_platform::platform::PlatformRequest {
+            input: &src,
+            output: &out,
+            scale_to: None,
+            on_progress: None,
+        },
+    ) {
         Some(Ok(())) => {}
         Some(Err(e)) => panic!("平台硬编失败: {e}"),
         None => panic!("探测说可用、执行却说不可用，前后矛盾"),
@@ -635,7 +640,7 @@ fn compat_merge_unifies_mixed_resolutions_by_scaling() {
     let mut scaled = Vec::new();
     for (i, src) in picks.iter().enumerate() {
         let t = dir.join(format!("scaled{:03}.mp4", i + 1));
-        let req = crate::media::ffmpeg::TranscodeRequest {
+        let req = hongguo_media_platform::ffmpeg::TranscodeRequest {
             input: src,
             output: &t,
             scale_to: Some((w, h)),
@@ -682,7 +687,7 @@ fn the_installed_ffmpeg_is_actually_used_by_the_transcode_path() {
         "后端应报 ffmpeg，实际 {}",
         backend.transcode_with
     );
-    let cap = crate::media::capability::probe::detect();
+    let cap = hongguo_media_platform::capability::probe::detect();
     assert!(cap.has_ffmpeg);
     assert_eq!(cap.h264_hw_encoder, encoder.hardware);
     println!(

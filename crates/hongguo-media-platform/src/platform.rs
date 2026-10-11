@@ -22,7 +22,7 @@ use std::path::Path;
 
 use hongguo_common::AppResult;
 
-/// 平台硬编的一次转码请求（与 ffmpeg 侧的 [`crate::media::ffmpeg::TranscodeRequest`] 同构）。
+/// 平台硬编的一次转码请求（与 ffmpeg 侧的 [`crate::ffmpeg::TranscodeRequest`] 同构）。
 pub struct PlatformRequest<'a> {
     /// 已解密的源 MP4
     pub input: &'a Path,
@@ -145,8 +145,12 @@ pub fn disabled_by_env() -> bool {
 /// 就是发布行为；Windows 仍分发到 `_for_tests`（h264_mf 软编仅测试通道），
 /// 让没有硬编 MFT 的机器也能验证管线。e2e 统一从这里走，不直接引用
 /// `vt::`/`mf::`（否则另一平台的测试构建编不过）。
-#[cfg(test)]
-pub(crate) fn transcode_h264_for_tests(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
+///
+/// 门控 `any(test, feature = "test-support")`：本 crate 自身测试走 `test`，
+/// 壳的跨层 e2e（别的 crate）走 `test-support`——跨 crate 后 `pub(crate)`
+/// 够不着，见 Cargo.toml 的 feature 说明。
+#[cfg(any(test, feature = "test-support"))]
+pub fn transcode_h264_for_tests(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
     #[cfg(target_os = "macos")]
     {
         vt::transcode_h264(req)

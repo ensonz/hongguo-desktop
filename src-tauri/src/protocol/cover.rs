@@ -117,7 +117,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
     //    「不可用」，本进程内不再尝试，「重新检测」清缓存）
     #[cfg(target_os = "windows")]
     if let Some(result) =
-        crate::media::platform::wic::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
+        hongguo_media_platform::platform::wic::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
     {
         match result {
             Ok(bytes) => return Ok((bytes, JPEG_KIND.0, JPEG_KIND.1)),
@@ -126,7 +126,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
     }
 
     // 2) ffmpeg 级：直接吃 http 输入，一步到位
-    if let Some(ffmpeg) = crate::media::ffmpeg::probe::ffmpeg_path() {
+    if let Some(ffmpeg) = hongguo_media_platform::ffmpeg::probe::ffmpeg_path() {
         let tmp = cache_tmp(remote);
         let out = std::process::Command::new(ffmpeg)
             .args([

@@ -7,7 +7,7 @@
 //!   来自系统「HEVC 视频扩展」——MFT 不在位则 h265/bytevc1 一律黑屏
 //!   （容器解析正常、样本照常缓冲，唯独参数集送不进解码器，MediaError
 //!   code=3 或长时间 `videoWidth === 0`）。判据与平台转码探测的「HEVC
-//!   解码 MFT 在位」同源（[`crate::media::platform`]）。
+//!   解码 MFT 在位」同源（[`crate::platform`]）。
 //! - macOS：WKWebView 原生支持 HEVC，恒可解。
 //!
 //! `HONGGUO_NO_HEVC` 强制按不可解处理（对齐 `HONGGUO_NO_FFMPEG` /
@@ -37,5 +37,5 @@ fn probe() -> bool {
         log::info!("[Playback] HONGGUO_NO_HEVC 已设置，本次按无 HEVC 处理");
         return false;
     }
-    crate::media::platform::hevc_decode_available()
+    crate::platform::hevc_decode_available()
 }

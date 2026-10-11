@@ -111,7 +111,7 @@ pub async fn prepare(
     // 才是缓存的键。贵的那一步（整集下载 + 解密）要等拿到取流权之后才发生。
     // 无 HEVC 扩展的机器选流翻转到 h264（官方 CodecStrategy 语义，见 stream_pick）。
     let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
-        crate::media::capability::playback::hevc_playable(),
+        hongguo_media_platform::capability::playback::hevc_playable(),
     );
     let play = hongguo_api::play_url::fetch_play_url(vid, definition, cap, env).await?;
     let want = play.definition;
@@ -194,7 +194,7 @@ pub async fn prefetch_stream(
     // 预取与真实播放同一条选流模式：无 HEVC 机器预取的也必须是 h264，
     // 否则起播时探测结论翻转会命中一条播不了的缓存流。
     let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
-        crate::media::capability::playback::hevc_playable(),
+        hongguo_media_platform::capability::playback::hevc_playable(),
     );
     let play = match hongguo_api::play_url::fetch_play_url(vid, None, cap, env).await {
         Ok(p) => p,

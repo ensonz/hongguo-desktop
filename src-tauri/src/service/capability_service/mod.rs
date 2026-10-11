@@ -35,7 +35,7 @@ pub async fn install_hevc_extension(proxy: ProxyConfig) -> AppResult<bool> {
     let _ = std::fs::remove_file(&path);
     installed?;
 
-    Ok(crate::media::capability::playback::redetect())
+    Ok(hongguo_media_platform::capability::playback::redetect())
 }
 
 fn temp_path() -> AppResult<PathBuf> {

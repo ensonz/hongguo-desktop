@@ -32,6 +32,8 @@ hongguo-store = { path = "../crates/hongguo-store" }
 hongguo-stream = { path = "../crates/hongguo-stream" }
 # 纯 Rust 编解码（demux / hevc / remux / transcode / 封面 HEIF）；不依赖 tauri。
 hongguo-media = { path = "../crates/hongguo-media" }
+# 平台层编解码（MF / VT / WIC 硬编 + ffmpeg 执行 + 能力探测）；不依赖 tauri。
+hongguo-media-platform = { path = "../crates/hongguo-media-platform" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -82,45 +84,12 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 percent-encoding = "2"
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
-# 编解码相关的重型依赖（rusty_h265 / rusty_h264 / muxide / sysinfo）随
-# 纯 Rust 编解码核心一起迁到了 crates/hongguo-media；本 crate 只保留
-# 平台层（MF/VT/WIC）与 ffmpeg 执行需要的那些。
+# 编解码相关的重型依赖随两个媒体 crate 迁走了：rusty_h265 / rusty_h264 /
+# muxide / sysinfo / jpeg-encoder 在 crates/hongguo-media 与封面软解级，
+# windows（MF/WIC 的 COM 绑定）在 crates/hongguo-media-platform。
 mouse_position = "0.1"
 tauri-plugin-updater = "2.13.2"
 tauri-plugin-process = "2.4.0"
-
-# 封面纯软解级的 JPEG 编码（media/heif）：纯 Rust、零 unsafe，RGB 直入。
-# 只需要「一帧 → JPEG」这一步，不引 image 全家桶。**跨平台主依赖**——
-# heif.rs 无条件编译，放进 target 专属表会在另一侧直接缺 crate（03029e8
-# 曾误挂 windows 表导致 macOS dev 构建失败）。
-jpeg-encoder = "0.6"
-
-# 平台硬编走 `media::platform`（macOS VideoToolbox / Windows Media Foundation）。
-# FFI 路线按 API 性质分：VideoToolbox 是纯 C API，手写声明零依赖（vt/ffi.rs）；
-# Media Foundation 是 COM（虚表调用），手排虚表槽位错一个就是运行期崩——
-# 用 windows crate 的生成绑定（见下方 target 专属依赖，不新增外部 crate）。
-# ffmpeg 外部进程是平台硬编不可用时的中间回退，音轨一律不解码（AAC 直通）。
-# 验证策略：Apple Silicon 的 macOS CI 真跑 VideoToolbox 端到端；Windows 侧
-# 本机真机验收（GTX 1650：NVENC MFT + HEVC 扩展解码全链路 e2e 绿），CI 验
-# 纯逻辑层；软解路径（rusty_h265/rusty_h264）永远兜底，产物一律过可播校验闸。
-
-# Windows 平台硬编（Media Foundation）的 COM 绑定。选 windows crate 而不是
-# 手写虚表：MF 是 COM API（接口经虚表调用），与 macOS VideoToolbox 的纯 C
-# API 不同——手排虚表槽位错一个就是运行期崩到错误函数上。0.62 已在依赖图里
-# （tauri/wry/sysinfo 传递引入），声明为直接依赖不新增外部 crate，feature
-# 按需裁剪只编译用到的接口。
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
-    "Win32_Media_MediaFoundation",
-    "Win32_System_Com",
-    "Win32_System_Ole",
-    "Win32_System_Variant",
-    # WIC 静图解码：封面的平台级通路（HEIF/HEVC 扩展在则走系统解码器）
-    "Win32_Graphics_Imaging",
-    # 内存流：HEIC 字节 → IStream → WIC 解码器
-    "Win32_System_Com_StructuredStorage",
-    "Win32_System_Memory",
-] }
 
 # macOS 原生红绿灯的藏/显（小屏模式）：直接对三颗 NSWindowButton setHidden，
 # 而不是 set_decorations 切 borderless——tao 的 set_decorations 是**整体替换
@@ -146,3 +115,6 @@ hongguo-mp4 = { path = "../crates/hongguo-mp4", features = ["test-support"] }
 # 本 crate 的落盘用例要把数据目录重定向到临时目录（不能写进用户真实
 # %APPDATA%），开启 hongguo-store 的测试辅助件（`paths::ScopedDataDir`）。
 hongguo-store = { path = "../crates/hongguo-store", features = ["test-support"] }
+# 跨层 e2e（src/testing/media_pipeline_e2e.rs）要调 hongguo-media-platform 的
+# 测试通道（`platform::transcode_h264_for_tests`），开启其 test-support。
+hongguo-media-platform = { path = "../crates/hongguo-media-platform", features = ["test-support"] }

@@ -44,11 +44,11 @@ pub fn transcode(
             output_size: meta.map(|m| m.len()).unwrap_or(0),
             elapsed_ms: 0,
             frames: 0,
-            decoder: crate::media::capability::selected_backend()
+            decoder: hongguo_media_platform::capability::selected_backend()
                 .decoder_label()
                 .to_string(),
             encoder: String::new(),
-            backend: crate::media::capability::selected_backend(),
+            backend: hongguo_media_platform::capability::selected_backend(),
         });
     }
 
@@ -59,14 +59,14 @@ pub fn transcode(
     // Windows：Media Foundation 硬编）。不依赖用户装任何东西；
     // 会话建不出来/失败会静默落回 ffmpeg。
     let mut backend = hongguo_media::Backend::Rust;
-    if let Some(done) =
-        crate::media::platform::transcode_h264(&crate::media::platform::PlatformRequest {
+    if let Some(done) = hongguo_media_platform::platform::transcode_h264(
+        &hongguo_media_platform::platform::PlatformRequest {
             input: source,
             output: &target,
             scale_to,
             on_progress,
-        })
-    {
+        },
+    ) {
         match done {
             Ok(()) => {
                 if output_is_playable(&target) {
@@ -82,15 +82,15 @@ pub fn transcode(
 
     // 分流 2：ffmpeg（含硬编码器）
     if backend == hongguo_media::Backend::Rust
-        && let Some(encoder) = crate::media::ffmpeg::h264_encoder()
+        && let Some(encoder) = hongguo_media_platform::ffmpeg::h264_encoder()
     {
-        let req = crate::media::ffmpeg::TranscodeRequest {
+        let req = hongguo_media_platform::ffmpeg::TranscodeRequest {
             input: source,
             output: &target,
             scale_to,
             on_progress,
         };
-        match crate::media::ffmpeg::transcode_with_ffmpeg(&req, &encoder) {
+        match hongguo_media_platform::ffmpeg::transcode_with_ffmpeg(&req, &encoder) {
             Ok(()) => {
                 // 退出码 0 不等于文件可播（极端场景：磁盘写满截断、被杀毒软件
                 // 半路锁文件）。合并那头有产物校验，这里对齐同一道闸。
@@ -121,7 +121,7 @@ pub fn transcode(
 
     cache::trim();
 
-    let backend_info = crate::media::ffmpeg::backend_info();
+    let backend_info = hongguo_media_platform::ffmpeg::backend_info();
     Ok(TranscodeResult {
         output_size: std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
         output_path: target.to_string_lossy().to_string(),

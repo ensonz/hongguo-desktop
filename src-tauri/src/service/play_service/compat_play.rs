@@ -44,7 +44,7 @@ pub async fn ensure_compat(
         return Ok(CompatPlay {
             url,
             cached: true,
-            backend: crate::media::capability::selected_backend()
+            backend: hongguo_media_platform::capability::selected_backend()
                 .decoder_label()
                 .to_string(),
             elapsed_ms: 0,

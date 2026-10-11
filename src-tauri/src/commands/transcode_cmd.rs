@@ -9,15 +9,15 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::media::capability::probe::DecodeCapability;
 use crate::service::download_service::events::names::COMPAT_PROGRESS;
 use crate::service::play_service::compat_play::{self, CompatSource};
 use hongguo_common::{AppError, AppResult};
+use hongguo_media_platform::capability::probe::DecodeCapability;
 
 /// 硬解/软解能力。
 #[tauri::command]
 pub fn decode_capability() -> DecodeCapability {
-    crate::media::capability::probe::detect()
+    hongguo_media_platform::capability::probe::detect()
 }
 
 /// 丢弃缓存重新探测一次 ffmpeg 与编码器。
@@ -27,7 +27,7 @@ pub fn decode_capability() -> DecodeCapability {
 /// 应用才生效。给出这条路后设置页就能点一下解决。
 #[tauri::command]
 pub fn redetect_capability() -> DecodeCapability {
-    crate::media::capability::probe::redetect()
+    hongguo_media_platform::capability::probe::redetect()
 }
 
 /// 兜底转码的结果（前端直接消费）。
