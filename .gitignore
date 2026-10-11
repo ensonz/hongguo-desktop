@@ -39,3 +39,4 @@ jadx-status.txt
 # Loomy 运行时工作目录（会话附件等，不入库）
 .loomy-attachments/
 avatar-gen
+skills-lock.json
