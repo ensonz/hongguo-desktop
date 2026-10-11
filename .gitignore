@@ -35,3 +35,6 @@ jadx-status.txt
 # ZCode 工作目录
 .zcode/
 .zcodeignore
+
+# Loomy 运行时工作目录（会话附件等，不入库）
+.loomy-attachments/

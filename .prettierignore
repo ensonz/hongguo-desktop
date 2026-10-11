@@ -22,3 +22,7 @@ src-tauri/vendor/
 # docs 是中文散文文档不是代码：表格对齐、手动换行是内容的一部分，
 # prettier 的 markdown 重排只会制造 diff 噪音
 docs/
+
+# Loomy 运行时工作目录不是项目代码（对齐 .gitignore）；不 ignore 的话
+# format:check 会红在会话附件上
+.loomy-attachments/
