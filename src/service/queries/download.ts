@@ -2,9 +2,9 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { download } from '../commands';
+import type { DownloadProgress, DownloadTask } from '../schema';
 import { useEvent } from '../tauri/events';
 import { EVENTS } from '../tauri/types';
-import type { DownloadProgress, DownloadTask, QueueStatus } from '../schema';
 import { keys } from './common';
 
 // ---------------------------------------------------------------- 下载
@@ -29,7 +29,7 @@ export function useDownloadTasks() {
     },
     [qc],
   );
-  useEvent<DownloadProgress>(EVENTS.downloadProgress, applyProgress);
+  useEvent(EVENTS.downloadProgress, applyProgress);
 
   return useQuery({ queryKey: keys.tasks, queryFn: download.tasks });
 }
@@ -81,9 +81,9 @@ export function useDownloadEvents() {
     void qc.invalidateQueries({ queryKey: keys.queueStatus });
   }, [qc]);
 
-  useEvent<DownloadTask | null>(EVENTS.downloadTaskAdded, invalidate);
-  useEvent<DownloadTask | null>(EVENTS.downloadCompleted, invalidate);
-  useEvent<DownloadTask | null>(EVENTS.downloadFailed, invalidate);
-  useEvent<DownloadTask | null>(EVENTS.downloadStopped, invalidate);
-  useEvent<QueueStatus | null>(EVENTS.downloadQueueChanged, invalidate);
+  useEvent(EVENTS.downloadTaskAdded, invalidate);
+  useEvent(EVENTS.downloadCompleted, invalidate);
+  useEvent(EVENTS.downloadFailed, invalidate);
+  useEvent(EVENTS.downloadStopped, invalidate);
+  useEvent(EVENTS.downloadQueueChanged, invalidate);
 }

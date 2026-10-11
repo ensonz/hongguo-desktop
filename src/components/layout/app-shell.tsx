@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { Pin } from 'lucide-react';
 import { AppSidebar } from './app-sidebar';
 import { ThemeSwitch } from './theme-switch';
 import { WindowButtons } from './window-controls';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
+import { app as appApi } from '@/service/commands';
 import { useEvent } from '@/service/tauri/events';
 import { EVENTS } from '@/service/tauri/types';
 import { useUiStore } from '@/stores/ui';
@@ -31,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // mark_window_ready 要等本组件挂载（监听就位）再调，后端才敢开始拦截。
   const [exitOpen, setExitOpen] = useState(false);
   useEffect(() => {
-    void invoke('mark_window_ready').catch(() => {});
+    void appApi.markWindowReady().catch(() => {});
   }, []);
   useEvent(
     EVENTS.closeRequested,
@@ -118,7 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         title={t('window.exitTitle')}
         description={t('window.exitBody')}
         confirmLabel={t('window.exitConfirm')}
-        onConfirm={() => void invoke('exit_app').catch(() => {})}
+        onConfirm={() => void appApi.exitApp().catch(() => {})}
       />
     </div>
   );

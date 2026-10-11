@@ -40,7 +40,7 @@ export function useSeriesEpisodes(seriesId: string | null) {
   const queryClient = useQueryClient();
   // 旧格式档案在 Rust 侧后台补计数，补完发事件——这里失效自己的缓存，
   // 让计数无感浮现（档案本身早已秒回，不等这次刷新）
-  useEvent<string>(EVENTS.seriesArchiveUpdated, (id) => {
+  useEvent(EVENTS.seriesArchiveUpdated, (id) => {
     if (id && id === seriesId) {
       void queryClient.invalidateQueries({ queryKey: keys.seriesEpisodes(id) });
     }

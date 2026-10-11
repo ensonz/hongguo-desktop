@@ -21,4 +21,8 @@ export const app = {
    * 区域自动重现）；关 = 停轮询并带回可能隐藏中的窗口
    */
   setIncognito: (enabled: boolean) => call('set_incognito', { enabled }),
+  /** 关闭拦截就位（监听挂上后调用，后端才开始拦 CloseRequested） */
+  markWindowReady: () => call('mark_window_ready'),
+  /** 退出确认后的真退出（CloseRequested 被拦后唯一的退出路径） */
+  exitApp: () => call('exit_app'),
 };

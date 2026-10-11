@@ -18,6 +18,19 @@ export const sendCodeOutcomeSchema = z.object({
   retryTime: z.number().default(60),
 });
 
+/**
+ * MFA 后台轮询事件负载（`login-mfa-state`，Rust `login_cmd.rs::LOGIN_MFA_STATE`）：
+ * success = 自动登录完成（带昵称）；failed = 验证失败/超时；waiting = 新一轮
+ * 上行短信验证提示。三态字段互斥，discriminated union 钉死。
+ */
+export const loginMfaStateSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('success'), name: z.string() }),
+  z.object({ state: z.literal('failed'), message: z.string() }),
+  z.object({ state: z.literal('waiting'), message: z.string() }),
+]);
+
+export type LoginMfaState = z.infer<typeof loginMfaStateSchema>;
+
 /** 登录命令返回：成功 / 需要 MFA 上行短信验证 / MFA 等待中 */
 export const loginResultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('success'), user: passportUserSchema }),

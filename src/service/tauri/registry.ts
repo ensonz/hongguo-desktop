@@ -71,6 +71,10 @@ export const COMMANDS = {
   exit_mini_screen: { args: noArgs, response: voidResp },
   set_always_on_top: { args: z.object({ enabled: z.boolean() }), response: voidResp },
   set_incognito: { args: z.object({ enabled: z.boolean() }), response: voidResp },
+  /** 关闭拦截就位（app-shell 监听挂上后调用，后端才开始拦 CloseRequested） */
+  mark_window_ready: { args: noArgs, response: voidResp },
+  /** 退出确认后的真退出（CloseRequested 被拦后唯一的退出路径） */
+  exit_app: { args: noArgs, response: voidResp },
 
   // ---- 解码能力 -----------------------------------------------------
   playback_capability: { args: noArgs, response: playbackCapabilitySchema },

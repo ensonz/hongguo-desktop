@@ -73,7 +73,7 @@ export function useTranscodeFallback(params: {
   /** 当前流的指纹：live/stalled 状态读时校验它，换流（切剧/切集/换清晰度）即失效 */
   const streamKey = playSrc ?? '';
 
-  useEvent<CompatProgress>(
+  useEvent(
     EVENTS.compatPlayProgress,
     useCallback((p: CompatProgress) => {
       setCompatProgress(p);

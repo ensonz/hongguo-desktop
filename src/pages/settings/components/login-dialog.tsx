@@ -20,15 +20,6 @@ import { t, tf } from '@/locales';
 import type { LoginResult } from '@/service/schema';
 
 /**
- * `login-mfa-state` 事件的载荷（Rust `login_cmd.rs::LOGIN_MFA_STATE` 三态，
- * 两端同 commit 改；F5 收进 EventPayloads 后以 zod 推导为准）。
- */
-type LoginMfaState =
-  | { state: 'success'; name: string }
-  | { state: 'failed'; message: string }
-  | { state: 'waiting'; message: string };
-
-/**
  * 登录弹窗（hgplayer 同款形态）：表单 → MFA 上行短信等待 → 自动登录。
  *
  * MFA 轮询在 **Rust 后台**（3s 一次，回复短信后自动登录并发
@@ -66,7 +57,7 @@ export function LoginDialog({
   }, [countdown]);
 
   // 后台 MFA 轮询事件：成功（自动登录完成）/ 失败 / 新一轮验证提示
-  useEvent<LoginMfaState>(EVENTS.loginMfaState, (payload) => {
+  useEvent(EVENTS.loginMfaState, (payload) => {
     if (payload.state === 'success') {
       setMfaTips(null);
       setCode('');

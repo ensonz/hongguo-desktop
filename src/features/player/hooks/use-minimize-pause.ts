@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { useEvent } from '@/service/tauri/events';
+import { EVENTS } from '@/service/tauri/types';
 
 /**
  * 最小化自动暂停（对齐 hgplayer：窗口最小化时自动暂停，恢复后继续播放）。
  *
- * 判定用 document visibilitychange：WebView2/Chromium 在窗口最小化时把
- * document 置为 hidden（切到别的窗口不会触发，正好就是「最小化」语义）。
- * macOS WKWebView 对最小化不一定派发该事件——那时不自动暂停，静默降级。
+ * 判定走 Rust 侧：WebView2 **最小化时不派发 visibilitychange**（dev 实测
+ * 最小化后 visibilityState 恒 "visible"），前端无从感知——lib.rs 在窗口
+ * Resized 时查 is_minimized，状态翻转才 emit `window-minimize`（true=最小化，
+ * false=恢复），两端平台语义一致。
  *
  * 续播只续被最小化暂停的那一次（隐身模式同款欠账模型）：最小化瞬间
  * 本来就在播才记欠账；用户自己按停的恢复后仍停着。与 incognito 的
@@ -21,21 +24,25 @@ export function useMinimizeAutoPause(params: {
   useEffect(() => {
     if (!enabled) {
       owedPlay.current = false;
-      return;
     }
-    const onVisibility = () => {
-      const video = videoRef.current;
-      if (!video) return;
-      if (document.visibilityState === 'hidden') {
-        // 只在「正在播」时欠：已经暂停着说明是用户自己按停的
-        owedPlay.current = !video.paused;
-        if (owedPlay.current) video.pause();
-      } else if (owedPlay.current) {
-        owedPlay.current = false;
-        void video.play().catch(() => undefined);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [enabled, videoRef]);
+  }, [enabled]);
+
+  useEvent(
+    EVENTS.windowMinimize,
+    useCallback(
+      (minimized: boolean) => {
+        const video = videoRef.current;
+        if (!video || !enabled) return;
+        if (minimized) {
+          // 只在「正在播」时欠：已经暂停着说明是用户自己按停的
+          owedPlay.current = !video.paused;
+          if (owedPlay.current) video.pause();
+        } else if (owedPlay.current) {
+          owedPlay.current = false;
+          void video.play().catch(() => undefined);
+        }
+      },
+      [videoRef, enabled],
+    ),
+  );
 }

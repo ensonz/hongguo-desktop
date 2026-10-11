@@ -107,7 +107,7 @@ export function usePlaybackSource(params: {
   }, [episodeKey]);
 
   // 在线取流进度：只认当前这一集，换集后清掉。
-  useEvent<OnlineProgress>(
+  useEvent(
     EVENTS.onlinePlayProgress,
     useCallback(
       (p: OnlineProgress) => {
