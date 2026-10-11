@@ -1,7 +1,7 @@
 //! 下载调度器：后台驱动 worker。
 //!
 //! 职责：从队列挑可运行任务 → 按并发上限派发 → 收尾更新状态。
-//! 单集的具体执行在 [`crate::service::download_service::worker`]。
+//! 单集的具体执行在 [`crate::download_service::worker`]。
 //!
 //! ## 为什么到处是 owned
 //!
@@ -20,8 +20,8 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter};
 
 use crate::app_state::AppState;
-use crate::service::download_service::events::{ProgressThrottle, names};
-use crate::service::download_service::worker::{self, EpisodeDownload, ProgressSink};
+use crate::download_service::events::{ProgressThrottle, names};
+use crate::download_service::worker::{self, EpisodeDownload, ProgressSink};
 use hongguo_common::model::DownloadTask;
 use hongguo_common::{AppError, AppResult};
 
@@ -256,14 +256,13 @@ async fn run_one(
 fn persist(state: &AppState) {
     // 调度器跑在后台任务里，没有调用方能接住错误；
     // 落盘失败已由 `persist_tasks` 记进日志，这里只需让它在这里终止。
-    let _ =
-        crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Download");
+    let _ = crate::download_service::persist_tasks(&state.store, &state.queue(), "Download");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::download_service::queue::DownloadQueue;
+    use crate::download_service::queue::DownloadQueue;
 
     #[test]
     fn cancel_flag_round_trips() {

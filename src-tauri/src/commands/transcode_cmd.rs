@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::service::download_service::events::names::COMPAT_PROGRESS;
-use crate::service::play_service::compat_play::{self, CompatSource};
 use hongguo_common::{AppError, AppResult};
 use hongguo_media_platform::capability::probe::DecodeCapability;
+use hongguo_service::download_service::events::names::COMPAT_PROGRESS;
+use hongguo_service::play_service::compat_play::{self, CompatSource};
 
 /// 硬解/软解能力。
 #[tauri::command]
@@ -68,7 +68,7 @@ pub struct CompatProgressEvent {
 #[tauri::command]
 pub async fn transcode_for_playback(
     app: tauri::AppHandle,
-    state: tauri::State<'_, crate::app_state::AppState>,
+    state: tauri::State<'_, hongguo_service::app_state::AppState>,
     series_id: String,
     vid_index: u32,
     vid: Option<String>,
@@ -111,7 +111,7 @@ pub async fn transcode_for_playback(
         .await?;
         // 取流占前 20%，转码占后 80%：两段都动，但用户看到的是一条连续的进度
         emit(0.0, CompatPhase::Downloading);
-        let plain = crate::service::play_service::online::fetch_plain(&play, &settings).await?;
+        let plain = hongguo_service::play_service::online::fetch_plain(&play, &settings).await?;
         compat_play::ensure_compat(
             &series_id,
             vid_index,

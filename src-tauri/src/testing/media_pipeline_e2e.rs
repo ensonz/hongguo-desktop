@@ -617,7 +617,7 @@ fn compat_merge_unifies_mixed_resolutions_by_scaling() {
         eprintln!("[e2e] 这批数据没有混合分辨率，跳过");
         return;
     }
-    let (w, h) = crate::service::transcode_service::pipeline::resolution_of(&picks[0]).unwrap();
+    let (w, h) = hongguo_service::transcode_service::pipeline::resolution_of(&picks[0]).unwrap();
 
     let dir = scratch("compat-mixed");
     let seconds = |p: &Path| {
@@ -706,7 +706,7 @@ async fn compat_playback_transcodes_a_real_hevc_episode() {
     std::fs::create_dir_all(&dir).unwrap();
     let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
 
-    use crate::service::play_service::compat_play as cp;
+    use hongguo_service::play_service::compat_play as cp;
     let got = match cp::ensure_compat("e2e-cp", 1, cp::CompatSource::LocalFile(&src), &|_| {}).await
     {
         Ok(v) => v,
@@ -720,7 +720,7 @@ async fn compat_playback_transcodes_a_real_hevc_episode() {
     assert!(!got.cached, "首次不该命中缓存");
     assert!(got.url.contains("hongguo-local"), "实际: {}", got.url);
 
-    let path = crate::service::transcode_service::cache::cache_file("e2e-cp", 1);
+    let path = hongguo_service::transcode_service::cache::cache_file("e2e-cp", 1);
     let tracks = hongguo_media::demux::demux_file(&path).unwrap();
     let v = tracks.video_track().expect("产物要有视频轨");
     assert_eq!(v.info.codec, "avc1", "兜底的产物必须是 H.264");

@@ -1,0 +1,55 @@
+[package]
+name = "hongguo-service"
+description = "红果桌面版业务编排层：download / play / merge / login / series / settings / storage / transcode / capability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 业务状态（AppState）经 Tauri 的 manage 注入；后台任务统一走
+# tauri::async_runtime（全局执行器，任意线程可调，无 Tokio 上下文的线程上
+# 也能安全 spawn——红线 1 的根基）。GPUI 壳直接消费本 crate 时同样可用。
+tauri = { version = "2", features = [] }
+# 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量。
+hongguo-common = { path = "../hongguo-common" }
+# 官方接口客户端。
+hongguo-api = { path = "../hongguo-api" }
+# 请求签名（设备档案是 AppState 的一等公民）。
+hongguo-signer = { path = "../hongguo-signer" }
+# 持久化（Turso 内嵌库）。
+hongguo-store = { path = "../hongguo-store" }
+# 纯 Rust 编解码核心（Backend 标识 / demux / transcode 兜底 / 封面软解）。
+hongguo-media = { path = "../hongguo-media" }
+# 平台层（能力探测 / 平台硬编 / ffmpeg 执行——转码分流链的第二、三层）。
+hongguo-media-platform = { path = "../hongguo-media-platform" }
+# 在线流契约（渐进流填充、Range 线格式）。
+hongguo-stream = { path = "../hongguo-stream" }
+# MP4 容器解析（play_service 造解密计划：SparseBuffer / StreamingPlan）。
+hongguo-mp4 = { path = "../hongguo-mp4" }
+# 自定义协议的供数逻辑（play_service 构造 WebView 播放 URL：local_play_url /
+# stream_url——service→protocol 正向边，方向向下无环，见方案 §4.2 修正注）。
+hongguo-protocol = { path = "../hongguo-protocol" }
+log = "0.4"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+# 异步运行时设施（Semaphore 门闸、sleep）——运行时内调用，与裸 spawn 的红线无涉。
+tokio = { version = "1", features = ["sync", "time"] }
+chrono = "0.4"
+# HEVC 扩展安装包的完整性校验（capability_service 算文件 SHA-256）。
+sha2 = "0.11"
+hex = "0.4"
+# 在线播放的 CDN 分片拉取（play_service 侧的渐进填充）。
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
+    "gzip",
+] }
+
+[dev-dependencies]
+# 本 crate 的测试要构造 MP4 样本，开启 hongguo-mp4 的测试辅助模块。
+hongguo-mp4 = { path = "../hongguo-mp4", features = ["test-support"] }
+# 落盘用例要把数据目录重定向到临时目录（不能写进用户真实 %APPDATA%）。
+hongguo-store = { path = "../hongguo-store", features = ["test-support"] }

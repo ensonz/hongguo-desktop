@@ -40,7 +40,7 @@ impl CacheUsage {
 
 /// 当前占用总览。
 pub fn usage() -> CacheUsage {
-    let (files, bytes) = crate::service::play_service::online::status();
+    let (files, bytes) = crate::play_service::online::status();
     CacheUsage {
         online: CachePart {
             files: files as u64,
@@ -64,8 +64,8 @@ pub struct CacheClearResult {
 /// 一键清空三处缓存。
 pub fn clear() -> CacheClearResult {
     let before = usage();
-    let online = crate::service::play_service::online::clear();
-    let compat = crate::service::transcode_service::cache::clear();
+    let online = crate::play_service::online::clear();
+    let compat = crate::transcode_service::cache::clear();
     let cover = clear_dir(&cover_cache_dir());
     CacheClearResult {
         items: online as u64 + compat as u64 + cover,

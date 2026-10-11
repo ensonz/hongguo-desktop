@@ -24,7 +24,7 @@ pub fn delete_series(state: &State<'_, AppState>, series_id: &str) -> AppResult<
         // 留着 completed 记录，播放会照它去开本地文件 → 「媒体处理失败」，
         // 回落不到在线流。文件本来就缺（记录早发霉）时同样要摘，那是自愈。
         removed_ids.push(t.id.clone());
-        crate::service::download_service::worker::cleanup_temp(p);
+        crate::download_service::worker::cleanup_temp(p);
     }
     state.queue().remove(&removed_ids);
     cleanup_merge_artifacts(state, &title);
@@ -47,7 +47,7 @@ pub fn delete_episode(
             // 而文件已经不在 → 直接「媒体处理失败」，回落不到在线流。
             // 文件本来就缺（记录早发霉）时同样要摘，那是自愈。
             state.queue().remove_episode(series_id, vid_index);
-            crate::service::download_service::worker::cleanup_temp(path);
+            crate::download_service::worker::cleanup_temp(path);
             Ok(ok)
         }
         None => Ok(false),

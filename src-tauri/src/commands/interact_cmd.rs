@@ -6,13 +6,13 @@
 use serde::Deserialize;
 use tauri::State;
 
-use crate::app_state::AppState;
 use hongguo_api::interact::{
     BookshelfEntry, CommentItem, InteractionState, ReplyItem, collect_series, collect_series_batch,
     delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
     fetch_interaction_state, send_comment, send_danmaku, send_reply, send_review_reply,
 };
 use hongguo_common::{AppError, AppResult};
+use hongguo_service::app_state::AppState;
 
 /// 批量收藏/取消收藏的单条引用。
 #[derive(Debug, Deserialize)]

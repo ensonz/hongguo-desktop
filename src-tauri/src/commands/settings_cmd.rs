@@ -2,9 +2,9 @@
 
 use tauri::State;
 
-use crate::app_state::AppState;
 use hongguo_common::AppResult;
 use hongguo_common::model::{ProxyTestResult, Settings};
+use hongguo_service::app_state::AppState;
 
 /// 读设置。
 #[tauri::command]
@@ -15,7 +15,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 /// 存设置（立即生效，无需重启）。
 #[tauri::command]
 pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
-    let normalized = crate::service::settings_service::normalize(settings)?;
+    let normalized = hongguo_service::settings_service::normalize(settings)?;
 
     state.replace_settings(normalized.clone());
     // 并发上限立即应用到调度器
@@ -34,5 +34,5 @@ pub async fn test_proxy(
     draft: Option<hongguo_common::model::ProxyConfig>,
 ) -> AppResult<ProxyTestResult> {
     let cfg = draft.unwrap_or_else(|| state.settings().proxy);
-    crate::service::settings_service::proxy::test_proxy(&cfg).await
+    hongguo_service::settings_service::proxy::test_proxy(&cfg).await
 }

@@ -12,7 +12,7 @@ use super::done_inputs;
 use super::guard::RunningMerge;
 use super::progress::ProgressSink;
 use crate::app_state::AppState;
-use crate::service::transcode_service::{cache, pipeline};
+use crate::transcode_service::{cache, pipeline};
 use hongguo_common::model::MergeTask;
 use hongguo_common::{AppError, AppResult};
 use hongguo_media::transcode::TranscodeOptions;

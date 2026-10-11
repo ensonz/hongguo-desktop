@@ -30,7 +30,7 @@ pub fn account_from_login(
 pub fn persist_account(state: &AppState, account: Option<AccountState>) -> AppResult<()> {
     let mut settings = state.settings();
     settings.account = account;
-    let normalized = crate::service::settings_service::normalize(settings)?;
+    let normalized = crate::settings_service::normalize(settings)?;
     state.replace_settings(normalized.clone());
     state.store.save_settings(&normalized)?;
     Ok(())

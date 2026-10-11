@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::service::transcode_service::cache;
+use crate::transcode_service::cache;
 use hongguo_common::{AppError, AppResult};
 
 /// 兜底转码的结果。
@@ -39,7 +39,7 @@ pub async fn ensure_compat(
 ) -> AppResult<CompatPlay> {
     if let Some(p) = cache::cached_path(series_id, vid_index) {
         on_progress(100.0);
-        let url = crate::protocol::local::local_play_url(&p.to_string_lossy())
+        let url = hongguo_protocol::local::local_play_url(&p.to_string_lossy())
             .ok_or_else(|| AppError::Media("转码产物路径无法转成播放地址".into()))?;
         return Ok(CompatPlay {
             url,
@@ -82,7 +82,7 @@ pub async fn ensure_compat(
     // 2) 转码。分流链（平台硬编 → ffmpeg → 纯 Rust）在 pipeline 里只有一份，
     //    这里必须走同一个入口——曾在这里复刻过一条 ffmpeg→软解的私有分流，
     //    平台硬编接不进来，兼容播放永远拿不到硬编速度。
-    let result = crate::service::transcode_service::pipeline::transcode(
+    let result = crate::transcode_service::pipeline::transcode(
         series_id,
         vid_index,
         &plain,
@@ -99,7 +99,7 @@ pub async fn ensure_compat(
 
     on_progress(100.0);
     let elapsed = started.elapsed();
-    let url = crate::protocol::local::local_play_url(&result.output_path)
+    let url = hongguo_protocol::local::local_play_url(&result.output_path)
         .ok_or_else(|| AppError::Media("转码产物路径无法转成播放地址".into()))?;
     log::info!(
         "[Compat] 第 {vid_index} 集就绪：{}，耗时 {elapsed:?}",
@@ -160,7 +160,7 @@ mod tests {
         assert!(
             got.url.starts_with(&format!(
                 "{}/f/",
-                crate::protocol::scheme_base(crate::protocol::LOCAL_SCHEME)
+                hongguo_protocol::scheme_base(hongguo_protocol::LOCAL_SCHEME)
             )),
             "实际: {}",
             got.url

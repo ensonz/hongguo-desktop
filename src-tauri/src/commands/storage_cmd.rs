@@ -2,13 +2,13 @@
 
 use tauri::State;
 
-use crate::app_state::AppState;
-use crate::service::storage_service::{
+use hongguo_common::AppResult;
+use hongguo_service::app_state::AppState;
+use hongguo_service::storage_service::{
     cache::{self, CacheClearResult, CacheUsage},
     cleanup, usage,
     usage::{StorageSeriesUsage, StorageUsage},
 };
-use hongguo_common::AppResult;
 
 /// 本地占用统计。
 #[tauri::command]
@@ -66,5 +66,5 @@ pub fn delete_all_downloaded(state: State<'_, AppState>) -> AppResult<usize> {
 
 /// 清理后同步任务状态并落盘。
 fn after_cleanup(state: &State<'_, AppState>) -> AppResult<()> {
-    crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Storage")
+    hongguo_service::download_service::persist_tasks(&state.store, &state.queue(), "Storage")
 }

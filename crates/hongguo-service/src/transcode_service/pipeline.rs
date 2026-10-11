@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use crate::service::transcode_service::cache;
+use crate::transcode_service::cache;
 use hongguo_common::AppResult;
 use hongguo_media::transcode::{TranscodeOptions, TranscodeResult};
 

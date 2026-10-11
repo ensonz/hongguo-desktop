@@ -6,11 +6,11 @@
 
 use tauri::Manager;
 
-use crate::app_state::AppState;
+use hongguo_service::app_state::AppState;
 
 pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let state = app.state::<AppState>();
-    match crate::service::download_service::rescan::rescan_from_disk(&state) {
+    match hongguo_service::download_service::rescan::rescan_from_disk(&state) {
         Ok(summary) => {
             if summary.added.is_empty() {
                 log::info!(

@@ -5,14 +5,14 @@
 use tauri::{AppHandle, Emitter, State};
 
 use super::persist;
-use crate::app_state::AppState;
-use crate::service::download_service::events::names;
 use hongguo_common::model::DownloadTask;
 use hongguo_common::{AppError, AppResult};
+use hongguo_service::app_state::AppState;
+use hongguo_service::download_service::events::names;
 
 /// 提交一批下载任务。
 ///
-/// 返回入队后的任务数。任务真正执行由 [`crate::service::download_service::worker`]
+/// 返回入队后的任务数。任务真正执行由 [`hongguo_service::download_service::worker`]
 /// 的调度循环完成，进度通过 `download-*` 事件推送。
 #[tauri::command]
 pub fn download_batch(
@@ -54,7 +54,7 @@ pub fn download_batch(
     }
 
     persist(&state)?;
-    crate::service::download_service::kick_from_handle(&app);
+    hongguo_service::download_service::kick_from_handle(&app);
     Ok(added)
 }
 
@@ -77,7 +77,7 @@ pub fn resume_all(app: AppHandle, state: State<'_, AppState>) -> AppResult<usize
     let n = state.queue().resume_all();
     persist(&state)?;
     let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
-    crate::service::download_service::kick_from_handle(&app);
+    hongguo_service::download_service::kick_from_handle(&app);
     Ok(n)
 }
 

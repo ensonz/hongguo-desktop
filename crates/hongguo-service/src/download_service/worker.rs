@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::StreamExt;
 
-use crate::service::download_service::events::ProgressThrottle;
+use crate::download_service::events::ProgressThrottle;
 use hongguo_common::model::Settings;
 use hongguo_common::utils::path::temp_path_for;
 use hongguo_common::{AppError, AppResult};

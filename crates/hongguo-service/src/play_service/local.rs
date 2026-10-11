@@ -30,7 +30,7 @@ pub async fn resolve_play(
 
     // 调用方直接给了路径就用它
     if !request.file_path.trim().is_empty() {
-        let url = crate::protocol::local::local_play_url(&request.file_path)
+        let url = hongguo_protocol::local::local_play_url(&request.file_path)
             .ok_or_else(|| AppError::InvalidArgs("文件路径无效".into()))?;
         return Ok(local_response(url, false));
     }
@@ -41,7 +41,7 @@ pub async fn resolve_play(
         .completed_path(&request.series_id, request.vid_index);
 
     if let Some(path) = local
-        && let Some(url) = crate::protocol::local::local_play_url(&path)
+        && let Some(url) = hongguo_protocol::local::local_play_url(&path)
     {
         return Ok(local_response(url, false));
     }
@@ -71,9 +71,8 @@ pub async fn resolve_play(
             );
             let env = state.api_env();
             let series =
-                crate::service::series_service::resolver::resolve_series(&request.series_id, &env)
-                    .await?;
-            crate::service::series_service::registry::upsert_and_persist(state, series)?;
+                crate::series_service::resolver::resolve_series(&request.series_id, &env).await?;
+            crate::series_service::registry::upsert_and_persist(state, series)?;
             episode_vid(&state.store, &request.series_id, request.vid_index).ok_or_else(|| {
                 AppError::NotFound(format!("解析后仍找不到第 {} 集的 vid", request.vid_index))
             })?
@@ -95,7 +94,7 @@ pub async fn resolve_play(
         Ok(prepared) => {
             // 无 HEVC 机器的连播预转：下一集若是 HEVC-only，后台先转好，
             // 连播到它时兜底直接命中缓存（门控/去重在 compat_prefetch 内）。
-            crate::service::play_service::compat_prefetch::schedule_next_episode(
+            crate::play_service::compat_prefetch::schedule_next_episode(
                 state.store.clone(),
                 state.settings(),
                 state.api_env(),

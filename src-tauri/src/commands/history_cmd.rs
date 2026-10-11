@@ -2,11 +2,11 @@
 
 use serde::Deserialize;
 
-use crate::app_state::AppState;
 use hongguo_api::history::{
     WatchHistoryPage, delete_watch_history, fetch_watch_history, report_watch_progress,
 };
 use hongguo_common::{AppError, AppResult};
+use hongguo_service::app_state::AppState;
 use tauri::State;
 
 /// 批量删除历史的单条引用（book_id/vid 定位，vid_index 随条带上）。

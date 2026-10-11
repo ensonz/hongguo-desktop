@@ -1,13 +1,7 @@
-//! 自定义 URI 协议：视频流、本地文件与封面转码供给。
+//! 协议 URL 的拼装与解析。
 //!
-//! - [`local`]：`hongguo-local://` 本地成品文件（支持 Range 拖动）
-//! - `hongguo-stream://`：在线播放的内存渐进流——数据面、缓存与 Range 应答
-//!   都搬到了 `hongguo-stream` crate，本模块只做路由与 URL 解析/拼装
-//! - [`cover`]：`hongguo-cover://` HEIC 封面下载转 JPEG（落盘缓存）
-
-pub mod cover;
-pub mod local;
-pub mod register;
+//! scheme 名（前后端契约）定义在 [`hongguo_common::consts::scheme`]，此处按
+//! 本 crate 旧名再导出，使用点沿用 `LOCAL_SCHEME` 等命名不改。
 
 /// 自定义协议 scheme 名（前后端契约）。
 ///
@@ -65,4 +59,52 @@ pub fn parse_stream_path(path: &str) -> Option<(u32, &str)> {
 /// 形态按平台走 [`scheme_base`]，原因见其文档。
 pub fn local_url(encoded: &str) -> String {
     format!("{}/f/{encoded}", scheme_base(LOCAL_SCHEME))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::local::local_play_url;
+
+    #[test]
+    fn stream_url_uses_the_platform_scheme_form() {
+        // Windows 走 http://{scheme}.localhost（WebView2 拦截约定），
+        // macOS/Linux 走 {scheme}://localhost（WKURLSchemeHandler/WebKit 拦真 scheme）。
+        // 形态给错的表现：<video> 拿到网络错误，MediaError 4 黑屏。
+        let url = stream_url("7687919221593885758", 1080);
+        let base = scheme_base(STREAM_SCHEME);
+        assert_eq!(url, format!("{base}/s/1080/7687919221593885758"));
+    }
+
+    #[test]
+    fn stream_url_changes_with_definition() {
+        // 同一集换清晰度时 URL 必须变，否则 <video> 认为资源没换、不会重新加载
+        let base = stream_url("v-42", 1080);
+        assert_ne!(base, stream_url("v-42", 720), "换档");
+    }
+
+    #[test]
+    fn stream_path_survives_the_round_trip() {
+        // 请求进来时 wry 已把 scheme 换回自定义协议，host 恒为 localhost，信息在 path 上
+        let url = stream_url("v-42", 720);
+        let base = scheme_base(STREAM_SCHEME);
+        let path = url.strip_prefix(&base).expect("URL 应以 scheme_base 开头");
+        assert_eq!(path, "/s/720/v-42");
+        assert_eq!(parse_stream_path(path), Some((720, "v-42")));
+    }
+
+    #[test]
+    fn a_path_we_did_not_generate_is_rejected() {
+        // path 只可能由 stream_url 生成，对不上就明确报错，不去猜 vid
+        assert_eq!(parse_stream_path("/v-42"), None);
+        assert_eq!(parse_stream_path("/s/abc/v-42"), None);
+        assert_eq!(parse_stream_path("/s/720"), None);
+    }
+
+    #[test]
+    fn local_url_uses_the_platform_scheme_form() {
+        let url = local_play_url("D:\\a.mp4").unwrap();
+        let base = scheme_base(LOCAL_SCHEME);
+        assert!(url.starts_with(&format!("{base}/f/")), "实际: {url}");
+    }
 }

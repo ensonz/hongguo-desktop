@@ -17,6 +17,8 @@ members = [
     "crates/hongguo-media",
     "crates/hongguo-media-platform",
     "crates/hongguo-mp4",
+    "crates/hongguo-protocol",
+    "crates/hongguo-service",
     "crates/hongguo-signer",
     "crates/hongguo-store",
     "crates/hongguo-stream",

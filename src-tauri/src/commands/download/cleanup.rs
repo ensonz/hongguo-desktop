@@ -4,11 +4,11 @@
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::app_state::AppState;
 use hongguo_common::AppResult;
+use hongguo_service::app_state::AppState;
 
 use super::persist;
-use crate::service::download_service::events::names;
+use hongguo_service::download_service::events::names;
 
 /// 删除任务；`delete_files` 为真时同时删除本地文件。
 #[tauri::command]
@@ -31,7 +31,7 @@ pub fn delete_tasks(
                 if let Err(e) = std::fs::remove_file(path) {
                     failed.push(format!("{} ({e})", path.display()));
                 }
-                crate::service::download_service::worker::cleanup_temp(path);
+                hongguo_service::download_service::worker::cleanup_temp(path);
             }
         }
         // 删不掉的文件（被播放器占用、权限不足）必须留痕：否则用户看到
@@ -56,7 +56,7 @@ pub fn delete_tasks(
 /// 返回补回的条数。已有记录的集（无论状态）不动。
 #[tauri::command]
 pub fn rescan_downloads(app: AppHandle, state: State<'_, AppState>) -> AppResult<usize> {
-    let summary = crate::service::download_service::rescan::rescan_from_disk(&state)?;
+    let summary = hongguo_service::download_service::rescan::rescan_from_disk(&state)?;
     for task in &summary.added {
         let _ = app.emit(
             names::DOWNLOAD_TASK_ADDED,

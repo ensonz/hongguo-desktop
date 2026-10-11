@@ -16,7 +16,7 @@ use hongguo_common::{AppError, AppResult};
 /// 顺序字节拷贝，中途打断会留下半截文件。
 ///
 /// 收 `&AppState` 而不是 command 的 `State<'_, _>`：合并在后台线程上跑，
-/// 那里拿不到 command 的生命周期借用（见 [`crate::commands::merge_cmd::merge_series`]）。
+/// 那里拿不到 command 的生命周期借用（见壳内 `commands::merge_cmd::merge_series`）。
 pub fn quick_merge(
     state: &AppState,
     series_id: &str,

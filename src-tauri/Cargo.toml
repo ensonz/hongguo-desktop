@@ -34,6 +34,10 @@ hongguo-stream = { path = "../crates/hongguo-stream" }
 hongguo-media = { path = "../crates/hongguo-media" }
 # 平台层编解码（MF / VT / WIC 硬编 + ffmpeg 执行 + 能力探测）；不依赖 tauri。
 hongguo-media-platform = { path = "../crates/hongguo-media-platform" }
+# 自定义 URI 协议供数逻辑（本 crate 只剩 Builder 注册胶水）；不依赖 tauri。
+hongguo-protocol = { path = "../crates/hongguo-protocol" }
+# 业务编排层（九域 service + AppState；tauri 依赖仅取 async_runtime）。
+hongguo-service = { path = "../crates/hongguo-service" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"

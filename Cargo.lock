@@ -2350,6 +2350,8 @@ dependencies = [
  "hongguo-media",
  "hongguo-media-platform",
  "hongguo-mp4",
+ "hongguo-protocol",
+ "hongguo-service",
  "hongguo-signer",
  "hongguo-store",
  "hongguo-stream",
@@ -2423,6 +2425,48 @@ dependencies = [
  "hongguo-common",
  "log",
  "parking_lot",
+]
+
+[[package]]
+name = "hongguo-protocol"
+version = "0.4.4"
+dependencies = [
+ "base64 0.23.1",
+ "hongguo-common",
+ "hongguo-media",
+ "hongguo-media-platform",
+ "hongguo-store",
+ "hongguo-stream",
+ "log",
+ "reqwest",
+ "sha2 0.11.0",
+ "tokio",
+]
+
+[[package]]
+name = "hongguo-service"
+version = "0.4.4"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "hex",
+ "hongguo-api",
+ "hongguo-common",
+ "hongguo-media",
+ "hongguo-media-platform",
+ "hongguo-mp4",
+ "hongguo-protocol",
+ "hongguo-signer",
+ "hongguo-store",
+ "hongguo-stream",
+ "log",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tauri",
+ "tokio",
 ]
 
 [[package]]

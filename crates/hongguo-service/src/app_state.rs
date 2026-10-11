@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::service::download_service::queue::DownloadQueue;
-use crate::service::download_service::scheduler::DownloadScheduler;
+use crate::download_service::queue::DownloadQueue;
+use crate::download_service::scheduler::DownloadScheduler;
 use hongguo_common::model::settings::Settings;
 use hongguo_store::Store;
 

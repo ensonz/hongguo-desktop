@@ -7,12 +7,10 @@
 // 全部模块都私有：本 crate 只有一个消费方（本文件的 `run`），没有 bin 目标
 // 也没有外部依赖 crate，把 `domain` / `signer` 之类暴露成 `pub` 只会让人
 // 以为可以从 crate 外部直接调它们。
-mod app_state;
 mod bootstrap;
 mod commands;
 mod diagnostics;
 mod protocol;
-mod service;
 mod testing;
 
 use hongguo_common::{AppError, AppResult};
@@ -54,7 +52,7 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_webdriver::init());
 
     // 自定义协议要在 setup 之前注册（Builder 阶段）
-    let builder = protocol::register::register(builder);
+    let builder = protocol::register(builder);
 
     builder
         .setup(|app| {
@@ -247,7 +245,7 @@ fn bring_back_active_window(app: &tauri::AppHandle) {
 /// （隐身隐藏/小窗模式）这里会撞库锁。锁冲突给一次短暂重试（真双开的
 /// 败者本该在插件阶段就被劝退，走到这里多半是极端竞态），仍锁着就带着
 /// 明确指引退出，而不是误报「数据文件损坏」。
-fn build_app_state() -> std::sync::Arc<app_state::AppStateInner> {
+fn build_app_state() -> std::sync::Arc<hongguo_service::AppStateInner> {
     let db = match open_store_with_lock_retry() {
         Ok(db) => db,
         Err(AppError::StoreLocked(e)) => {
@@ -274,7 +272,7 @@ fn build_app_state() -> std::sync::Arc<app_state::AppStateInner> {
         "[Device] 现役档案 iid={}（{device_source}）",
         device.get("iid")
     );
-    std::sync::Arc::new(app_state::AppStateInner::with_device(db, device))
+    std::sync::Arc::new(hongguo_service::AppStateInner::with_device(db, device))
 }
 
 /// 开库；被锁时稍等重试一次（覆盖两实例几乎同时启动、败者尚未退出的窗口期）。

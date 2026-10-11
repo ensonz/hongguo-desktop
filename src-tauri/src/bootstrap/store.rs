@@ -2,7 +2,7 @@
 
 use tauri::Manager;
 
-use crate::app_state::AppState;
+use hongguo_service::app_state::AppState;
 
 /// 装配持久化状态。
 ///
@@ -26,7 +26,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
         .settings()
         .map_err(|e| tauri::Error::Anyhow(e.into()))?
         .unwrap_or_default();
-    let settings = crate::service::settings_service::normalize(stored)
+    let settings = hongguo_service::settings_service::normalize(stored)
         .map_err(|e| tauri::Error::Anyhow(e.into()))?;
     let limit = settings.max_concurrency;
     state.replace_settings(settings);
@@ -65,7 +65,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
         .series_all()
         .map(|s| s.len())
         .unwrap_or_default();
-    let queue = crate::service::download_service::queue::DownloadQueue::restore(tasks, limit);
+    let queue = hongguo_service::download_service::queue::DownloadQueue::restore(tasks, limit);
     state.replace_queue(queue);
 
     // 加载结果必须能被人核对：设置读不出来时用户只会看到「目录变回默认了」这种

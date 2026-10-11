@@ -2,7 +2,7 @@
 //!
 //! 用于任务记录丢失/被清空、或早期版本直接下载没登记的情况——
 //! 只要磁盘上有文件且能对上集号，就重新登记为「已完成」。启动时自动跑一遍
-//! （[`crate::bootstrap::rescan`]），下载管理页也有手动入口（`rescan_downloads`）。
+//! （壳的 `bootstrap::rescan`），下载管理页也有手动入口（`rescan_downloads`）。
 //!
 //! 认集号两步走：
 //! 1. **精确寻址**：按当前命名模板把档案里每集的文件名算出来，存在即登记。
@@ -19,7 +19,7 @@ use hongguo_common::model::{DownloadTask, Series, Settings};
 
 /// 判定「磁盘上这个文件是一条有效分集」的最小体积。
 ///
-/// 与合并收集（[`crate::service::merge_service`]）的口径一致：小于它的多半是
+/// 与合并收集（[`crate::merge_service`]）的口径一致：小于它的多半是
 /// 上次中断留下的残缺文件，登记成已完成只会让播放时打不开。
 const MIN_EPISODE_BYTES: u64 = 100 * 1024;
 
@@ -91,7 +91,7 @@ pub fn rescan_from_disk(state: &AppState) -> AppResult<RescanSummary> {
     }
 
     if !summary.added.is_empty() {
-        crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Rescan")?;
+        crate::download_service::persist_tasks(&state.store, &state.queue(), "Rescan")?;
     }
     Ok(summary)
 }

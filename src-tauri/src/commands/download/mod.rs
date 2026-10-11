@@ -6,9 +6,9 @@
 
 use tauri::State;
 
-use crate::app_state::AppState;
 use hongguo_common::AppResult;
 use hongguo_common::model::{DownloadTask, QueueStatus};
+use hongguo_service::app_state::AppState;
 
 mod actions;
 mod cleanup;
@@ -31,5 +31,5 @@ pub fn get_queue_status(state: State<'_, AppState>) -> QueueStatus {
 
 /// 把队列快照写回数据文件。
 pub(crate) fn persist(state: &State<'_, AppState>) -> AppResult<()> {
-    crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Download")
+    hongguo_service::download_service::persist_tasks(&state.store, &state.queue(), "Download")
 }

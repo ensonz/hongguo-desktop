@@ -1,16 +1,16 @@
 //! 登录相关 command：发码 / 短信登录 / MFA 轮询 / 状态 / 退出。
 //!
 //! 只做参数校验与返回模型组装；登录编排（后台轮询 / 会话凭据 / 账号落库）
-//! 在 [`crate::service::login_service`]。
+//! 在 [`hongguo_service::login_service`]。
 
 use serde::Serialize;
 use tauri::State;
 
-use crate::app_state::AppState;
-use crate::service::login_service::{account, csrf, polling};
 use hongguo_api::login::{self, LoginOutcome, MfaContext, MfaFlow, PassportUser, UpsmsState};
 use hongguo_common::model::AccountState;
 use hongguo_common::{AppError, AppResult};
+use hongguo_service::app_state::AppState;
+use hongguo_service::login_service::{account, csrf, polling};
 
 /// 发送短信验证码。发码会话的 csrf 凭据暂存 AppState（sms_login 消费）。
 #[tauri::command]

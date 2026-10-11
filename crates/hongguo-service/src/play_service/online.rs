@@ -130,7 +130,7 @@ pub async fn prepare(
         return wait_for_fetch(c, vid, want).await;
     }
     c.set_definitions(vid, want, &play.definitions);
-    let url = crate::protocol::stream_url(vid, want);
+    let url = hongguo_protocol::stream_url(vid, want);
     // play 整份 move 进后台填充任务，这里先把要回给调用方的字段取出来
     let result = Prepared {
         url,
@@ -159,7 +159,7 @@ pub async fn prepare(
 /// 缓存里这一档已经能供数时，组装出播放响应。
 fn prepared(c: &StreamCache, vid: &str, definition: u32) -> Option<Prepared> {
     c.ready(vid, definition).map(|definitions| Prepared {
-        url: crate::protocol::stream_url(vid, definition),
+        url: hongguo_protocol::stream_url(vid, definition),
         definition,
         definitions,
     })
@@ -806,7 +806,7 @@ pub struct ProgressReporter {
     /// compat-play-progress 同一格式）——曾经发裸 vid 导致「正在缓存 X%」
     /// 永远匹配不上，别改回 vid。
     key: String,
-    throttle: crate::service::download_service::events::ProgressThrottle,
+    throttle: crate::download_service::events::ProgressThrottle,
 }
 
 impl ProgressReporter {
@@ -830,7 +830,7 @@ impl ProgressReporter {
         }
         use tauri::Emitter;
         let _ = self.app.emit(
-            crate::service::download_service::events::names::ONLINE_PROGRESS,
+            crate::download_service::events::names::ONLINE_PROGRESS,
             serde_json::json!({
                 "key": self.key,
                 "received": received,
@@ -846,7 +846,7 @@ impl ProgressReporter {
         self.throttle.forget(&self.key);
         use tauri::Emitter;
         let _ = self.app.emit(
-            crate::service::download_service::events::names::ONLINE_PROGRESS,
+            crate::download_service::events::names::ONLINE_PROGRESS,
             serde_json::json!({
                 "key": self.key,
                 "received": 0,

@@ -18,12 +18,12 @@
 
 use serde::Serialize;
 
-use crate::app_state::AppState;
 use hongguo_api::client::ApiEnv;
 use hongguo_api::register::register_device;
 use hongguo_api::search::search_series;
 use hongguo_common::AppError;
 use hongguo_common::utils::time::now_ms;
+use hongguo_service::app_state::AppState;
 use hongguo_signer::device::{DeviceProfile, align_app_version, video_device};
 use hongguo_store::Store;
 

@@ -2,7 +2,7 @@
 
 use tauri::Manager;
 
-use crate::app_state::AppState;
+use hongguo_service::app_state::AppState;
 
 /// 把待跑任务重新推入调度。
 ///
@@ -13,7 +13,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let status = app.state::<AppState>().queue().status();
     if status.pending > 0 {
         log::info!("[Bootstrap] 待续跑任务 {} 个，已推入调度", status.pending);
-        crate::service::download_service::kick_from_handle(app);
+        hongguo_service::download_service::kick_from_handle(app);
     }
     Ok(())
 }

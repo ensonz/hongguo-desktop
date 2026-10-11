@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use tauri::{AppHandle, State};
 
-use crate::app_state::AppState;
 use hongguo_common::AppResult;
+use hongguo_service::app_state::AppState;
 
 /// 窗口关闭拦截的「前端就绪」闸门：前端界面挂载完成后置位。
 ///

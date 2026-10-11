@@ -2,9 +2,9 @@
 
 use tauri::State;
 
-use crate::app_state::AppState;
 use hongguo_common::AppResult;
 use hongguo_common::model::{PlayRequest, PlayResponse};
+use hongguo_service::app_state::AppState;
 
 #[tauri::command]
 pub async fn play_series(
@@ -12,7 +12,7 @@ pub async fn play_series(
     state: State<'_, AppState>,
     request: PlayRequest,
 ) -> AppResult<PlayResponse> {
-    crate::service::play_service::local::resolve_play(&app, &state, &request).await
+    hongguo_service::play_service::local::resolve_play(&app, &state, &request).await
 }
 
 /// 与首页起点决策同口径（home-page 的起点 effect：看过 >3 秒就续播那一集）。
@@ -35,8 +35,8 @@ pub async fn play_prefetch(
         None => {
             let env = state.api_env();
             let s =
-                crate::service::series_service::resolver::resolve_series(&series_id, &env).await?;
-            crate::service::series_service::registry::upsert_and_persist(&state, s.clone())?;
+                hongguo_service::series_service::resolver::resolve_series(&series_id, &env).await?;
+            hongguo_service::series_service::registry::upsert_and_persist(&state, s.clone())?;
             s
         }
     };
@@ -59,7 +59,7 @@ pub async fn play_prefetch(
     }
     let settings = state.settings();
     let env = state.api_env();
-    crate::service::play_service::online::prefetch_stream(
+    hongguo_service::play_service::online::prefetch_stream(
         &app,
         &ep.vid,
         &format!("{series_id}:{}", ep.vid_index),
@@ -82,7 +82,7 @@ pub async fn save_playback_position(
 ) -> AppResult<()> {
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        crate::service::play_service::position::save_store(
+        hongguo_service::play_service::position::save_store(
             &store,
             &series_id,
             vid_index,

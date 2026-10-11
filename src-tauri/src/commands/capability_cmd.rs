@@ -2,8 +2,8 @@
 
 use tauri::State;
 
-use crate::app_state::AppState;
 use hongguo_common::AppResult;
+use hongguo_service::app_state::AppState;
 
 /// 本机 WebView2 能否解 HEVC。
 ///
@@ -21,5 +21,5 @@ pub fn playback_capability() -> bool {
 #[tauri::command]
 pub async fn install_hevc_extension(state: State<'_, AppState>) -> AppResult<bool> {
     let proxy = state.api_env().proxy;
-    crate::service::capability_service::install_hevc_extension(proxy).await
+    hongguo_service::capability_service::install_hevc_extension(proxy).await
 }

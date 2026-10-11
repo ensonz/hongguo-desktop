@@ -2,10 +2,10 @@
 
 use tauri::{Emitter, State};
 
-use crate::app_state::AppState;
-use crate::service::series_service;
 use hongguo_common::AppResult;
 use hongguo_common::model::Series;
+use hongguo_service::app_state::AppState;
+use hongguo_service::series_service;
 
 /// 取某部剧的完整档案（含分集）。
 ///

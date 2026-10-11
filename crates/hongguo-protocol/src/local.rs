@@ -72,7 +72,7 @@ pub fn serve(raw_path: &str, range_header: Option<&str>) -> Result<ProtocolRespo
 pub fn local_play_url(path: &str) -> Option<String> {
     validate_extension(path).ok()?;
     let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(path);
-    Some(super::local_url(&encoded))
+    Some(crate::local_url(&encoded))
 }
 
 /// 从协议 URL 还原文件路径，并校验扩展名。
@@ -140,7 +140,7 @@ mod tests {
     fn round_trips_url_and_path() {
         let p = "D:\\dl\\剧名 合集.mp4";
         let url = local_play_url(p).expect("mp4 应允许");
-        let base = crate::protocol::scheme_base(crate::protocol::LOCAL_SCHEME);
+        let base = crate::scheme_base(crate::LOCAL_SCHEME);
         assert!(url.starts_with(&format!("{base}/f/")));
         let raw = url.rsplit('/').next().expect("URL 末段是编码后的路径");
         assert_eq!(resolve_path(raw).unwrap(), PathBuf::from(p));
