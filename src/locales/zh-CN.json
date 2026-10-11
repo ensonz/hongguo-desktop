@@ -153,6 +153,7 @@
     "hevcInstall": "一键安装",
     "hevcInstalling": "下载安装中…",
     "hevcLater": "暂不安装",
+    "hevcChooseCompat": "暂不安装，转兼容格式播放",
     "hevcInstallSuccess": "扩展已安装，正在重试播放",
     "hevcInstallFailed": "HEVC 扩展安装失败：{reason}",
     "hevcStillNoPicture": "扩展已装好但画面仍未恢复，请重启应用后再试",

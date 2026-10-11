@@ -153,6 +153,7 @@
     "hevcInstall": "Install now",
     "hevcInstalling": "Downloading and installing…",
     "hevcLater": "Not now",
+    "hevcChooseCompat": "Skip — play converted format",
     "hevcInstallSuccess": "Extension installed — retrying playback",
     "hevcInstallFailed": "Failed to install the HEVC extension: {reason}",
     "hevcStillNoPicture": "The extension is installed but the picture still fails — restart the app and try again",

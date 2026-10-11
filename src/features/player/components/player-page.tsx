@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { useIncognitoMode } from './incognito';
 import { useMinimizeAutoPause } from '../hooks/use-minimize-pause';
 import { classifyMediaError } from '../hooks/media-error';
+import { hevcSession } from '../hooks/hevc-session';
 import { usePlaybackSource } from '../hooks/use-playback-source';
 import { useTranscodeFallback } from '../hooks/use-transcode-fallback';
 import { usePlaybackProgress } from '../hooks/use-playback-progress';
@@ -229,6 +230,11 @@ export function PlayerView({
   const danmakuQuery = useDanmaku(currentVid ? `${currentVid}:${seriesId}` : '');
   // 无 HEVC 扩展机器的安装引导数据源（false 才弹卡，探测未落定不渲染）
   const { data: hevcPlayable } = usePlaybackCapability();
+  /**
+   * 解码失败待裁决：带 key（集标识）读时过滤而非换集时清空——同步
+   * setState 会触发级联渲染（react-hooks/set-state-in-effect 会拦）。
+   */
+  const [decodeBlocked, setDecodeBlocked] = useState<{ key: string } | null>(null);
   const { danmakuOn, danmakuDisplay, updateDanmakuDisplay, toggleDanmaku } = useDanmakuSettings();
   // 弹幕拉取失败不能静默：画面照常播，但用户该知道弹幕为什么没了
   useEffect(() => {
@@ -239,6 +245,10 @@ export function PlayerView({
 
   // 转码兜底与最终供流地址裁决抽在 use-transcode-fallback：
   // videoWidth==0 探测 + H.264 转码轮询 + 重试防缓存钉。
+  // 裁决入口给 hook 一个恒定代理：真正实现依赖 hook 回传的 startCompat
+  // （要问「装扩展还是转兼容」），定义在 hook 之后经 ref 同步。
+  const onDecodeFailureRef = useRef<() => void>(() => {});
+  const onDecodeFailure = useCallback(() => onDecodeFailureRef.current(), []);
   const { compatSrc, compat, playSrc, streamKey, startCompat } = useTranscodeFallback({
     videoRef,
     seriesId,
@@ -250,9 +260,26 @@ export function PlayerView({
     srcKeyRef,
     setSrcKey,
     currentSeries,
+    onDecodeFailure,
   });
   /** 切换在途：目标已是新的一集，元素里还是上一条流（play 请求未返回） */
   const switching = srcKey !== episodeKey;
+
+  // 解码失败的裁决：无 HEVC 机器先出主卡问「装扩展还是转兼容」（选过
+  // 转兼容的会话不再重复问，径直兜底——连播不被打断）；其余情况直接转。
+  // 装完扩展后能力缓存已刷新为 true，此后解码失败自动走兜底（罕见路径）。
+  const decodeBlocking = decodeBlocked?.key === episodeKey;
+  const requestDecodeFallback = useCallback(() => {
+    if (hevcPlayable === false && !hevcSession.compatAuthorized()) {
+      setDecodeBlocked({ key: episodeKey });
+      return;
+    }
+    startCompat();
+  }, [hevcPlayable, startCompat, episodeKey]);
+  // 每次渲染同步最新裁决到代理（effect 时机足够：轮询首发至少 1.2s 后）
+  useEffect(() => {
+    onDecodeFailureRef.current = requestDecodeFallback;
+  }, [requestDecodeFallback]);
 
   // 剧终三级接力（下一季→宿主推荐/猜你喜欢）与连播锁定抽在
   // use-binge-relay；setSlideDir 是「内容从哪边滑入」的方向信号，
@@ -430,7 +457,7 @@ export function PlayerView({
       // 无扩展机器的 HEVC 系黑屏原先会先空转一次重试再死在错误页，恰好
       // 绕过 videoWidth 轮询兜底——这条通道把它接住。
       if (classifyMediaError(me?.code) === 'decode') {
-        startCompat();
+        requestDecodeFallback();
         return;
       }
       if (retryTick < 1) {
@@ -683,14 +710,21 @@ export function PlayerView({
                   不知道是卡住了还是在慢慢转。z-30：压过封面占位。 */}
                 {compat && <CompatOverlay compat={compat} />}
 
-                {/* 无 HEVC 扩展机器的安装引导（底部悬浮，不打断在播内容）：
-                  兜底转码进行中不弹（CompatOverlay 在场说明已经在自救）；
-                  装好且画面没在播时借 retryOnline 的换 URL 通道重试起播。 */}
-                {hevcPlayable === false && !compat && (
+                {/* 无 HEVC 扩展机器的安装引导：
+                  - 底部悬浮（proactive）：降档播放时提示装扩展提画质；
+                  - 居中主卡（blocking）：解码失败后必须二选一——装扩展
+                    （10–30 秒，全剧原生秒开）或转兼容格式（本集分钟级）。
+                  装好且画面没在播时借 retryOnline 换 URL 通道重试起播。 */}
+                {hevcPlayable === false && !compat && !compatSrc && (
                   <HevcInstallCard
                     hevcPlayable={false}
+                    variant={decodeBlocking ? 'blocking' : 'floating'}
                     onInstalled={() => {
                       if (!videoLive) retryOnline();
+                    }}
+                    onChooseCompat={() => {
+                      setDecodeBlocked(null);
+                      startCompat();
                     }}
                   />
                 )}
