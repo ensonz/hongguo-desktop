@@ -387,7 +387,13 @@ export function HomePage() {
     );
   }
   if (loadError && items.length === 0) {
-    return <ErrorState message={t('feed.loadFailed')} detail={loadError} onRetry={retrySource} />;
+    return (
+      <ErrorState
+        message={t('feed.loadFailed')}
+        detail={loadError}
+        onRetry={() => void retrySource()}
+      />
+    );
   }
   // 首批在拉时不是空态：画面继续播上一次的剧，拉到位自动过去
   if (!current && items.length === 0 && !isLoading) {
@@ -399,7 +405,7 @@ export function HomePage() {
           </EmptyTitle>
         </EmptyHeader>
         <EmptyContent>
-          <Button variant="outline" size="sm" onClick={retrySource}>
+          <Button variant="outline" size="sm" onClick={() => void retrySource()}>
             {t('feed.retry')}
           </Button>
         </EmptyContent>

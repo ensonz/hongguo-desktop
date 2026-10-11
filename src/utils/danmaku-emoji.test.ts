@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DANMAKU_EMOJI_LIST, parseEmojiSegments } from './danmaku-emoji';
 
+// 资源 URL 是构建期哈希值，断言「是个字符串」就够；expect.any 返回 any，
+// cast 成 string 让对象字面量过 type-aware 规则
+const anyUrl = expect.any(String) as string;
+
 describe('danmaku emoji', () => {
   it('表情表齐全：53 个，全部有资源 URL', () => {
     expect(DANMAKU_EMOJI_LIST).toHaveLength(53);
@@ -14,9 +18,9 @@ describe('danmaku emoji', () => {
     const segs = parseEmojiSegments('我去，开头好美[爱慕][爱慕][爱慕]');
     expect(segs).toEqual([
       { kind: 'text', value: '我去，开头好美' },
-      { kind: 'emoji', value: '[爱慕]', url: expect.any(String) },
-      { kind: 'emoji', value: '[爱慕]', url: expect.any(String) },
-      { kind: 'emoji', value: '[爱慕]', url: expect.any(String) },
+      { kind: 'emoji', value: '[爱慕]', url: anyUrl },
+      { kind: 'emoji', value: '[爱慕]', url: anyUrl },
+      { kind: 'emoji', value: '[爱慕]', url: anyUrl },
     ]);
   });
 
@@ -35,8 +39,6 @@ describe('danmaku emoji', () => {
     expect(parseEmojiSegments('[九个字以上的名字]')).toEqual([
       { kind: 'text', value: '[九个字以上的名字]' },
     ]);
-    expect(parseEmojiSegments('[赞]')).toEqual([
-      { kind: 'emoji', value: '[赞]', url: expect.any(String) },
-    ]);
+    expect(parseEmojiSegments('[赞]')).toEqual([{ kind: 'emoji', value: '[赞]', url: anyUrl }]);
   });
 });

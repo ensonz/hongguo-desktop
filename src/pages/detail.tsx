@@ -23,7 +23,15 @@ export const Route = createFileRoute('/detail')({
 });
 
 function DetailRoute() {
-  const { seriesId, title, cover, tags, desc } = Route.useSearch();
+  // routeTree.gen 是 @ts-nocheck + as any 的生成物，会污染 useSearch 的
+  // 返回类型——形状以本路由 validateSearch 的返回为准，double cast 换回
+  const { seriesId, title, cover, tags, desc } = Route.useSearch() as unknown as {
+    seriesId: string;
+    title: string;
+    cover: string;
+    tags: string;
+    desc: string;
+  };
   return (
     <SeriesDetailPage
       seriesId={seriesId}

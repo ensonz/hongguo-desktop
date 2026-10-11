@@ -60,7 +60,7 @@ export function useEvent<C extends EventName>(
     let cancelled = false;
 
     const schema = EVENT_PAYLOADS[name];
-    listen(name, (event) => {
+    void listen(name, (event) => {
       const parsed = schema.safeParse(event.payload);
       if (!parsed.success) {
         // 契约漂移是「后端改了载荷」，必须当场可查：事件名 + zod issue。

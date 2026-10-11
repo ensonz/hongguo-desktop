@@ -7,10 +7,10 @@ import { DANMAKU_EMOJI_FILES } from './danmaku-emoji-files.generated';
  */
 
 // 文件名 → 打包后的资源 URL（构建期哈希，可直接当 img src 用）
-const URLS = import.meta.glob('../assets/emoji/*.webp', {
+const URLS = import.meta.glob<string>('../assets/emoji/*.webp', {
   eager: true,
   import: 'default',
-}) as Record<string, string>;
+});
 
 /** `[名字]` 代码：1–8 个非空白字符（hgplayer 同一款正则）。 */
 const EMOJI_RE = /\[[^\][\s]{1,8}\]/g;

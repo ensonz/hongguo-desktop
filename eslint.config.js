@@ -11,11 +11,14 @@ export default tseslint.config(
     ignores: ['dist', 'captures', 'src-tauri', 'routeTree.gen.ts', 'node_modules', '.agents'],
   },
   {
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,
+      // type-aware 规则（no-floating-promises / no-unsafe-* 系）需要类型信息：
+      // projectService 按就近 tsconfig 匹配项目（app / node 两个），无需手工列
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
     plugins: {
       'react-hooks': reactHooks,

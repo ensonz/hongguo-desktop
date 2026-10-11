@@ -95,7 +95,7 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
       fontPx = Math.max(10, Math.round(base * settings.fontScale));
       // 泳道只分布在显示区域内（area = 占画面高度的比例）
       lanes = Math.max(MIN_LANES, Math.floor((height * settings.area) / (fontPx + LANE_GAP)));
-      laneFreeAt = new Array(lanes).fill(0);
+      laneFreeAt = new Array<number>(lanes).fill(0);
     };
 
     const clearFlights = () => {
@@ -115,7 +115,7 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
         else hi = mid;
       }
       spawned = lo;
-      laneFreeAt = new Array(lanes).fill(0);
+      laneFreeAt = new Array<number>(lanes).fill(0);
       clearFlights();
     };
 

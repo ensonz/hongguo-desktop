@@ -83,12 +83,28 @@ pub fn run() {
                     .inner()
                     .clone();
                 let win = window.clone();
+                // 最小化检测：WebView2 最小化时不派发 visibilitychange（实测
+                // 恒 visible），前端拿不到——Rust 侧在 Resized 里查
+                // is_minimized，状态翻转才 emit（避免每次 resize 都发）
+                let minimized = std::sync::atomic::AtomicBool::new(false);
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event
                         && ready.load(Ordering::Acquire)
                     {
                         api.prevent_close();
                         let _ = win.emit("close-requested", ());
+                        return;
+                    }
+                    if let tauri::WindowEvent::Resized(_) = event
+                        && let Ok(now) = win.is_minimized()
+                    {
+                        let prev = minimized
+                            .swap(now, std::sync::atomic::Ordering::AcqRel);
+                        if prev != now
+                            && let Err(e) = win.emit("window-minimize", now)
+                        {
+                            log::warn!("[Window] 最小化事件发送失败: {e}");
+                        }
                     }
                 });
             }

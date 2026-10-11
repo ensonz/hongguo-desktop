@@ -51,7 +51,8 @@ export function SeriesDetailPage({
   prefill?: { title: string; cover: string; tags: string; desc: string };
 }) {
   const navigate = useNavigate();
-  const router = useRouter();
+  // routeTree.gen 的 as any 污染 useRouter 返回值；这里只用 history.back
+  const router = useRouter() as { history: { back: () => void } };
   const setTarget = usePlayerStore((s) => s.setTarget);
 
   const { data: series, isPending, isError, error } = useSeriesEpisodes(seriesId || null);

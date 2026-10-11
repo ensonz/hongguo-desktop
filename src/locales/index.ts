@@ -6,7 +6,7 @@ type Dict = typeof zhCN;
 
 const resources: Record<string, Dict> = {
   'zh-CN': zhCN,
-  'en-US': enUS as Dict,
+  'en-US': enUS,
 };
 
 export type Locale = keyof typeof resources;
@@ -25,7 +25,7 @@ const STORAGE_KEY = 'hongguo-locale';
 
 function detect(): Locale {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved && saved in resources) return saved as Locale;
+  if (saved && saved in resources) return saved;
   return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
 }
 
