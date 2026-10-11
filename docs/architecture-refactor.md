@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
 > 版本：2026-10-11（rev3，定序已确认）
-> 状态：已定序，按 §8 分批执行（阶段 0/1 先行，其余待对应阶段）
+> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1 条（common / signer / mp4 / api）与第 2 条（store）已落地，其余按 §8 分批执行
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -100,7 +100,7 @@
 | `hongguo-signer` | `signer/`——五头签名（x-gorgon 等）+ 设备注册原语；**自带 TT 哈希/加密（helios/medusa/tt_hash）**，JS 1:1 移植禁改写法 | base64 / rand / serde / md-5 / sm3 / hex / chrono（**不依赖 common 与 tauri**） |
 | `hongguo-mp4` | `domain/mp4/` + `domain/crypto/`——MP4 盒/样本表/稀疏缓冲/流式计划 + CENC-AES-CTR 解密 + 密钥派生 | common + aes / ctr / base64 / log / parking_lot |
 | `hongguo-api` | `domain/api/`——官方 API 客户端（登录/推荐/搜索/详情/流地址/弹幕/互动等，14 个域） | signer + common + aes / chrono / flate2 / futures-util / hex / log / parking_lot / rand / reqwest / serde / serde_json / tokio |
-| `hongguo-store` | `store/`——Turso 持久化、entity、迁移、恢复 | common |
+| `hongguo-store` | `store/`——Turso 持久化、entity、迁移、恢复 | common + signer（`DeviceProfile` 是库里的一张表） |
 
 > **命名修正**：v1 叫 `hongguo-crypto`，但它的内容（CENC + MP4 解析）主体是容器解析，`domain/crypto/` 只是 CENC 原语。改叫 `hongguo-mp4`。**`signer` 的 TT 哈希/加密与 CENC 是两回事，不合并**。
 
@@ -266,7 +266,7 @@ hongguo-desktop/
 严格按依赖自底向上，每步保证 Tauri + React 路径可编译可运行。**优先级按实测耦合**（§0）：
 
 1. **抽枢纽底层**（**全部完成 2026-10-11**）：`hongguo-common` → `hongguo-signer` → `hongguo-mp4` → `hongguo-api`
-2. **抽持久化**：`hongguo-store`
+2. **抽持久化**（**已完成 2026-10-11**）：`hongguo-store`——13 文件 / 1,820 行迁出，`cargo metadata` 725 → 726 包（仅新增本 crate，无版本漂移）。两处解耦：`persist_tasks` 从 store 移入 `service::download_service`（去掉 store → `AppState` 反向依赖）；`paths::ScopedDataDir` 由 `#[cfg(test)]` 改 feature `test-support` 门控（跨 crate 后 `#[cfg(test)]` 对下游测试不可见）
 3. **立流契约再抽媒体**：`hongguo-stream`（先落 §5.2 边界）→ `hongguo-media` → `hongguo-media-platform`
 4. **抽协议与业务**：`hongguo-protocol` → `hongguo-service`（service 改为只依赖 stream 契约）
 5. **薄化 Tauri**：`commands/app_state/bootstrap/diagnostics` 迁入 `hongguo-tauri`，`src-tauri` 退化为纯配置与入口
@@ -288,7 +288,7 @@ hongguo-desktop/
 | Makefile（dev/build/test/lint/release… 全部 target） | 根 | 路径改指 workspace |
 | `tauri.conf.json`（`frontendDist: ../dist`、`beforeBuildCommand: pnpm build`、`devUrl: 1420`） | `src-tauri/` | 后端 crate 迁出后相对路径重算 |
 | CI workflow / `.githooks`（pre-commit 三目标 clippy + cargo test + eslint） | `.github/` `.githooks/` | 路径与 crate 名同步 |
-| **元测试清单** `commands/mod.rs`、`service/mod.rs` 的 `include_str!` 列表 | 各模块 | **已改目录自动发现**（`utils::source_guard`）；迁 crate 时随模块走 |
+| **元测试清单** `commands/mod.rs`、`service/mod.rs` 的 `include_str!` 列表 | 各模块 | **已改目录自动发现**（`testing::source_guard`）；迁 crate 时随模块走 |
 | **pub 面收敛**：`lib.rs` 现「模块全私有」（红线 7） | `lib.rs` | crate 边界必须 pub；需为每个 crate 显式定义对外 API，禁止 `pub use *` 泄底 |
 | 双端契约测试 / 黄金向量（签名、抓包比对） | `signer`、`domain/api` | 随对应 crate 迁移，勿丢守门人 |
 
