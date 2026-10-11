@@ -110,6 +110,7 @@ export function PlayerView({
   onWheelStep,
   coverUrl,
   overlayMeta,
+  onFirstFrame,
 }: {
   /**
    * 滚轮/↑↓ 的语义由宿主页给：首页（沉浸流）是切**上一部/下一部剧**，
@@ -128,6 +129,12 @@ export function PlayerView({
    * 热度在剧名上方，角标在剧名前。
    */
   overlayMeta?: { heatText?: string; seasonTag?: string; badge?: string };
+  /**
+   * 首帧真正出画的回调：沉浸流宿主用它给「预取下一部」发令——在播的
+   * 一路站稳了，带宽才让给下一部的铺垫。onPlaying 在个别 WebView 起播
+   * 路径上不触发，timeupdate 的出画兜底同样会调用；重复调用无副作用。
+   */
+  onFirstFrame?: () => void;
 }) {
   const navigate = useNavigate();
   const seriesPanelOpen = usePlayerStore((s) => s.seriesPanelOpen);
@@ -576,6 +583,7 @@ export function PlayerView({
                     // 真正出画/恢复出画：封面占位退场、卡顿态收掉
                     setLive({ key: streamKey, on: true });
                     setStalled({ key: streamKey, on: false });
+                    onFirstFrame?.();
                   }}
                   onPause={(e) => {
                     // 首播之前的 pause 是新元素的装载噪声（自动起播落定前
@@ -595,7 +603,10 @@ export function PlayerView({
                   onTimeUpdate={(e) => {
                     // playing 事件在个别 WebView 起播路径上不触发：封面退场
                     // 不能只靠它一路信号，时间轴真的走起来了也算出画
-                    if (e.currentTarget.currentTime > 0.1) setLive({ key: streamKey, on: true });
+                    if (e.currentTarget.currentTime > 0.1) {
+                      setLive({ key: streamKey, on: true });
+                      onFirstFrame?.();
+                    }
                     // 时间轴在推进本身就是「没卡住」的证据，waiting 的卡顿态在这里收掉
                     setStalled({ key: streamKey, on: false });
                     persist(e.currentTarget.currentTime);
