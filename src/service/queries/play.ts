@@ -30,6 +30,8 @@ export function usePlay() {
 
 export function useSavePosition() {
   return useMutation({
+    // 播放中每 5 秒一次的后台保存，失败弹全局只会刷屏；换集/关闭仍有兜底
+    meta: { silentOnError: true },
     mutationFn: ({
       seriesId,
       vidIndex,

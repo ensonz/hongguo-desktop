@@ -51,6 +51,8 @@ export function useSeriesEpisodes(seriesId: string | null) {
     // 空串也要挡：恢复目标就位前的启动窗口期传 '' 会打到 resolver 的
     // 「请输入剧集 ID」上，全局错误面弹一个莫名的 InvalidArgs
     enabled: seriesId !== null && seriesId !== '',
+    // 失败 home-page/选集面板就地给 ErrorState + 重试，全局不再弹
+    meta: { silentOnError: true },
     staleTime: 10 * 60_000,
   });
 }
@@ -66,6 +68,8 @@ export function useSeriesProgress(seriesId: string) {
     queryKey: keys.seriesProgress(seriesId),
     queryFn: () => play.progress(seriesId),
     enabled: seriesId !== '',
+    // 本地 playback 表读取，失败退化成从头播即可，不值得打扰
+    meta: { silentOnError: true },
     gcTime: 60_000,
   });
 }
@@ -88,6 +92,8 @@ export function useRelatedSeries(seriesId: string) {
     // 空串也要挡：恢复目标就位前的启动窗口期 related('') 会拿空 book_id
     // 打满 4 次重试再报 Media——「视频处理失败」的误导 toast 之源
     enabled: seriesId !== '',
+    // 文档口径即静默降级：失败只是切季面板/接力不可用，不弹全局
+    meta: { silentOnError: true },
     staleTime: 10 * 60_000,
     retry: false,
   });
@@ -102,6 +108,8 @@ export function useSeriesDetailMeta(seriesId: string) {
   return useQuery({
     queryKey: keys.seriesMeta(seriesId),
     queryFn: () => series.meta(seriesId),
+    // 头部装饰性信息，失败静默降级（doc 口径），不弹全局
+    meta: { silentOnError: true },
     staleTime: 10 * 60_000,
     retry: false,
   });

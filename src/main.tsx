@@ -26,7 +26,12 @@ const queryClient = new QueryClient({
   // kind 译文只有一句话（如「视频处理失败」可能是任何接口错误），把后端
   // 原文（error.cause，invoke.ts 归一时挂的）括在后面，出问题一眼定位。
   queryCache: new QueryCache({
-    onError: (error) => toast.error(toastText(error)),
+    onError: (error, query) => {
+      // 降级型查询（meta.silentOnError）失败本就有就地/无感处理，
+      // 全局不再弹——启动期恢复窗口的辅助查询失败不该打扰用户
+      if (query?.meta?.silentOnError === true) return;
+      toast.error(toastText(error));
+    },
   }),
   mutationCache: new MutationCache({
     onError: (error, _vars, _ctx, mutation) => {

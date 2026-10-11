@@ -38,6 +38,8 @@ export function useFeed(tab: string) {
       const seen = Array.from(new Set(allPages.flatMap((p) => p.items.map((i) => i.seriesId))));
       return { offset: last.nextOffset, sessionId: last.sessionId, filterIds: seen };
     },
+    // 失败 home-page 就地给 ErrorState + 重试，全局不再弹
+    meta: { silentOnError: true },
     staleTime: 5 * 60_000,
   });
   const stream = useInfiniteStream(query, feedItems);
