@@ -53,9 +53,11 @@ Add-AppxPackage -Path "$HOME\Downloads\HEVC视频扩展.appx"
 
 若自动安装失败（网络受限或微软源不通），手动安装任选其一：
 
-1. **离线备用包**（约 1.8 MB，Gitee 直链，国内可直达）：
+1. **国内镜像备用包**（约 1.8 MB，Gitee 直链，国内可直达）：
    <https://gitee.com/it00021hot/hongguo-desktop/raw/main/MicrosoftEdgeWebview2Setup.exe>。
    下载后双击 `MicrosoftEdgeWebview2Setup.exe`，装完**重启应用**。
+   注意：这是引导器，安装时仍需联网从微软下载运行时本体；完全离线的机器
+   请在联网环境下载微软官网的「Evergreen Standalone 安装器」拷贝过去安装。
 2. **微软官方在线安装器**（Evergreen Bootstrapper）：
    <https://developer.microsoft.com/microsoft-edge/webview2/>
 
