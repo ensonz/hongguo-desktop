@@ -1,6 +1,7 @@
 # 前端优化计划（2026-10-11）
 
-> 分支：dev ｜ 状态：**待确认，未经确认不动代码**
+> 分支：dev ｜ 状态：**已执行（F1~F7 全部落地；虚拟化与评论/剧评两文件的收尾项随原计划 P0）**
+> 执行记录：30 个 commit（docs/lint 基建 → F1 shadcn 基建 → F2 浮层收编 → F3 展示件/色值 → F4 查询治理 → F5 契约类型化（COMMANDS/EVENT_PAYLOADS/t()/type-aware）→ F6 全局错误面/路由兜底/lazy → F7 测试）。执行中的两处方案落地差异：top-bar-tabs 未转 ToggleGroup（已是三页共用单一实现，portal 插槽 + API 波折大于收益，commit 27380ec 有说明）；detail 路由用 React.lazy + 局部 Suspense 而非 lazyRouteComponent（prefill 包装需常驻读 Route.useSearch）。
 > 依据：`AGENTS.md` 红线 3/11 + `dev-habits` #52/#53/#54/#55 + shadcn/ui Critical Rules 全量扫描（三路体检：结构与模式 / shadcn 符合度 / 类型安全与工程质量），站点数均为逐处 grep 核实数，非估算
 > 与 `structure-improvement-plan.md` 的关系：那份管「目录结构」，本文管「前端质量」。评论双实现（其 P0）、components 归位（其 P3）、EpisodePicker 重名（其 P4）、命令域对齐（其 P5）、danmaku.ts 拆分仍按原文档执行，本文不重复列出，只写接驳点（§4.7、§7.1）。
 > 原则：同原文档——纯移动/重命名与行为修改分开提交；`player/` 渲染结构与 hgplayer 红皮的边界见 §8；新依赖 3 个已确认（§9）。
