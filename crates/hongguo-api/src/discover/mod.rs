@@ -24,11 +24,9 @@ use hongguo_common::{AppError, AppResult};
 use hongguo_signer::API_ORIGIN;
 
 pub use model::{BrowseFilters, FeedItem, FeedPage, SelectorRow};
-// 保持既有公共路径 `discover::SelectorItem` 不变（crate 内暂无直接引用者）
-#[expect(
-    unused_imports,
-    reason = "SelectorItem 只被 SelectorRow 聚合引用，re-export 为兼容旧路径保留"
-)]
+// 保持公共路径 `discover::SelectorItem` 可用（被 `SelectorRow` 聚合引用，
+// crate 内暂无直接引用者）。作为 crate 公开再导出，rustc 不再按
+// unused_imports 处理，故不需要 `#[expect]`。
 pub use model::SelectorItem;
 // JSON/字段助手已收敛进 utils::json（P3-C9）；这里再导出，保持
 // `super::discover::X` 的既有跨域引用路径不变（rank/search/… 共 6 域）。
@@ -149,7 +147,7 @@ mod probe {
         let rnd: u32 = rand::random();
         let extra = [("x-reading-request".to_string(), format!("{ticket}-{rnd}"))];
         let origin = "https://api5-normal-lq.fqnovel.com";
-        match crate::domain::api::client::api_call_full_with_headers(
+        match crate::client::api_call_full_with_headers(
             origin,
             &path,
             Some(bytes),
@@ -215,7 +213,7 @@ mod probe {
         v["user_agent"] = serde_json::Value::String(
             "com.phoenix.read/73932 (Linux; U; Android 14; zh_CN; Xiaomi 14; Build/UKQ1.230804.001; Cronet/TTNetVersion:8d40f833 QuicVersion:462f352c 2026-08-31)".into(),
         );
-        let _hg_env = crate::domain::api::client::ApiEnv {
+        let _hg_env = crate::client::ApiEnv {
             proxy: env.proxy.clone(),
             device: serde_json::from_value(v).unwrap(),
             cookie: Some(
@@ -239,7 +237,7 @@ mod probe {
             "com.phoenix.read/73932 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)".into(),
         );
         let own_dev: hongguo_signer::device::DeviceProfile = serde_json::from_value(ov).unwrap();
-        let env = crate::domain::api::client::ApiEnv {
+        let env = crate::client::ApiEnv {
             proxy: env.proxy.clone(),
             device: own_dev,
             cookie: None,
@@ -277,8 +275,8 @@ mod probe {
         // 设备注册回执）。带与不带各打一次，隔离 ILLEGAL_ACCESS 的成因。
         let mut with_cookie = env.clone();
         with_cookie.cookie = Some("passport_csrf_token=; passport_csrf_token_default=; store-region=cn-gd; store-region-src=did; install_id=2169800441475978; ttreq=1$f814f969f9b9fe3c43ab008c4e981e84d23a6b4d".to_string());
-        let no_cookie = crate::domain::api::client::api_call_full(
-            crate::domain::api::danmaku::LQ_API_ORIGIN,
+        let no_cookie = crate::client::api_call_full(
+            crate::danmaku::LQ_API_ORIGIN,
             "/reading/bookapi/bookmall/tab/v",
             None,
             &q,
@@ -296,8 +294,8 @@ mod probe {
             }
             Err(e) => println!("[bookmall] no-cookie ERR {e}"),
         }
-        match crate::domain::api::client::api_call_full(
-            crate::domain::api::danmaku::LQ_API_ORIGIN,
+        match crate::client::api_call_full(
+            crate::danmaku::LQ_API_ORIGIN,
             "/reading/bookapi/bookmall/tab/v",
             None,
             &q,
@@ -306,7 +304,7 @@ mod probe {
         .await
         {
             Ok(b) => {
-                let dir = crate::domain::api::capture_dir();
+                let dir = crate::capture_dir();
                 std::fs::create_dir_all(&dir).ok();
                 std::fs::write(dir.join("bookmall.json"), &b).ok();
                 let v: Value = serde_json::from_slice(&b).unwrap_or(Value::Null);
@@ -385,8 +383,8 @@ mod probe {
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-        match crate::domain::api::client::api_call_full(
-            crate::domain::api::danmaku::LQ_API_ORIGIN,
+        match crate::client::api_call_full(
+            crate::danmaku::LQ_API_ORIGIN,
             "/reading/user/subscribe/list/v1/",
             None,
             &q,
@@ -434,8 +432,8 @@ mod probe {
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
-            match crate::domain::api::client::api_call_full(
-                crate::domain::api::danmaku::LQ_API_ORIGIN,
+            match crate::client::api_call_full(
+                crate::danmaku::LQ_API_ORIGIN,
                 "/reading/bookapi/search/uncover_subscribe/v1/",
                 None,
                 &q,
@@ -463,7 +461,7 @@ mod probe_browse {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_panel_and_page() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         let rows = fetch_browse_panel(&env).await.expect("面板");
@@ -499,7 +497,7 @@ mod probe_panel_cookie {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_panel_with_cookies() {
-        let mut env = crate::domain::api::client::ApiEnv::anonymous(
+        let mut env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         let cookies = std::env::var("HG_LOGIN_COOKIES").unwrap_or_default();
@@ -523,7 +521,7 @@ mod probe_duration {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_duration_filter() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         let filters = BrowseFilters {

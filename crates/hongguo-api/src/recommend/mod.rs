@@ -552,7 +552,7 @@ mod tests {
 #[cfg(test)]
 pub(crate) mod probe {
     use super::*;
-    use crate::domain::api::rank::probe::anon_env;
+    use crate::rank::probe::anon_env;
 
     /// 首页推荐流两段式全链路（2026-10-08 抓 hgplayer 切「真人剧」tab +
     /// 滚动翻页实锤）：首页 `bookmall/tab cr=4`（每 tab 自带 bookstore_id/

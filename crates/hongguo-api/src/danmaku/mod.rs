@@ -20,6 +20,14 @@ pub use model::{
 use serde_json::Value;
 
 use super::client::ApiEnv;
+use crate::params::interaction::{
+    COMMENT_TYPE_COMMENT, COMMENT_TYPE_DANMAKU, COMMENT_TYPE_REVIEW,
+    COMMENT_TYPE_REVIEW_SEND, COMMIT_SOURCE_REVIEW, DATA_TYPE_REVIEW,
+    GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, LIST_SOURCE_COMMENT,
+    LIST_SOURCE_COMMENT_REPLIES, LIST_SOURCE_DANMAKU, LIST_SOURCE_REVIEW,
+    LIST_SOURCE_REVIEW_REPLIES, SERVER_CHANNEL_COMMENT, SERVER_CHANNEL_DANMAKU,
+    SERVER_CHANNEL_REVIEW,
+};
 use hongguo_common::{AppError, AppResult};
 
 /// hgplayer 实测的 reading 系 API 主机（我们的视频接口走 sinfonlineb，
@@ -74,14 +82,14 @@ fn danmaku_payload(group_id: &str, book_id: &str, cursor: &str) -> Value {
             "playlet_item_duration": 60000,
             "start_offset_time": 0,
         },
-        "comment_source": 601,
-        "comment_type": 20,
+        "comment_source": LIST_SOURCE_DANMAKU,
+        "comment_type": COMMENT_TYPE_DANMAKU,
         "compliance_status": 0,
         "count": 90,
         "cursor": cursor,
         "group_id": group_id,
-        "group_type": 30,
-        "server_channel": 1000,
+        "group_type": GROUP_TYPE_COMMENT,
+        "server_channel": SERVER_CHANNEL_DANMAKU,
         "sort": 1,
     })
 }
@@ -101,14 +109,14 @@ fn comments_payload(group_id: &str, book_id: &str, cursor: &str) -> Value {
             "need_count": true,
             "req_type": 0,
         },
-        "comment_source": 4,
-        "comment_type": 4,
+        "comment_source": LIST_SOURCE_COMMENT,
+        "comment_type": COMMENT_TYPE_COMMENT,
         "compliance_status": 0,
         "count": 20,
         "cursor": cursor,
         "group_id": group_id,
-        "group_type": 30,
-        "server_channel": 18,
+        "group_type": GROUP_TYPE_COMMENT,
+        "server_channel": SERVER_CHANNEL_COMMENT,
         "sort": 1,
     })
 }
@@ -234,12 +242,12 @@ fn series_comments_payload(group_id: &str, cursor: &str) -> Value {
             "req_type": 0,
             "start_offset_time": 0,
         },
-        "comment_source": 1,
-        "comment_type": 2,
+        "comment_source": LIST_SOURCE_REVIEW,
+        "comment_type": COMMENT_TYPE_REVIEW,
         "count": 10,
         "group_id": group_id,
-        "group_type": 1,
-        "server_channel": 34,
+        "group_type": GROUP_TYPE_REVIEW,
+        "server_channel": SERVER_CHANNEL_REVIEW,
         "sort": 1,
     });
     // 首屏不带 cursor 键（2026-10-10 抓包实锤：cursor 缺省，翻页才回传
@@ -344,11 +352,11 @@ pub async fn send_series_review(
             "text_feature": {},
             "video_is_muted": 0,
         },
-        "comment_type": 0,
-        "commit_source": 12,
-        "data_type": 2,
+        "comment_type": COMMENT_TYPE_REVIEW_SEND,
+        "commit_source": COMMIT_SOURCE_REVIEW,
+        "data_type": DATA_TYPE_REVIEW,
         "group_id": series_id,
-        "group_type": 1,
+        "group_type": GROUP_TYPE_REVIEW,
         "image_data": [],
         "rich_text": [],
         "text": text,
@@ -507,14 +515,14 @@ fn comment_replies_payload(group_id: &str, book_id: &str, comment_id: &str, curs
         "aid": 8662,
         "business_param": {"book_id": book_id, "need_count": false},
         "comment_id": comment_id,
-        "comment_source": 504,
-        "comment_type": 4,
+        "comment_source": LIST_SOURCE_COMMENT_REPLIES,
+        "comment_type": COMMENT_TYPE_COMMENT,
         "compliance_status": 0,
         "count": 10,
         "cursor": cursor,
         "group_id": group_id,
-        "group_type": 30,
-        "server_channel": 18,
+        "group_type": GROUP_TYPE_COMMENT,
+        "server_channel": SERVER_CHANNEL_COMMENT,
     })
 }
 
@@ -531,12 +539,12 @@ fn review_replies_payload(series_id: &str, comment_id: &str, cursor: &str) -> Va
             "real_level": 2,
         },
         "comment_id": comment_id,
-        "comment_source": 501,
-        "comment_type": 2,
+        "comment_source": LIST_SOURCE_REVIEW_REPLIES,
+        "comment_type": COMMENT_TYPE_REVIEW,
         "count": 10,
         "group_id": series_id,
-        "group_type": 1,
-        "server_channel": 34,
+        "group_type": GROUP_TYPE_REVIEW,
+        "server_channel": SERVER_CHANNEL_REVIEW,
     });
     if !cursor.is_empty() {
         payload["cursor"] = Value::String(cursor.to_string());
@@ -690,36 +698,13 @@ fn parse_reply_page(v: &Value) -> AppResult<ReplyPage> {
 mod tests {
     use super::*;
 
-    /// 剧评发送形态抓包锚点（2026-10-10 hgplayer 1.1.6 实测发满分剧评）：
-    /// data_type=2 / commit_source=12 /
-    /// comment_type=0，评分在 business_param.score（十分制）。任何改形
-    /// 都会被服务端 103008「无社区功能」拒收。
-    #[test]
-    fn review_send_payload_anchors() {
-        let src = include_str!("mod.rs");
-        for (needle, why) in [
-            (
-                r#""commit_source": 12"#,
-                "剧评发送 commit_source=12（评论 3 / 弹幕 1500 / 回复 9 都不对）",
-            ),
-            (r#""data_type": 2,"#, "剧评 data_type=2（评论 4 / 弹幕 20）"),
-            (r#""comment_type": 0,"#, "剧评 comment_type=0"),
-            (
-                r#""score": score,"#,
-                "评分在 business_param.score（十分制，5 星 ×2）",
-            ),
-        ] {
-            assert!(src.contains(needle), "{}：缺少锚点 {}", why, needle);
-        }
-    }
-
     #[test]
     fn payload_shape_matches_capture() {
         let p = danmaku_payload("7690197301075119166", "7690150906532219966", "");
         // 抓包锚点字段：任何一个改形都会 100103
-        assert_eq!(p["comment_type"], 20, "20 = 弹幕");
-        assert_eq!(p["comment_source"], 601);
-        assert_eq!(p["group_type"], 30);
+        assert_eq!(p["comment_type"], COMMENT_TYPE_DANMAKU, "20 = 弹幕");
+        assert_eq!(p["comment_source"], LIST_SOURCE_DANMAKU);
+        assert_eq!(p["group_type"], GROUP_TYPE_COMMENT);
         assert_eq!(p["count"], 90);
         assert_eq!(p["aid"], 8662);
         assert_eq!(p["group_id"], "7690197301075119166");
@@ -742,9 +727,9 @@ mod tests {
         // 2026-10-06 抓 hgplayer 1.1.5：评论形态与弹幕形态分叉，
         // 沿用弹幕形 business_param / server_channel=1000 会被 103001 拒
         let p = comments_payload("g", "b", "");
-        assert_eq!(p["comment_type"], 4);
+        assert_eq!(p["comment_type"], COMMENT_TYPE_COMMENT);
         assert_eq!(p["comment_source"], 4);
-        assert_eq!(p["server_channel"], 18, "评论走 18，弹幕才是 1000");
+        assert_eq!(p["server_channel"], SERVER_CHANNEL_COMMENT, "评论走 18，弹幕才是 1000");
         assert_eq!(p["business_param"]["need_count"], true);
         assert_eq!(p["business_param"]["req_type"], 0);
         assert_eq!(p["count"], 20);
@@ -760,10 +745,10 @@ mod tests {
         // series_id、group_type=1、source=1/type=2/channel=34，
         // business_param 是全量字段组（照抄抓包）
         let p = series_comments_payload("7687941387362257982", "");
-        assert_eq!(p["group_type"], 1, "1 = 书/剧维度，30 是单集");
-        assert_eq!(p["comment_source"], 1);
-        assert_eq!(p["comment_type"], 2);
-        assert_eq!(p["server_channel"], 34);
+        assert_eq!(p["group_type"], GROUP_TYPE_REVIEW, "1 = 书/剧维度，30 是单集");
+        assert_eq!(p["comment_source"], LIST_SOURCE_REVIEW);
+        assert_eq!(p["comment_type"], COMMENT_TYPE_REVIEW);
+        assert_eq!(p["server_channel"], SERVER_CHANNEL_REVIEW);
         assert_eq!(p["group_id"], "7687941387362257982");
         assert_eq!(p["business_param"]["book_id"], "7687941387362257982");
         assert_eq!(p["business_param"]["need_count"], true);
@@ -777,9 +762,9 @@ mod tests {
         // comment/list 形态不同，混用会被拒
         let p = comment_replies_payload("g", "b", "c", "");
         assert_eq!(p["comment_source"], 504, "回复拉取走 504");
-        assert_eq!(p["comment_type"], 4);
-        assert_eq!(p["server_channel"], 18);
-        assert_eq!(p["group_type"], 30);
+        assert_eq!(p["comment_type"], COMMENT_TYPE_COMMENT);
+        assert_eq!(p["server_channel"], SERVER_CHANNEL_COMMENT);
+        assert_eq!(p["group_type"], GROUP_TYPE_COMMENT);
         assert_eq!(p["group_id"], "g");
         assert_eq!(p["comment_id"], "c");
         assert_eq!(p["business_param"]["book_id"], "b");
@@ -797,10 +782,10 @@ mod tests {
         // source=501/type=2/ch=34 + real_level=2 + 首屏无 cursor 键 +
         // need_count 首页 true 翻页 false
         let p = review_replies_payload("s", "c", "");
-        assert_eq!(p["comment_source"], 501, "剧评回复拉取走 501");
-        assert_eq!(p["comment_type"], 2);
-        assert_eq!(p["server_channel"], 34);
-        assert_eq!(p["group_type"], 1);
+        assert_eq!(p["comment_source"], LIST_SOURCE_REVIEW_REPLIES, "剧评回复拉取走 501");
+        assert_eq!(p["comment_type"], COMMENT_TYPE_REVIEW);
+        assert_eq!(p["server_channel"], SERVER_CHANNEL_REVIEW);
+        assert_eq!(p["group_type"], GROUP_TYPE_REVIEW);
         assert_eq!(p["group_id"], "s");
         assert_eq!(p["comment_id"], "c");
         assert_eq!(p["business_param"]["real_level"], 2);

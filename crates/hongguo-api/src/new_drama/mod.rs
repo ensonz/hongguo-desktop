@@ -71,7 +71,7 @@ pub async fn fetch_new_drama(
 #[cfg(test)]
 pub(crate) mod probe {
     use super::*;
-    use crate::domain::api::rank::probe::{anon_env, hg_env};
+    use crate::rank::probe::{anon_env, hg_env};
 
     /// 新剧推荐直连。
     #[tokio::test]

@@ -6,7 +6,7 @@ use super::account::{account_from_login, complete_login};
 use super::csrf::with_csrf;
 use super::events::{LOGIN_MFA_STATE, LoginMfaStateEvent};
 use crate::app_state::AppState;
-use crate::domain::api::login::{self, LoginOutcome, MfaContext, MfaFlow, UpsmsState};
+use hongguo_api::login::{self, LoginOutcome, MfaContext, MfaFlow, UpsmsState};
 
 /// 轮询上限：超过即报超时退出。
 const MFA_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);

@@ -71,7 +71,7 @@ pub async fn prepare(
     progress_key: &str,
     definition: Option<u32>,
     settings: Settings,
-    env: &crate::domain::api::client::ApiEnv,
+    env: &hongguo_api::client::ApiEnv,
 ) -> AppResult<Prepared> {
     let vid = vid.trim();
     if vid.is_empty() {
@@ -113,10 +113,10 @@ pub async fn prepare(
     // 还没有键可查：先做一次很小的接口调用把流表拿回来，解析出的真实档位
     // 才是缓存的键。贵的那一步（整集下载 + 解密）要等拿到取流权之后才发生。
     // 无 HEVC 扩展的机器选流翻转到 h264（官方 CodecStrategy 语义，见 stream_pick）。
-    let cap = crate::domain::api::stream_pick::DecoderCapability::from_hevc(
+    let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
         crate::media::capability::playback::hevc_playable(),
     );
-    let play = crate::domain::api::play_url::fetch_play_url(vid, definition, cap, env).await?;
+    let play = hongguo_api::play_url::fetch_play_url(vid, definition, cap, env).await?;
     let want = play.definition;
     // 只记「不指定档位」那次解析到的结果。手动选过 720 之后再点「自动」，
     // 要的仍然是平台给的最高档，而不是上一次手动选的那档。
@@ -181,7 +181,7 @@ pub async fn prefetch_stream(
     vid: &str,
     progress_key: &str,
     settings: &Settings,
-    env: &crate::domain::api::client::ApiEnv,
+    env: &hongguo_api::client::ApiEnv,
 ) -> AppResult<()> {
     let vid = vid.trim();
     if vid.is_empty() {
@@ -196,10 +196,10 @@ pub async fn prefetch_stream(
     }
     // 预取与真实播放同一条选流模式：无 HEVC 机器预取的也必须是 h264，
     // 否则起播时探测结论翻转会命中一条播不了的缓存流。
-    let cap = crate::domain::api::stream_pick::DecoderCapability::from_hevc(
+    let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
         crate::media::capability::playback::hevc_playable(),
     );
-    let play = match crate::domain::api::play_url::fetch_play_url(vid, None, cap, env).await {
+    let play = match hongguo_api::play_url::fetch_play_url(vid, None, cap, env).await {
         Ok(p) => p,
         Err(e) => {
             log::info!("[Online] 预取 {vid} 取流表失败（忽略）: {e}");
@@ -289,7 +289,7 @@ async fn fill(
     vid: &str,
     progress_key: &str,
     definition: u32,
-    play: &crate::domain::api::play_url::PlayInfo,
+    play: &hongguo_api::play_url::PlayInfo,
     settings: &Settings,
     prefetch: bool,
 ) -> AppResult<()> {
@@ -424,7 +424,7 @@ pub fn resume_fill(app: &tauri::AppHandle, vid: &str, definition: u32, progress_
     tauri::async_runtime::spawn(async move {
         let reporter = ProgressReporter::new(app.clone(), owned_key);
         let cancelled = || !c.exists(&owned, definition) || c.current() != owned;
-        let client = match crate::domain::api::client::build_client(&proxy) {
+        let client = match hongguo_api::client::build_client(&proxy) {
             Ok(cl) => cl,
             Err(e) => {
                 log::warn!("[Online] 续填 {owned} 建 client 失败: {e}");
@@ -461,17 +461,17 @@ pub fn resume_fill(app: &tauri::AppHandle, vid: &str, definition: u32, progress_
 /// 样本表解析失败……）。这一阶段完成时协议层已可应答，错误只会发生在
 /// 「还没有任何对外可见状态」的时候，回落没有半成品要清理。
 async fn build_progressive(
-    play: &crate::domain::api::play_url::PlayInfo,
+    play: &hongguo_api::play_url::PlayInfo,
     settings: &Settings,
     report: &(dyn Fn(u64, u64) + Sync),
 ) -> AppResult<(
     Arc<hongguo_mp4::streaming::SparseBuffer>,
     Arc<ProgressiveStream>,
 )> {
-    use crate::domain::api::client::{get_video_range, probe_video_len};
+    use hongguo_api::client::{get_video_range, probe_video_len};
     use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan, locate_moov, top_boxes_end};
 
-    let client = crate::domain::api::client::build_client(&settings.proxy)?;
+    let client = hongguo_api::client::build_client(&settings.proxy)?;
     let total = probe_video_len(&client, &play.url).await?;
     let sparse = SparseBuffer::new(total);
 
@@ -554,13 +554,13 @@ async fn build_progressive(
 async fn fill_remaining(
     sparse: &Arc<hongguo_mp4::streaming::SparseBuffer>,
     prog: &Arc<ProgressiveStream>,
-    play: &crate::domain::api::play_url::PlayInfo,
+    play: &hongguo_api::play_url::PlayInfo,
     settings: &Settings,
     reporter: &ProgressReporter,
     is_cancelled: &(dyn Fn() -> bool + Send + Sync),
     cap: &(dyn Fn() -> Option<u64> + Send + Sync),
 ) -> AppResult<()> {
-    let client = crate::domain::api::client::build_client(&settings.proxy)?;
+    let client = hongguo_api::client::build_client(&settings.proxy)?;
     fill_remaining_with_client(
         &client,
         sparse,
@@ -620,7 +620,7 @@ async fn fill_remaining_with_client(
     is_cancelled: &(dyn Fn() -> bool + Send + Sync),
     cap: &(dyn Fn() -> Option<u64> + Send + Sync),
 ) -> AppResult<()> {
-    use crate::domain::api::client::get_video_range;
+    use hongguo_api::client::get_video_range;
     let total = sparse.len();
     let mut frontier = 0u64; // 顺序填充的前沿（密文偏移）
     loop {
@@ -723,7 +723,7 @@ fn sparse_snapshot(sparse: &hongguo_mp4::streaming::SparseBuffer, start: u64, en
 ///
 /// 在线播放与兼容转码都要这一步，抽出来避免两份「取流 + 解密」逻辑各自漂移。
 pub async fn fetch_plain(
-    play: &crate::domain::api::play_url::PlayInfo,
+    play: &hongguo_api::play_url::PlayInfo,
     settings: &Settings,
 ) -> AppResult<Vec<u8>> {
     fetch_plain_with(play, settings, &|_, _, _| {}).await
@@ -796,14 +796,14 @@ impl ProgressReporter {
 
 /// 带进度回调的取流+解密。
 pub async fn fetch_plain_with(
-    play: &crate::domain::api::play_url::PlayInfo,
+    play: &hongguo_api::play_url::PlayInfo,
     settings: &Settings,
     progress: &(dyn Fn(u64, u64, &str) + Sync),
 ) -> AppResult<Vec<u8>> {
-    let client = crate::domain::api::client::build_client(&settings.proxy)?;
+    let client = hongguo_api::client::build_client(&settings.proxy)?;
 
     // 首选裸 UA；个别 CDN 节点反过来要求 Referer，403 时在里面补上重试
-    let resp = crate::domain::api::client::get_video_stream(&client, &play.url).await?;
+    let resp = hongguo_api::client::get_video_stream(&client, &play.url).await?;
 
     // 拿不到 Content-Length 就发不了百分比，但「开始动了」这件事仍要告诉界面
     let total = resp.content_length().unwrap_or(0);

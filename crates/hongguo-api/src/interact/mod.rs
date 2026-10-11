@@ -25,6 +25,13 @@ use serde_json::Value;
 
 use super::client::ApiEnv;
 use super::danmaku::LQ_API_ORIGIN;
+use crate::params::interaction::{
+    COMMENT_TYPE_COMMENT, COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT,
+    COMMIT_SOURCE_COMMENT_REPLY, COMMIT_SOURCE_DANMAKU, COMMIT_SOURCE_REVIEW_REPLY,
+    DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU, DATA_TYPE_DELETE, DATA_TYPE_REVIEW,
+    GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT, OBJECT_TYPE_REVIEW,
+    OBJECT_TYPE_VIDEO,
+};
 use hongguo_common::{AppError, AppResult};
 
 const ARTICLE_DO_ACTION_PATH: &str = "/novel/articleapi/do_action/v1/";
@@ -68,7 +75,15 @@ pub async fn send_danmaku(
     env: &ApiEnv,
 ) -> AppResult<String> {
     Ok(
-        comment_add(group_id, book_id, text, 20, 1500, offset_ms, env)
+        comment_add(
+            group_id,
+            book_id,
+            text,
+            DATA_TYPE_DANMAKU,
+            COMMIT_SOURCE_DANMAKU,
+            offset_ms,
+            env,
+        )
             .await?
             .comment_id,
     )
@@ -84,7 +99,16 @@ pub async fn send_comment(
     text: &str,
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
-    comment_add(group_id, book_id, text, 4, 3, 0, env).await
+    comment_add(
+        group_id,
+        book_id,
+        text,
+        DATA_TYPE_COMMENT,
+        COMMIT_SOURCE_COMMENT,
+        0,
+        env,
+    )
+    .await
 }
 
 /// reply/add 响应 → [`ReplyItem`]（`data.reply` 与 reply/list 条目同构；
@@ -123,10 +147,10 @@ pub async fn send_reply(
             "shark_param": shark_param(),
             "text_feature": {},
         },
-        "commit_source": 9,
-        "data_type": 4,
+        "commit_source": COMMIT_SOURCE_COMMENT_REPLY,
+        "data_type": DATA_TYPE_COMMENT,
         "group_id": group_id,
-        "group_type": 30,
+        "group_type": GROUP_TYPE_COMMENT,
         "reply_to_comment_id": reply_to_comment_id,
         "text": text,
     });
@@ -180,7 +204,7 @@ async fn comment_add(
     offset_ms: u64,
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
-    let business_param = if data_type == 20 {
+    let business_param = if data_type == DATA_TYPE_DANMAKU {
         serde_json::json!({
             "book_id": book_id,
             "ignore_urge_rule": false,
@@ -205,7 +229,7 @@ async fn comment_add(
         "commit_source": commit_source,
         "data_type": data_type,
         "group_id": group_id,
-        "group_type": 30,
+        "group_type": GROUP_TYPE_COMMENT,
         "text": text,
     });
     let raw = serde_json::to_vec(&payload)
@@ -255,7 +279,7 @@ pub async fn digg_video(vid: &str, series_id: &str, digg: bool, env: &ApiEnv) ->
             "video_id": series_id,
         },
         "object_id": vid,
-        "object_type": 6,
+        "object_type": OBJECT_TYPE_VIDEO,
     });
     let raw = serde_json::to_vec(&payload)
         .map_err(|e| AppError::Media(format!("构造点赞请求失败: {e}")))?;
@@ -272,9 +296,9 @@ pub async fn digg_comment(comment_id: &str, digg: bool, env: &ApiEnv) -> AppResu
     let payload = serde_json::json!({
         "action_type": comment_digg_action_type(digg),
         "business_param": { "shark_param": shark_param() },
-        "comment_type": 4,
+        "comment_type": COMMENT_TYPE_COMMENT,
         "object_id": comment_id,
-        "object_type": 8,
+        "object_type": OBJECT_TYPE_COMMENT,
     });
     let raw = serde_json::to_vec(&payload)
         .map_err(|e| AppError::Media(format!("构造评论点赞请求失败: {e}")))?;
@@ -295,9 +319,9 @@ pub async fn digg_review(review_id: &str, digg: bool, env: &ApiEnv) -> AppResult
     let payload = serde_json::json!({
         "action_type": comment_digg_action_type(digg),
         "business_param": {},
-        "comment_type": 2,
+        "comment_type": COMMENT_TYPE_REVIEW,
         "object_id": review_id,
-        "object_type": 2,
+        "object_type": OBJECT_TYPE_REVIEW,
     });
     let raw = serde_json::to_vec(&payload)
         .map_err(|e| AppError::Media(format!("构造剧评点赞请求失败: {e}")))?;
@@ -338,10 +362,10 @@ pub async fn send_review_reply(
             "text_feature": {},
             "video_is_muted": 0,
         },
-        "commit_source": 13,
-        "data_type": 2,
+        "commit_source": COMMIT_SOURCE_REVIEW_REPLY,
+        "data_type": DATA_TYPE_REVIEW,
         "group_id": series_id,
-        "group_type": 1,
+        "group_type": GROUP_TYPE_REVIEW,
         "reply_to_comment_id": reply_to_comment_id,
         "text": text,
     });
@@ -366,7 +390,7 @@ pub async fn delete_comment(comment_id: &str, service_id: i64, env: &ApiEnv) -> 
     const DEL_PATH: &str = "/novel/commentapi/comment/del/v1/";
     let payload = serde_json::json!({
         "comment_id": comment_id,
-        "data_type": 9,
+        "data_type": DATA_TYPE_DELETE,
         "service_id": service_id,
     });
     let raw = serde_json::to_vec(&payload)
@@ -622,48 +646,6 @@ mod tests {
     }
 
     #[test]
-    fn review_like_shape_anchors_20261010() {
-        // 2026-10-10 抓 hgplayer 1.1.8 剧评点赞实操：与评论点赞三处不同，
-        // 照抓包锚死（object_type 2 / comment_type 2 / business_param 空对象）
-        let src = include_str!("mod.rs");
-        assert!(
-            src.contains("\"object_type\": 2,"),
-            "剧评点赞 object_type=2（评论是 8）"
-        );
-        assert!(
-            src.contains("\"business_param\": {},"),
-            "剧评点赞 business_param 是空对象（评论带 shark_param）"
-        );
-    }
-
-    #[test]
-    fn review_reply_shape_anchors_20261010() {
-        // 2026-10-10 抓 hgplayer 1.1.8 剧评回复实操：commit_source=13
-        // （评论回复 9 / 剧评发送 12）+ data_type=2 + 顶层无 aid +
-        // business_param 带 score:0 全量字段组
-        let src = include_str!("mod.rs");
-        assert!(
-            src.contains("\"commit_source\": 13,"),
-            "剧评回复 commit_source=13"
-        );
-        for needle in [
-            "\"from_famous_comment_id\": 0,",
-            "\"is_confirm_request\": false,",
-            "\"read_item_cnt\": 0,",
-            "\"score\": 0,",
-            "\"support_para_audio_play\": false,",
-            "\"video_is_muted\": 0,",
-        ] {
-            assert!(
-                src.contains(needle),
-                "剧评回复 business_param 缺锚点 {needle}"
-            );
-        }
-        // delete 形态锚点：data_type 恒 9（删除语义），service_id 由参数分流
-        assert!(src.contains("\"data_type\": 9,"), "删除 data_type=9");
-    }
-
-    #[test]
     fn state_parsing_tolerates_missing_fields() {
         let empty = serde_json::json!({"code": 0, "data": null});
         assert_eq!(
@@ -679,6 +661,8 @@ mod tests {
 #[cfg(test)]
 mod probe {
     use super::*;
+    // 删除评论 / 回复时用（生产路径的 service_id 由前端传入）。
+    use crate::params::interaction::SERVICE_ID_COMMENT;
     use hongguo_common::model::ProxyConfig;
 
     /// 互动操作必须登录态（匿名被服务端静默拒）。probe 从环境变量
@@ -738,7 +722,7 @@ mod probe {
                     "[review-interact] 剧评回复 OK id={} user={} text={}",
                     reply.reply_id, reply.user_name, reply.text
                 );
-                match delete_comment(&reply.reply_id, 4, &env).await {
+                match delete_comment(&reply.reply_id, SERVICE_ID_COMMENT, &env).await {
                     Ok(()) => println!("[review-interact] 回复删除 OK（清理痕迹）"),
                     Err(e) => println!("[review-interact] 回复删除 ERR: {e}"),
                 }
@@ -746,7 +730,7 @@ mod probe {
             Err(e) => println!("[review-interact] 剧评回复 ERR: {e}"),
         }
         // 回复列表读取（匿名也应可读；带登录态对照）
-        let page = crate::domain::api::danmaku::fetch_review_replies(book, review, "", &env)
+        let page = crate::danmaku::fetch_review_replies(book, review, "", &env)
             .await
             .expect("剧评回复列表");
         println!(
@@ -754,92 +738,6 @@ mod probe {
             page.total,
             page.items.len()
         );
-    }
-
-    /// **运行时等价环境复现**：从 `.hg-runtime-settings.json`（python 从
-    /// 应用 db 导出）读账号 + 代理，完全复刻 `AppState::api_env()` 的
-    /// merge_session_cookie 合并链路（匿名兜底打底 + 账号覆盖）。
-    /// UI 里互动失败而裸 cookie probe 成功时，用这个对照定位差异。
-    fn runtime_env() -> Option<ApiEnv> {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".hg-runtime-settings.json");
-        let raw = std::fs::read_to_string(path).ok()?;
-        let v: Value = serde_json::from_str(&raw).ok()?;
-        let proxy = v
-            .pointer("/proxy")
-            .cloned()
-            .map(|p| serde_json::from_value(p).unwrap_or_default())
-            .unwrap_or_default();
-        let cookie = v
-            .pointer("/account/cookies")
-            .and_then(Value::as_str)
-            .filter(|c| !c.is_empty());
-        let device = hongguo_signer::video_device();
-        // 复刻 merge_session_cookie：匿名兜底 + 账号覆盖（读 app_state 的
-        // 私有函数不可行，测试里等价重写——两处必须同步改）
-        let mut fields: Vec<(String, String)> = hongguo_signer::device::anonymous_cookie(&device)
-            .split("; ")
-            .filter_map(|p| {
-                p.split_once('=')
-                    .map(|(k, v)| (k.to_string(), v.to_string()))
-            })
-            .collect();
-        if let Some(account) = cookie {
-            for pair in account.split(';').map(str::trim).filter(|p| !p.is_empty()) {
-                if let Some((k, v)) = pair.split_once('=') {
-                    match fields.iter_mut().find(|(ek, _)| ek == k) {
-                        Some(slot) => slot.1 = v.to_string(),
-                        None => fields.push((k.to_string(), v.to_string())),
-                    }
-                }
-            }
-        }
-        Some(ApiEnv {
-            proxy,
-            device,
-            cookie: Some(
-                fields
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join("; "),
-            ),
-            x_tt_token: None,
-        })
-    }
-
-    #[tokio::test]
-    #[ignore = "直连真实接口的探测用例（复刻运行时 api_env 合并链路；需先导出 .hg-runtime-settings.json）"]
-    async fn probe_runtime_env_interactions() {
-        let Some(env) = runtime_env() else {
-            println!("[runtime-env] 未找到 .hg-runtime-settings.json，跳过");
-            return;
-        };
-        let has_sid = env.cookie.as_deref().unwrap_or("").contains("sessionid");
-        println!(
-            "[runtime-env] cookie={} 字节 sessionid={} x_tt_token={}",
-            env.cookie.as_deref().map(|c| c.len()).unwrap_or(0),
-            has_sid,
-            if env.x_tt_token.is_some() {
-                "在场"
-            } else {
-                "缺失"
-            }
-        );
-        // 与 UI 完全同参：剧评点赞/回复（锚点 = 抓包同一条剧评）
-        let book = "7691228619774905368";
-        let review = "7693600825641861912";
-        match digg_review(review, true, &env).await {
-            Ok(()) => println!("[runtime-env] 剧评点赞 OK"),
-            Err(e) => println!("[runtime-env] 剧评点赞 ERR: {e}"),
-        }
-        match send_review_reply(book, review, None, "probe 运行时等价回复", &env).await {
-            Ok(reply) => {
-                println!("[runtime-env] 剧评回复 OK id={}", reply.reply_id);
-                let _ = delete_comment(&reply.reply_id, 4, &env).await;
-            }
-            Err(e) => println!("[runtime-env] 剧评回复 ERR: {e}"),
-        }
     }
 
     #[tokio::test]
@@ -875,11 +773,11 @@ mod probe {
 
         // 删除闭环（comment/del，2026-10-10 抓包形态）：把自己刚发的
         // 评论和回复删掉——既验证端点又清理 probe 痕迹
-        delete_comment(&ccid.comment_id, 4, &env)
+        delete_comment(&ccid.comment_id, SERVICE_ID_COMMENT, &env)
             .await
             .expect("删除评论");
         println!("[interact] comment {} deleted", ccid.comment_id);
-        delete_comment(&reply.reply_id, 4, &env)
+        delete_comment(&reply.reply_id, SERVICE_ID_COMMENT, &env)
             .await
             .expect("删除回复");
         println!("[interact] reply {} deleted", reply.reply_id);

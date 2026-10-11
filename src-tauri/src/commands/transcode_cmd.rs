@@ -102,10 +102,10 @@ pub async fn transcode_for_playback(
         };
         let settings = state.settings();
         // 转码源必须保持全量候选：HEVC-only 的剧集兜底转码还要拿 HEVC 源
-        let play = crate::domain::api::play_url::fetch_play_url(
+        let play = hongguo_api::play_url::fetch_play_url(
             &vid,
             None,
-            crate::domain::api::stream_pick::DecoderCapability::Full,
+            hongguo_api::stream_pick::DecoderCapability::Full,
             &state.api_env(),
         )
         .await?;

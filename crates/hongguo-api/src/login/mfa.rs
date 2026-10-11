@@ -10,7 +10,7 @@ use super::{
     FORM_CONTENT_TYPE, LoginOutcome, PASSPORT_ORIGIN, error_code_of, extract_cookie_pairs,
     form_urlencoded, passport_sdk_query, sms_login,
 };
-use crate::domain::api::client::{ApiEnv, api_call_full_response};
+use crate::client::{ApiEnv, api_call_full_response};
 use hongguo_common::{AppError, AppResult};
 
 /// MFA 上行短信的**真实可回复通道号**。

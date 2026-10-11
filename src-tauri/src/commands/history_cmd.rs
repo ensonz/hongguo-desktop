@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use crate::app_state::AppState;
-use crate::domain::api::history::{
+use hongguo_api::history::{
     WatchHistoryPage, delete_watch_history, fetch_watch_history, report_watch_progress,
 };
 use hongguo_common::{AppError, AppResult};

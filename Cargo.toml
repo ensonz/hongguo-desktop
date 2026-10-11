@@ -11,7 +11,13 @@
 # 虚拟 manifest 必须显式声明 resolver，否则默认退回 "1"——edition 2024 的
 # feature 解析语义会静默变化。
 resolver = "3"
-members = ["crates/hongguo-common", "crates/hongguo-mp4", "crates/hongguo-signer", "src-tauri"]
+members = [
+    "crates/hongguo-api",
+    "crates/hongguo-common",
+    "crates/hongguo-mp4",
+    "crates/hongguo-signer",
+    "src-tauri",
+]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被
 # path/patch 引用的包会被 Cargo 自动收成 member；若不排除，门禁会去 lint
 # 上游代码（clippy -D warnings 必挂），cargo test 也会跑它们的用例。

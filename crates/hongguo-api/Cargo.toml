@@ -1,0 +1,31 @@
+[package]
+name = "hongguo-api"
+description = "红果桌面版官方接口客户端：登录 / 推荐 / 搜索 / 详情 / 流地址 / 弹幕 / 互动等"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+hongguo-common = { path = "../hongguo-common" }
+hongguo-signer = { path = "../hongguo-signer" }
+aes = "0.9"
+chrono = "0.4"
+# zlib-rs 后端：注册的 TT-Encrypt V5 要求 gzip 字节流与服务端逐字节一致
+# （与 src-tauri 的同名取舍一致）。
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+futures-util = "0.3"
+hex = "0.4"
+log = "0.4"
+parking_lot = "0.12"
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
+    "json",
+    "stream",
+    "gzip",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }

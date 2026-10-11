@@ -46,7 +46,7 @@ fn temp_path() -> AppResult<PathBuf> {
 
 async fn download(path: &Path, proxy: ProxyConfig) -> AppResult<()> {
     // 复用应用的代理配置：微软源/镜像源在部分网络下同样需要代理
-    let client = crate::domain::api::client::build_client(&proxy)?;
+    let client = hongguo_api::client::build_client(&proxy)?;
     let bytes = client
         .get(HEVC_APPX_URL)
         .timeout(std::time::Duration::from_secs(120))
