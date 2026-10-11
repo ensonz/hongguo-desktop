@@ -256,7 +256,8 @@ async fn run_one(
 fn persist(state: &AppState) {
     // 调度器跑在后台任务里，没有调用方能接住错误；
     // 落盘失败已由 `persist_tasks` 记进日志，这里只需让它在这里终止。
-    let _ = crate::store::persist_tasks(state, "Download");
+    let _ =
+        crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Download");
 }
 
 #[cfg(test)]

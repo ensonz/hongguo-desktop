@@ -2,7 +2,7 @@
 
 use turso::Value;
 
-use crate::store::db::Db;
+use crate::db::Db;
 use hongguo_common::{AppError, AppResult};
 
 use super::{col_text, map_db_err};

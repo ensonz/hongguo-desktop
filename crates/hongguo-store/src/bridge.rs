@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::store::db::Db;
-use crate::store::entity;
+use crate::db::Db;
+use crate::entity;
 use hongguo_common::model::settings::Settings;
 use hongguo_common::model::{DownloadTask, MergeTask, PlaybackPosition, Series};
 use hongguo_common::{AppError, AppResult};

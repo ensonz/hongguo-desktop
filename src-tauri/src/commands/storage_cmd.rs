@@ -53,5 +53,5 @@ pub fn delete_all_downloaded(state: State<'_, AppState>) -> AppResult<usize> {
 
 /// 清理后同步任务状态并落盘。
 fn after_cleanup(state: &State<'_, AppState>) -> AppResult<()> {
-    crate::store::persist_tasks(state, "Storage")
+    crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Storage")
 }

@@ -147,7 +147,7 @@ mod tests {
         // 命中缓存时不该碰源，也不再起一次转码
         let dir = std::env::temp_dir().join(format!("hg-compat-hit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         let p = cache::cache_file("s", 1);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, vec![7u8; 200 * 1024]).unwrap();
@@ -172,7 +172,7 @@ mod tests {
     async fn a_missing_source_is_an_error_not_an_empty_artifact() {
         let dir = std::env::temp_dir().join(format!("hg-compat-miss-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         let missing = dir.join("nope.mp4");
         let r = ensure_compat("s2", 1, CompatSource::LocalFile(&missing), &|_| {}).await;
         assert!(r.is_err(), "源不存在时必须报错，不能产出空文件");
@@ -194,7 +194,7 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("hg-compat-temp-cleanup-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         let target = cache::cache_file("cleanup", 1);
         let source_temp = plaintext_temp_path_for(&target);
 

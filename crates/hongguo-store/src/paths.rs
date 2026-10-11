@@ -54,16 +54,19 @@ pub fn db_file() -> PathBuf {
 /// `HONGGUO_DATA_DIR` 是进程级的：两个用例各改各的会互相把对方的路径顶掉，
 /// 于是「断言写到 A 目录」的用例读到的是 B 的文件。所以这里带一把全局锁，
 /// 并在 drop 时还原原值——用例中途 panic 也不会把污染留给后面的测试。
-#[cfg(test)]
-pub(crate) struct ScopedDataDir {
+// 测试辅助件：本 crate 与下游 crate 的测试都要用（落盘用例不能写进用户真实
+// %APPDATA%），而依赖 crate 对下游以非 test 方式编译——`#[cfg(test)]` 对下游
+// 不可见。用 feature 显式开启，避免测试代码常驻生产构建。见 Cargo.toml。
+#[cfg(any(test, feature = "test-support"))]
+pub struct ScopedDataDir {
     _lock: std::sync::MutexGuard<'static, ()>,
     previous: Option<std::ffi::OsString>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl ScopedDataDir {
     /// 指向 `dir` 并保证它存在。返回的守卫活着期间，本进程的数据读写全落在 `dir`。
-    pub(crate) fn new(dir: &std::path::Path) -> Self {
+    pub fn new(dir: &std::path::Path) -> Self {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let lock = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         std::fs::create_dir_all(dir).expect("创建测试数据目录");
@@ -78,7 +81,7 @@ impl ScopedDataDir {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl Drop for ScopedDataDir {
     fn drop(&mut self) {
         match self.previous.take() {

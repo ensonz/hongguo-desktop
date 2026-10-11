@@ -698,7 +698,7 @@ async fn compat_playback_transcodes_a_real_hevc_episode() {
     let src = files[0].clone();
     let dir = std::env::temp_dir().join(format!("hg-e2e-cplay-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+    let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
 
     use crate::service::play_service::compat_play as cp;
     let got = match cp::ensure_compat("e2e-cp", 1, cp::CompatSource::LocalFile(&src), &|_| {}).await

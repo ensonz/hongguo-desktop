@@ -6,12 +6,12 @@
 //! - playback 是最热的写入点（前端 5 秒节流上报），全真实列 + UPSERT。
 //! - 所有多行写操作包在单个事务里，中途失败不落半截数据。
 //!
-//! 本模块全部是 `async fn`，跑在 [`crate::store::bridge`] 的专用 DB 线程上，
-//! 由同步门面 [`crate::store::Store`] 逐方法转调；不要在业务代码里直接调用。
+//! 本模块全部是 `async fn`，跑在 [`crate::bridge`] 的专用 DB 线程上，
+//! 由同步门面 [`crate::Store`] 逐方法转调；不要在业务代码里直接调用。
 
 use turso::Value;
 
-use crate::store::db::Db;
+use crate::db::Db;
 use hongguo_common::{AppError, AppResult};
 
 // ---------- 取列小工具 ----------

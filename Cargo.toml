@@ -16,6 +16,7 @@ members = [
     "crates/hongguo-common",
     "crates/hongguo-mp4",
     "crates/hongguo-signer",
+    "crates/hongguo-store",
     "src-tauri",
 ]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被

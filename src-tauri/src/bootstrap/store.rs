@@ -13,8 +13,8 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let state = app.state::<AppState>();
 
     // 1) 旧 data.json → hongguo.db（已迁移过则是空操作）
-    match crate::store::json_migrate::run(&state.store, &crate::store::paths::data_file()) {
-        Ok(crate::store::json_migrate::MigrationOutcome::Migrated { .. }) => {}
+    match hongguo_store::json_migrate::run(&state.store, &hongguo_store::paths::data_file()) {
+        Ok(hongguo_store::json_migrate::MigrationOutcome::Migrated { .. }) => {}
         Ok(_) => {}
         Err(e) => return Err(tauri::Error::Anyhow(e.into())),
     }
@@ -73,7 +73,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let settings = state.settings();
     log::info!(
         "[Store] {} | 目录={} 并发={} 命名={:?} 剧集={} 任务={}",
-        crate::store::paths::db_file().display(),
+        hongguo_store::paths::db_file().display(),
         settings.download_dir,
         settings.max_concurrency,
         settings.naming,

@@ -2,7 +2,7 @@
 
 use turso::{Connection, Value};
 
-use crate::store::db::Db;
+use crate::db::Db;
 use hongguo_common::model::DownloadTask;
 use hongguo_common::{AppError, AppResult};
 
@@ -65,7 +65,7 @@ pub(super) async fn insert_tasks(conn: &Connection, tasks: &[DownloadTask]) -> A
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::entity::{mem_db, rt};
+    use crate::entity::{mem_db, rt};
 
     #[test]
     fn replace_tasks_is_a_full_mirror() {
