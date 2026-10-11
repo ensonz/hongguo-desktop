@@ -8,7 +8,7 @@ use super::persist;
 use hongguo_common::model::DownloadTask;
 use hongguo_common::{AppError, AppResult};
 use hongguo_service::app_state::AppState;
-use hongguo_service::download_service::events::names;
+use hongguo_service::download_service::events::{QueueChangedEvent, TaskEvent, names};
 
 /// 提交一批下载任务。
 ///
@@ -66,7 +66,7 @@ pub fn pause_all(app: AppHandle, state: State<'_, AppState>) -> AppResult<usize>
     state.scheduler().pause_all();
     let n = state.queue().pause_all();
     persist(&state)?;
-    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
     Ok(n)
 }
 
@@ -76,7 +76,7 @@ pub fn resume_all(app: AppHandle, state: State<'_, AppState>) -> AppResult<usize
     state.scheduler().resume_all();
     let n = state.queue().resume_all();
     persist(&state)?;
-    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
     hongguo_service::download_service::kick_from_handle(&app);
     Ok(n)
 }
@@ -91,7 +91,9 @@ pub fn stop_download(app: AppHandle, state: State<'_, AppState>, task_id: String
     persist(&state)?;
     let _ = app.emit(
         names::DOWNLOAD_STOPPED,
-        &serde_json::json!({ "id": task_id }),
+        &TaskEvent {
+            id: task_id.clone(),
+        },
     );
     Ok(())
 }
@@ -108,7 +110,7 @@ pub fn retry_task(
         .retry(&task_id)
         .ok_or_else(|| AppError::NotFound(format!("任务 {task_id}")))?;
     persist(&state)?;
-    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
     Ok(task)
 }
 
@@ -121,6 +123,6 @@ pub fn retry_tasks(
 ) -> AppResult<usize> {
     let n = state.queue().retry_many(&task_ids);
     persist(&state)?;
-    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
     Ok(n)
 }

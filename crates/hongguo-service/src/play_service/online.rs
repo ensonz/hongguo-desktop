@@ -831,13 +831,13 @@ impl ProgressReporter {
         use tauri::Emitter;
         let _ = self.app.emit(
             crate::download_service::events::names::ONLINE_PROGRESS,
-            serde_json::json!({
-                "key": self.key,
-                "received": received,
-                "total": total,
-                "percent": percent.min(100.0),
-                "phase": phase,
-            }),
+            &OnlineProgressEvent {
+                key: self.key.clone(),
+                received,
+                total,
+                percent: percent.min(100.0),
+                phase: phase.to_string(),
+            },
         );
     }
 
@@ -847,15 +847,28 @@ impl ProgressReporter {
         use tauri::Emitter;
         let _ = self.app.emit(
             crate::download_service::events::names::ONLINE_PROGRESS,
-            serde_json::json!({
-                "key": self.key,
-                "received": 0,
-                "total": 0,
-                "percent": 100.0,
-                "phase": "ready",
-            }),
+            &OnlineProgressEvent {
+                key: self.key.clone(),
+                received: 0,
+                total: 0,
+                percent: 100.0,
+                phase: "ready".to_string(),
+            },
         );
     }
+}
+
+/// 在线播放进度事件（`online-play-progress`，红线 10：强类型载荷）。
+///
+/// `key` 是 `{seriesId}:{vidIndex}`（episodeKey），前端按它过滤事件——
+/// 曾经发裸 vid 导致「正在缓存 X%」永远匹配不上，别改回 vid。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OnlineProgressEvent {
+    pub key: String,
+    pub received: u64,
+    pub total: u64,
+    pub percent: f64,
+    pub phase: String,
 }
 
 /// 带进度回调的取流+解密。

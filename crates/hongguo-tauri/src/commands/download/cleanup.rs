@@ -8,7 +8,7 @@ use hongguo_common::AppResult;
 use hongguo_service::app_state::AppState;
 
 use super::persist;
-use hongguo_service::download_service::events::names;
+use hongguo_service::download_service::events::{QueueChangedEvent, names};
 
 /// 删除任务；`delete_files` 为真时同时删除本地文件。
 #[tauri::command]
@@ -47,7 +47,7 @@ pub fn delete_tasks(
 
     let n = state.queue().remove(&task_ids);
     persist(&state)?;
-    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+    let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
     Ok(n)
 }
 
@@ -64,7 +64,7 @@ pub fn rescan_downloads(app: AppHandle, state: State<'_, AppState>) -> AppResult
         );
     }
     if !summary.added.is_empty() {
-        let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+        let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
     }
     log::info!(
         "[Rescan] 扫过 {} 部剧，补回 {} 条记录",

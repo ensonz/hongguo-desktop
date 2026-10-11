@@ -66,6 +66,36 @@ impl ProgressThrottle {
     }
 }
 
+/// 事件载荷（强类型，红线 10：禁 `json!` 裸拼）。字段与前端
+/// `service/tauri/events.ts` 的 zod schema 一一对应，改任何一侧字段必须
+/// **同 commit** 改另一侧（事件坏掉是静默的，载荷漂移只会 console.error）。
+/// 单任务事件：完成 / 停止共用（`download-completed` / `download-stopped`）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TaskEvent {
+    pub id: String,
+}
+
+/// 单任务下载进度（`download-progress`）。高频事件，经 [`ProgressThrottle`] 节流。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProgressEvent {
+    pub id: String,
+    pub downloaded: u64,
+    pub total: u64,
+    pub percent: f64,
+}
+
+/// 任务失败事件（`download-failed`）。`error` 是 i18n key，前端直接渲染。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TaskFailureEvent {
+    pub id: String,
+    pub error: String,
+}
+
+/// 队列整体变化事件（`download-queue-changed`）：只作「重拉列表」的信号，
+/// 无字段。序列化为 `{}`。
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct QueueChangedEvent {}
+
 /// 事件名常量（前端 `lib/ipc/events.ts` 有一一对应的类型）。
 pub mod names {
     pub const DOWNLOAD_PROGRESS: &str = "download-progress";

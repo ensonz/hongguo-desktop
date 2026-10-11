@@ -144,13 +144,16 @@ impl DownloadScheduler {
             Ok((path, size)) => {
                 queue.mark_completed(&id, &path, size);
                 self.throttle.forget(&id);
-                let _ = app.emit(names::DOWNLOAD_COMPLETED, &serde_json::json!({ "id": id }));
+                let _ = app.emit(
+                    names::DOWNLOAD_COMPLETED,
+                    &super::events::TaskEvent { id: id.clone() },
+                );
             }
             Err(e) => {
                 if is_cancelled(&e) {
                     queue.mark_stopped(&id);
                     self.throttle.forget(&id);
-                    let _ = app.emit(names::DOWNLOAD_STOPPED, &serde_json::json!({ "id": id }));
+                    let _ = app.emit(names::DOWNLOAD_STOPPED, &super::events::TaskEvent { id });
                 } else {
                     // 队列里记 i18n key，不记「网络请求失败: dns 错误」这种人话：
                     // `DownloadTask.error` 是被前端直接渲染的，底层细节只该进日志。
@@ -159,14 +162,20 @@ impl DownloadScheduler {
                     self.throttle.forget(&id);
                     let _ = app.emit(
                         names::DOWNLOAD_FAILED,
-                        &serde_json::json!({ "id": id, "error": e.to_string() }),
+                        &super::events::TaskFailureEvent {
+                            id,
+                            error: e.to_string(),
+                        },
                     );
                 }
             }
         }
 
         *self.running.lock() -= 1;
-        let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &serde_json::json!({}));
+        let _ = app.emit(
+            names::DOWNLOAD_QUEUE_CHANGED,
+            &super::events::QueueChangedEvent {},
+        );
         persist(&state);
 
         // 继续派发下一个（走 reschedule 断开递归类型）
@@ -235,12 +244,12 @@ async fn run_one(
         let percent = queue.get(&task_id).map(|t| t.percent()).unwrap_or(0.0);
         let _ = app.emit(
             names::DOWNLOAD_PROGRESS,
-            &serde_json::json!({
-                "id": task_id,
-                "downloaded": downloaded,
-                "total": total,
-                "percent": percent,
-            }),
+            &super::events::ProgressEvent {
+                id: task_id.clone(),
+                downloaded,
+                total,
+                percent,
+            },
         );
     };
     let sink = ProgressSink {
