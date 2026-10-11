@@ -39,4 +39,3 @@ export const storageSeriesUsageSchema = z.object({
   bytes: z.number().nonnegative(),
   files: z.number().int().nonnegative(),
 });
-
