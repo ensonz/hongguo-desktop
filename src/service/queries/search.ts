@@ -2,22 +2,16 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
 import { seriesSearch } from '../commands';
 import type { SearchPage, SearchResult } from '../schema';
-import { keys, useInfiniteStream } from './common';
+import { dedupBy, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 官方 App 搜索
 
 /** 综合首页的精选与翻页列表有重复：按 seriesId 去重。 */
 function appSearchItems(pages: SearchPage[]): SearchResult[] {
-  const seen = new Set<string>();
-  const items: SearchResult[] = [];
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (seen.has(item.seriesId)) continue;
-      seen.add(item.seriesId);
-      items.push(item);
-    }
-  }
-  return items;
+  return dedupBy(
+    pages.flatMap((p) => p.items),
+    (i) => i.seriesId,
+  );
 }
 
 /**
@@ -54,7 +48,7 @@ export function useSeriesSearchApp(query: string) {
 export function useSearchSuggest(q: string) {
   const kw = q.trim();
   return useQuery({
-    queryKey: ['search-suggest', kw] as const,
+    queryKey: keys.searchSuggest(kw),
     queryFn: () => seriesSearch.suggest(kw),
     // 至少 2 个字才值得打接口（单字联想噪声大）
     enabled: kw.length >= 2,

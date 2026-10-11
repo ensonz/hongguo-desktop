@@ -41,7 +41,6 @@ export {
   useAccount,
 } from './interact';
 export {
-  RESERVATIONS_KEY_ROOT,
   useRank,
   useNewDrama,
   useNewCalendar,
@@ -75,4 +74,3 @@ export {
 } from './play';
 export { useStorageUsage, useStorageSeries, useStorageActions } from './storage';
 export { useWatchHistory, useWatchHistoryDelete } from './history';
-export { useWebCover } from './cover';

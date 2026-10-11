@@ -1,6 +1,6 @@
 /** 搜索联想下拉行：放大镜 + 命中高亮词条（+ 有剧集的行前置封面）。 */
 import { Search } from 'lucide-react';
-import { useWebCover } from '@/service/queries';
+import { enhancedCover } from '@/utils/cover';
 import { cn } from '@/lib/utils';
 import type { SuggestItem } from '@/service/schema';
 
@@ -22,7 +22,7 @@ export function SuggestRow({
   onPick: (item: SuggestItem) => void;
 }) {
   // 封面闸门对齐 hgplayer（cover 有无）：纯词联想不渲染封面，只有放大镜。
-  const { data: webCover } = useWebCover(item.cover);
+  const webCover = enhancedCover(item.cover);
   return (
     <button
       type="button"

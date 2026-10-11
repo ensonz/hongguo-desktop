@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 
 import { rank } from '../commands';
-import type { RankItem, RankPage } from '../schema';
+import type { RankPage } from '../schema';
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -9,12 +9,9 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { keys, useInfiniteStream } from './common';
+import { dedupBy, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 排行榜 / 新剧 / 上新日历 / 预约
-
-/** 我的预约查询的根 key（登录/预约变更后整组失效用）。 */
-export const RESERVATIONS_KEY_ROOT = ['reservations'] as const;
 
 /**
  * 一个榜单（内容tab × 子榜 × 筛选 组合缓存；社交态数据不缓存——
@@ -40,18 +37,10 @@ export function useRank(selected: string, sub: string, panel: string) {
     placeholderData: keepPreviousData,
   });
 
-  const items = useMemo(() => {
-    const seen = new Set<string>();
-    const out: RankItem[] = [];
-    for (const page of query.data?.pages ?? []) {
-      for (const item of page.items) {
-        if (seen.has(item.seriesId)) continue;
-        seen.add(item.seriesId);
-        out.push(item);
-      }
-    }
-    return out;
-  }, [query.data]);
+  const items = useMemo(
+    () => dedupBy(query.data?.pages.flatMap((p) => p.items) ?? [], (i) => i.seriesId),
+    [query.data],
+  );
   const tabs = query.data?.pages[0]?.tabs ?? [];
 
   return {
@@ -131,7 +120,7 @@ export function useReservationsDelete() {
         input.notDelItemIds ?? [],
         input.isOnline,
       ),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.reservationsRoot }),
   });
 }
 
@@ -148,8 +137,8 @@ export function useReserveSeries() {
     mutationFn: (input: { seriesId: string; reserve: boolean }) =>
       rank.reserve(input.seriesId, input.reserve),
     onSuccess: (_data, input) => {
-      void queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
-      for (const query of queryClient.getQueryCache().findAll({ queryKey: ['rank'] })) {
+      void queryClient.invalidateQueries({ queryKey: keys.reservationsRoot });
+      for (const query of queryClient.getQueryCache().findAll({ queryKey: keys.rankRoot })) {
         queryClient.setQueryData<RankPage>(query.queryKey, (page) =>
           page
             ? {

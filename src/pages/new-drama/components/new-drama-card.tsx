@@ -2,8 +2,7 @@
 import { useState } from 'react';
 import { Flame, Star, Tv } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { useWebCover } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { t, tf } from '@/locales';
 import type { RankItem } from '@/service/schema';
 
@@ -16,7 +15,7 @@ export function NewDramaCard({
   downloaded: number;
   onSelect: (item: RankItem) => void;
 }) {
-  const { data: webCover } = useWebCover(item.cover);
+  const webCover = enhancedCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
   const [brokenFor, setBrokenFor] = useState('');

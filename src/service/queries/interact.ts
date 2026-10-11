@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { interact as interactCmd, login } from '../commands';
 import type { InteractionItem, InteractionState } from '../schema';
-import { RESERVATIONS_KEY_ROOT } from './rank';
 import { keys } from './common';
 
 // ---------------------------------------------------------------- 互动（点赞 / 收藏 / 书架）
@@ -42,7 +41,7 @@ export function useAuthRefresh() {
     void qc.invalidateQueries({ queryKey: keys.account });
     void qc.invalidateQueries({ queryKey: keys.interactState });
     void qc.invalidateQueries({ queryKey: keys.bookshelf });
-    void qc.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
+    void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
   }, [qc]);
 }
 

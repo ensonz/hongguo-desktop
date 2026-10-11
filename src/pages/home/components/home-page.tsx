@@ -15,9 +15,8 @@ import {
   useSeriesEpisodes,
   useSeriesProgress,
   useWatchHistory,
-  useWebCover,
 } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { t } from '@/locales';
 import type { Series } from '@/service/schema';
@@ -293,7 +292,7 @@ export function HomePage() {
   // 再挑 WebView 渲染得了的 URL。eagerProxy：HEIC 源不等 webp 网络请求，
   // 立即给本地转码代理——切剧瞬间的全屏占位黑一秒都是「卡顿感」的来源
   const rawCover = current?.horizCover || current?.cover || '';
-  const { data: webCover } = useWebCover(rawCover);
+  const webCover = enhancedCover(rawCover);
   const coverForPlayer = current
     ? (webCover ?? (isRenderableCover(rawCover) ? rawCover : undefined))
     : undefined;

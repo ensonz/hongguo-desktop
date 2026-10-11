@@ -16,16 +16,11 @@ import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import {
-  useResolveSeries,
-  useWatchHistory,
-  useWatchHistoryDelete,
-  useWebCover,
-} from '@/service/queries';
+import { useResolveSeries, useWatchHistory, useWatchHistoryDelete } from '@/service/queries';
 import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
 import { t, tf } from '@/locales';
@@ -267,7 +262,7 @@ function HistoryRow({
   onOpen: () => void;
   pick?: { checked: boolean; onToggle: () => void };
 }) {
-  const { data: webCover } = useWebCover(item.cover);
+  const webCover = enhancedCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
   const [brokenFor, setBrokenFor] = useState('');

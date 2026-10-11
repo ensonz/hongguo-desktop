@@ -2,11 +2,39 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { play, series } from '../commands';
+import type { Series } from '../schema';
 import { useEvent } from '../tauri/events';
 import { EVENTS } from '../tauri/types';
 import { keys } from './common';
 
 // ---------------------------------------------------------------- 剧集档案
+
+/**
+ * Rust 热重载重启会丢掉在途 invoke 的应答（promise 永不 settle）——dev 下
+ * 30s 强制超时转成错误，让上层给出重试入口；生产链路让错误正常暴露。
+ */
+function withDevTimeout<T>(p: Promise<T>): Promise<T> {
+  if (!import.meta.env.DEV) return p;
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('分集档案解析超时')), 30_000);
+    }),
+  ]);
+}
+
+/**
+ * 档案查询函数：详情页（分集）与列表页（元信息）两个入口**同 key 同 fn**
+ * ——此前同 key 两个 queryFn，先挂载者定形态。本地命中秒回；未收录的
+ * （如书架里从没看过的剧）回落 resolve 解析进同一份缓存，两侧都拿得到。
+ */
+async function seriesArchive(seriesId: string): Promise<Series> {
+  try {
+    return await withDevTimeout(series.episodes(seriesId));
+  } catch {
+    return series.resolve(seriesId);
+  }
+}
 
 export function useSeriesEpisodes(seriesId: string | null) {
   const queryClient = useQueryClient();
@@ -19,16 +47,9 @@ export function useSeriesEpisodes(seriesId: string | null) {
   });
   return useQuery({
     queryKey: keys.seriesEpisodes(seriesId ?? ''),
-    // 挂起兜底：Rust 热重载重启会丢掉在途 invoke 的应答（promise 永不
-    // settle），30s 强制超时转成错误，让上层给出重试入口而不是永远空态
-    queryFn: () =>
-      Promise.race([
-        series.episodes(seriesId!),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('分集档案解析超时')), 30_000);
-        }),
-      ]),
+    queryFn: () => seriesArchive(seriesId!),
     enabled: seriesId !== null,
+    staleTime: 10 * 60_000,
   });
 }
 
@@ -47,20 +68,11 @@ export function useSeriesProgress(seriesId: string) {
   });
 }
 
-/**
- * 剧集元信息（收藏/点赞等列表页用）：本地档案命中秒回，未收录的
- * （如书架里从没看过的剧）回落 resolve_series 解析并进同一份缓存。
- */
+/** 列表页用剧集元信息：与 useSeriesEpisodes 同 key 同 fn 同一份缓存。 */
 export function useSeriesMeta(seriesId: string) {
   return useQuery({
     queryKey: keys.seriesEpisodes(seriesId),
-    queryFn: async () => {
-      try {
-        return await series.episodes(seriesId);
-      } catch {
-        return series.resolve(seriesId);
-      }
-    },
+    queryFn: () => seriesArchive(seriesId),
     enabled: seriesId !== '',
     staleTime: 10 * 60_000,
   });

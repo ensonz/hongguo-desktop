@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { Tv } from 'lucide-react';
-import { useWebCover } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 
 /**
  * 剧集列表行卡骨架（排行榜行 / 上新日历行共用）。
  *
  * 口径对齐 hgplayer：**卡片整体进详情**（onOpen），播放/预约/详情是行尾
- * 动作列的明确动作，不混在卡片点击里。封面统一走 useWebCover 转码代理
+ * 动作列的明确动作，不混在卡片点击里。封面统一走 enhancedCover 转码代理
  * （HEIC 签名 URL 直挂必裂）；悬浮/选中/键盘语义与渐进渲染提示都在这层。
  *
  * 各页差异全部走插槽：leading（榜单名次）、titleExtra（季徽/上线状态徽）、
@@ -37,7 +36,7 @@ export function SeriesRowCard({
   actions?: React.ReactNode;
   onOpen: () => void;
 }) {
-  const { data: webCover } = useWebCover(cover);
+  const webCover = enhancedCover(cover);
   const sourceRenderable = isRenderableCover(cover);
   const resolved = webCover ?? (sourceRenderable ? cover : '');
   const [brokenFor, setBrokenFor] = useState('');

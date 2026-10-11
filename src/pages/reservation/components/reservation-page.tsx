@@ -23,14 +23,8 @@ import { rank as rankApi } from '@/service/commands';
 import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
-import {
-  RESERVATIONS_KEY_ROOT,
-  useAccount,
-  useReservations,
-  useReservationsDelete,
-  useWebCover,
-} from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { keys, useAccount, useReservations, useReservationsDelete } from '@/service/queries';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { t, tf, locale } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import type { CalendarItem } from '@/service/schema';
@@ -215,7 +209,7 @@ function NotLoggedIn() {
         onSuccess={() => {
           // 登录成功：刷登录态并重拉两个 tab 的预约列表
           void refetchAccount();
-          void qc.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
+          void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
         }}
       />
     </div>
@@ -239,7 +233,7 @@ function ReservationCard({
   const navigate = useNavigate();
   const playSeries = usePlaySeries();
   const qc = useQueryClient();
-  const { data: webCover } = useWebCover(item.cover);
+  const webCover = enhancedCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
   const [brokenFor, setBrokenFor] = useState('');
@@ -250,7 +244,7 @@ function ReservationCard({
     mutationFn: () => rankApi.reserve(item.seriesId, false),
     onSuccess: () => {
       toast.success(t('reservation.cancelled'));
-      void qc.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
+      void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
     },
     onError: (e: Error) => toast.error(e.message),
   });

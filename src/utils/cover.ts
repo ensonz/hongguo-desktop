@@ -42,3 +42,11 @@ export function isRenderableCover(url: string): boolean {
   }
   return false;
 }
+
+/**
+ * 封面增强：能直接渲染的格式给 undefined（组件原样加载源图）；HEIC 等
+ * WebView 解不了的源给本地转码代理地址。纯同步无查询——组件渲染期直调。
+ */
+export function enhancedCover(source: string): string | undefined {
+  return source !== '' && !isRenderableCover(source) ? coverProxyUrl(source) : undefined;
+}

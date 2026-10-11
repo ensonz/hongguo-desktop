@@ -31,9 +31,8 @@ import {
   useSeriesCollect,
   useSeriesCollectBatch,
   useSeriesMeta,
-  useWebCover,
 } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { t, tf } from '@/locales';
 import type { BookshelfEntry } from '@/service/schema';
@@ -239,7 +238,7 @@ function CollectionCard({
 }) {
   const { data: meta } = useSeriesMeta(entry.seriesId);
   const rawCover = meta?.cover ?? '';
-  const { data: webCover } = useWebCover(rawCover);
+  const webCover = enhancedCover(rawCover);
   const cover = webCover ?? (isRenderableCover(rawCover) ? rawCover : '');
   const [brokenFor, setBrokenFor] = useState('');
   const imgBroken = brokenFor !== '' && brokenFor === cover;

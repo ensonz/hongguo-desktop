@@ -27,8 +27,8 @@ import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { interact as interactCmd } from '@/service/commands';
 import { keys } from '@/service/queries/common';
-import { useInteractionState, useSeriesMeta, useVideoDigg, useWebCover } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { useInteractionState, useSeriesMeta, useVideoDigg } from '@/service/queries';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { t, tf } from '@/locales';
 import type { InteractionItem } from '@/service/schema';
@@ -181,7 +181,7 @@ function LikedCard({
 }) {
   const { data: meta } = useSeriesMeta(item.seriesId);
   const rawCover = meta?.cover ?? '';
-  const { data: webCover } = useWebCover(rawCover);
+  const webCover = enhancedCover(rawCover);
   const cover = webCover ?? (isRenderableCover(rawCover) ? rawCover : '');
   const [brokenFor, setBrokenFor] = useState('');
   const imgBroken = brokenFor !== '' && brokenFor === cover;
