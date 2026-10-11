@@ -15,8 +15,8 @@ use std::collections::HashSet;
 use parking_lot::Mutex;
 
 use hongguo_api::client::ApiEnv;
-use crate::store::Store;
 use hongguo_common::model::Settings;
+use hongguo_store::Store;
 
 /// 会话账本：处理过的 `{series_id}:{vid_index}`（预转过或查过无需转）。
 static HANDLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -72,16 +72,14 @@ async fn check_and_prefetch(
 
     // NoHevc 视角看下一集：有可选流（h264/未知编码）就不用转
     let probe =
-        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::NoHevc, env)
-            .await?;
+        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::NoHevc, env).await?;
     if !probe.definitions.is_empty() {
         return Ok(false);
     }
     log::info!("[CompatPrefetch] 第 {vid_index} 集 HEVC-only，后台预转兼容产物");
     // Full 取流拿 HEVC 源（转码源必须全量候选，见计划文档非目标）
     let play =
-        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::Full, env)
-            .await?;
+        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::Full, env).await?;
     let plain = super::online::fetch_plain(&play, settings).await?;
     super::compat_play::ensure_compat(
         series_id,

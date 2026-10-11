@@ -53,7 +53,7 @@ pub enum MigrationOutcome {
     },
 }
 
-/// 迁移入口。`json_path` 通常是 [`crate::store::paths::data_file`]。
+/// 迁移入口。`json_path` 通常是 [`crate::paths::data_file`]。
 pub fn run(
     store: &super::bridge::Store,
     json_path: &Path,

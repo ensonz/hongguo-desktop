@@ -1,0 +1,33 @@
+[package]
+name = "hongguo-store"
+description = "红果桌面版持久化：Turso 内嵌库、实体读写、schema 迁移与旧档导入"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 共用底座：AppError / AppResult / 领域模型。
+hongguo-common = { path = "../hongguo-common" }
+# 设备档案（DeviceProfile）是库里的一张表，签名层是它的类型归属。
+hongguo-signer = { path = "../hongguo-signer" }
+# 内嵌数据库。刻意关闭 default features：mimalloc 是全局分配器不能让库替
+# 我们换，fts 暂时用不上（与 src-tauri 的同名取舍一致）。
+turso = { version = "0.8.1", default-features = false }
+# 同步门面的「投递 → 等结果」通道与专职 DB 线程的 current_thread runtime。
+futures-util = "0.3"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+# 数据目录解析（沿用 Electron 版路径，便于用户平滑迁移）。
+dirs = "7"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+
+[features]
+# 测试辅助件（`paths::ScopedDataDir`：把数据目录重定向到临时目录的守卫）：
+# 本 crate 与下游 crate 的测试都要用（落盘用例不能写进用户真实 %APPDATA%），
+# 而依赖 crate 对下游以非 test 方式编译——`#[cfg(test)]` 对下游不可见，用
+# feature 显式开启可避免测试代码常驻生产构建。下游在 [dev-dependencies] 里带此 feature。
+test-support = []

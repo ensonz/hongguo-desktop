@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::store::paths::{COMPAT_CACHE_MAX_BYTES, compat_cache_dir};
+use hongguo_store::paths::{COMPAT_CACHE_MAX_BYTES, compat_cache_dir};
 
 /// 某集的缓存文件名。
 pub fn cache_file(series_id: &str, vid_index: u32) -> PathBuf {

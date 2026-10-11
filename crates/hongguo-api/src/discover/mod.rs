@@ -461,9 +461,7 @@ mod probe_browse {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_panel_and_page() {
-        let env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let rows = fetch_browse_panel(&env).await.expect("面板");
         for r in &rows {
             println!(
@@ -497,9 +495,8 @@ mod probe_panel_cookie {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_panel_with_cookies() {
-        let mut env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let mut env =
+            crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let cookies = std::env::var("HG_LOGIN_COOKIES").unwrap_or_default();
         if !cookies.is_empty() {
             env.cookie = Some(cookies);
@@ -521,9 +518,7 @@ mod probe_duration {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_duration_filter() {
-        let env = crate::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env = crate::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let filters = BrowseFilters {
             duration: "duration_0_60".into(),
             ..Default::default()

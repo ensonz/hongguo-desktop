@@ -2,7 +2,7 @@
 
 use turso::Value;
 
-use crate::store::db::Db;
+use crate::db::Db;
 use hongguo_common::model::settings::Settings;
 use hongguo_common::{AppError, AppResult};
 
@@ -40,7 +40,7 @@ pub async fn save_settings(db: &Db, s: &Settings) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::entity::{mem_db, rt};
+    use crate::entity::{mem_db, rt};
 
     #[test]
     fn settings_roundtrip_and_missing_returns_none() {

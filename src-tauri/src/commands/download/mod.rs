@@ -31,5 +31,5 @@ pub fn get_queue_status(state: State<'_, AppState>) -> QueueStatus {
 
 /// 把队列快照写回数据文件。
 pub(crate) fn persist(state: &State<'_, AppState>) -> AppResult<()> {
-    crate::store::persist_tasks(state, "Download")
+    crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Download")
 }

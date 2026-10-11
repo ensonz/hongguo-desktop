@@ -2,7 +2,7 @@
 
 use turso::Value;
 
-use crate::store::db::Db;
+use crate::db::Db;
 use hongguo_common::model::Series;
 use hongguo_common::{AppError, AppResult};
 
@@ -72,7 +72,7 @@ pub async fn upsert_series(db: &Db, s: &Series) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::entity::{mem_db, rt};
+    use crate::entity::{mem_db, rt};
 
     #[test]
     fn series_upsert_preserves_dismissed_and_returns_by_id() {

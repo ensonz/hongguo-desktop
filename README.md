@@ -186,15 +186,17 @@ make assets         # 重新生成图标 / macOS 名称本地化（离线）
 
 ```text
 hongguo-desktop/
+├── crates/
+│   ├── hongguo-common/  # 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量
+│   ├── hongguo-signer/  # 字节系请求签名 + 设备注册原语（JS 1:1 移植，常量黑盒锁定勿改）
+│   ├── hongguo-mp4/     # MP4 解析与 CENC 解密
+│   ├── hongguo-api/     # 官方 App 接口客户端（14 域，按端点域目录化）
+│   └── hongguo-store/   # Turso 内嵌数据库（entity/ 按聚合拆分 / 迁移链 / 坏档恢复）
 ├── src-tauri/src/
-│   ├── signer/          # 字节系请求签名（常量黑盒锁定，勿改）
-│   ├── domain/          # 官方 App 接口客户端（api/ 按端点域目录化）、CENC 解密、MP4 解析
 │   ├── service/         # 应用服务：下载调度、播放编排、合并、转码、存储清理……
 │   ├── commands/        # Tauri command 薄层（约 80 个，与 service 同名同构）
 │   ├── protocol/        # 自定义 URI scheme（流式播放 / 本地文件 / 封面代理）
 │   ├── media/           # 编解码与转码管线（平台硬编 → ffmpeg → 纯 Rust）
-│   ├── store/           # Turso 内嵌数据库（entity/ 按聚合拆分 / 迁移链 / 坏档恢复）
-│   ├── utils/           # 无业务语义的纯函数（json / time / hex / url）
 │   └── bootstrap/       # 启动装配（存储 → 设备 → 重扫描 → 队列 → 转码探测）
 └── src/
     ├── pages/           # TanStack 文件路由（薄壳）+ 页面实现就近放置

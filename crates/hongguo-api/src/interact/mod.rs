@@ -26,11 +26,10 @@ use serde_json::Value;
 use super::client::ApiEnv;
 use super::danmaku::LQ_API_ORIGIN;
 use crate::params::interaction::{
-    COMMENT_TYPE_COMMENT, COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT,
-    COMMIT_SOURCE_COMMENT_REPLY, COMMIT_SOURCE_DANMAKU, COMMIT_SOURCE_REVIEW_REPLY,
-    DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU, DATA_TYPE_DELETE, DATA_TYPE_REVIEW,
-    GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT, OBJECT_TYPE_REVIEW,
-    OBJECT_TYPE_VIDEO,
+    COMMENT_TYPE_COMMENT, COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT, COMMIT_SOURCE_COMMENT_REPLY,
+    COMMIT_SOURCE_DANMAKU, COMMIT_SOURCE_REVIEW_REPLY, DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU,
+    DATA_TYPE_DELETE, DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT,
+    OBJECT_TYPE_REVIEW, OBJECT_TYPE_VIDEO,
 };
 use hongguo_common::{AppError, AppResult};
 
@@ -74,19 +73,17 @@ pub async fn send_danmaku(
     offset_ms: u64,
     env: &ApiEnv,
 ) -> AppResult<String> {
-    Ok(
-        comment_add(
-            group_id,
-            book_id,
-            text,
-            DATA_TYPE_DANMAKU,
-            COMMIT_SOURCE_DANMAKU,
-            offset_ms,
-            env,
-        )
-            .await?
-            .comment_id,
+    Ok(comment_add(
+        group_id,
+        book_id,
+        text,
+        DATA_TYPE_DANMAKU,
+        COMMIT_SOURCE_DANMAKU,
+        offset_ms,
+        env,
     )
+    .await?
+    .comment_id)
 }
 
 /// 发评论（`data_type=4`，offset 恒 0）。返回**服务端回显的完整评论对象**

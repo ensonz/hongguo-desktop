@@ -1,4 +1,4 @@
-//! 持久化：Turso 内嵌数据库（2026-10 的 M1 改造）。
+//! 持久化（hongguo-store crate）：Turso 内嵌数据库（2026-10 的 M1 改造）。
 //!
 //! 分层：
 //! - [`db`]：异步核心——连接、schema 版本迁移、事务收口；
@@ -11,6 +11,10 @@
 //! 历史包袱的灭失清单：单 JSON 全量重写（播放 5 秒一整写）、
 //! clone-后-save 的丢更新窗口、Windows 非原子 rename 的崩溃窗口，
 //! 都随本层上线一并消失。
+//!
+//! 本 crate 不依赖 tauri：把「下载队列快照写回库」这类编排留给上层
+//! （见 `service::download_service::persist_tasks`），这里只提供
+//! [`Store`] 的存储原语。
 
 pub mod bridge;
 pub mod db;
@@ -20,18 +24,3 @@ pub mod paths;
 pub mod recover;
 
 pub use bridge::Store;
-
-use hongguo_common::AppResult;
-
-/// 把下载队列快照写回数据库。
-///
-/// 队列是内存态，落盘失败不必让用户的操作失败，但没有日志时「重启后任务
-/// 不见了」根本无从查起，所以这里一律记下来。`tag` 是调用方的模块名，
-/// 用来区分是哪条路径触发的落盘。
-pub fn persist_tasks(state: &crate::app_state::AppState, tag: &str) -> AppResult<()> {
-    let tasks = state.queue().all();
-    state
-        .store
-        .replace_tasks(&tasks)
-        .inspect_err(|e| log::error!("[{tag}] 落盘失败: {e}"))
-}

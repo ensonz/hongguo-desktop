@@ -68,7 +68,7 @@ fn cache_path(remote: &str, ext: &str) -> std::path::PathBuf {
     let mut hasher = Sha256::new();
     hasher.update(remote.as_bytes());
     let digest = hex::encode(&hasher.finalize());
-    crate::store::paths::cover_cache_dir().join(format!("{digest}.{ext}"))
+    hongguo_store::paths::cover_cache_dir().join(format!("{digest}.{ext}"))
 }
 
 /// 写入中的临时文件（与最终扩展名无关，rename 时才落定为最终名）。
@@ -76,7 +76,7 @@ fn cache_tmp(remote: &str) -> std::path::PathBuf {
     let mut hasher = Sha256::new();
     hasher.update(remote.as_bytes());
     let digest = hex::encode(&hasher.finalize());
-    crate::store::paths::cover_cache_dir().join(format!("{digest}.tmp"))
+    hongguo_store::paths::cover_cache_dir().join(format!("{digest}.tmp"))
 }
 
 fn headers(ct: &str, len: usize) -> Vec<(String, String)> {

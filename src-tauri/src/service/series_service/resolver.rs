@@ -11,10 +11,7 @@ use hongguo_common::model::Series;
 use hongguo_common::{AppError, AppResult};
 
 /// 解析剧集：输入是纯数字剧集 ID。
-pub async fn resolve_series(
-    input: &str,
-    env: &hongguo_api::client::ApiEnv,
-) -> AppResult<Series> {
+pub async fn resolve_series(input: &str, env: &hongguo_api::client::ApiEnv) -> AppResult<Series> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(AppError::InvalidArgs("请输入剧集 ID".into()));
@@ -49,18 +46,16 @@ mod tests {
 
     #[tokio::test]
     async fn empty_input_errors() {
-        let env = hongguo_api::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env =
+            hongguo_api::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         assert!(resolve_series("", &env).await.is_err());
         assert!(resolve_series("   ", &env).await.is_err());
     }
 
     #[tokio::test]
     async fn non_numeric_input_errors() {
-        let env = hongguo_api::client::ApiEnv::anonymous(
-            hongguo_common::model::ProxyConfig::default(),
-        );
+        let env =
+            hongguo_api::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         assert!(resolve_series("随便一段文字", &env).await.is_err());
         // 分享链接形态也不再支持：当普通非法输入拒掉
         assert!(

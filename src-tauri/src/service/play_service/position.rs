@@ -15,7 +15,7 @@ use hongguo_common::model::PlaybackPosition;
 /// `duration` 由前端回传——后端拿到流的时候还不知道总时长；
 /// 它供展示与前端「看完跳下一集」之类的比例计算使用。
 pub fn save_store(
-    store: &crate::store::Store,
+    store: &hongguo_store::Store,
     series_id: &str,
     vid_index: u32,
     current_time: f64,
@@ -66,7 +66,7 @@ mod tests {
         let dir = temp_dir(tag);
         let db = dir.join("test.db");
         let _ = std::fs::remove_file(&db);
-        let store = crate::store::Store::open(&db).expect("打开测试文件库");
+        let store = hongguo_store::Store::open(&db).expect("打开测试文件库");
         (
             std::sync::Arc::new(crate::app_state::AppStateInner::with_db(store)),
             dir,
@@ -123,7 +123,7 @@ mod tests {
 
         {
             // 模拟「重启」：换一个指向同一文件的全新 Store 实例读
-            let reopened = crate::store::Store::open(dir.join("test.db")).expect("重开测试库");
+            let reopened = hongguo_store::Store::open(dir.join("test.db")).expect("重开测试库");
             let pos = reopened.playback_position("A", 1).unwrap();
             assert!(pos.is_some(), "落库的进度换个连接也要读得到");
         }

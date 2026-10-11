@@ -22,10 +22,10 @@ use crate::app_state::AppState;
 use hongguo_api::client::ApiEnv;
 use hongguo_api::register::register_device;
 use hongguo_api::search::search_series;
-use crate::store::Store;
 use hongguo_common::AppError;
 use hongguo_common::utils::time::now_ms;
 use hongguo_signer::device::{DeviceProfile, align_app_version, video_device};
+use hongguo_store::Store;
 
 /// 已被服务端风控清理、必须从库里淘汰的静态档案 install_id（2026-10-04
 /// 实测旧 71332 档案 reading 系整段 0 字节拒）。**今后每次淘汰静态档案，
@@ -363,7 +363,7 @@ pub async fn retry_register(state: &AppState) -> DeviceStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::Store;
+    use hongguo_store::Store;
 
     fn store() -> Store {
         Store::open_memory().expect("内存库")

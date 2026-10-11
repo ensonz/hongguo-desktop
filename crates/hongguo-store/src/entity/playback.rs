@@ -2,7 +2,7 @@
 
 use turso::Value;
 
-use crate::store::db::Db;
+use crate::db::Db;
 use hongguo_common::AppResult;
 use hongguo_common::model::PlaybackPosition;
 
@@ -95,7 +95,7 @@ pub async fn save_playback_position(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::entity::{mem_db, rt};
+    use crate::entity::{mem_db, rt};
 
     #[test]
     fn playback_upsert_is_per_episode() {

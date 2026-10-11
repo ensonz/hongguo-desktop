@@ -26,6 +26,8 @@ hongguo-signer = { path = "../crates/hongguo-signer" }
 hongguo-mp4 = { path = "../crates/hongguo-mp4" }
 # 官方接口客户端；依赖 common + signer，不依赖 tauri。
 hongguo-api = { path = "../crates/hongguo-api" }
+# 持久化（Turso 内嵌库）；依赖 common + signer，不依赖 tauri。
+hongguo-store = { path = "../crates/hongguo-store" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -75,7 +77,6 @@ digest = "0.11"
 time = { version = "0.3", features = ["formatting", "macros"] }
 percent-encoding = "2"
 chrono = "0.4"
-dirs = "7"
 uuid = { version = "1", features = ["v4"] }
 rusty_h265 = "0.6.0"
 rusty_h264 = "0.16.0"
@@ -83,7 +84,6 @@ muxide = "0.2.5"
 # 合并前校验要问「输出卷还剩多少字节」。只开 disk：默认 feature 会把
 # component / network / system / user 一并拖进来，本项目一个都用不上。
 sysinfo = { version = "0.39.6", default-features = false, features = ["disk"] }
-turso = { version = "0.8.1", default-features = false }
 mouse_position = "0.1"
 tauri-plugin-updater = "2.13.2"
 tauri-plugin-process = "2.4.0"
@@ -142,3 +142,6 @@ tokio = { version = "1", features = ["full", "test-util"] }
 # 本 crate 的测试要构造 MP4 样本，开启 hongguo-mp4 的测试辅助模块（fixtures /
 # streaming_tests）；生产构建不带该 feature。
 hongguo-mp4 = { path = "../crates/hongguo-mp4", features = ["test-support"] }
+# 本 crate 的落盘用例要把数据目录重定向到临时目录（不能写进用户真实
+# %APPDATA%），开启 hongguo-store 的测试辅助件（`paths::ScopedDataDir`）。
+hongguo-store = { path = "../crates/hongguo-store", features = ["test-support"] }
