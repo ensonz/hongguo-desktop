@@ -287,7 +287,7 @@ pub(crate) mod probe {
     async fn probe_reservations() {
         let env = match std::env::var("HG_RESERVE_COOKIES") {
             Ok(c) if !c.is_empty() => {
-                let device = crate::signer::video_device();
+                let device = hongguo_signer::video_device();
                 ApiEnv {
                     proxy: hongguo_common::model::ProxyConfig::default(),
                     device,
@@ -334,7 +334,7 @@ pub(crate) mod probe {
         };
         let series =
             std::env::var("HG_RESERVE_SERIES").unwrap_or_else(|_| "7692797468404091929".into());
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let env = ApiEnv {
             proxy: hongguo_common::model::ProxyConfig::default(),
             device,

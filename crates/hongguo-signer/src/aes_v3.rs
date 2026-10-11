@@ -7,8 +7,8 @@
 //!
 //! 所以不能直接换成 `aes` crate 的标准实现。
 
-use crate::signer::constants::sbox;
-use crate::signer::primitives::xor_bytes;
+use crate::constants::sbox;
+use crate::primitives::xor_bytes;
 
 /// AES 变体按 khronos 低 2 位选择的参数组。
 const CON2: [[usize; 4]; 4] = [[1, 0, 2, 3], [2, 0, 3, 1], [0, 1, 3, 2], [1, 0, 2, 3]];
@@ -251,8 +251,8 @@ mod tests {
     #[test]
     fn encrypt_requires_248_bytes_of_source() {
         // JS 的位打包固定读 31*8 = 248 字节，调用方保证输入长度
-        let key = crate::signer::constants::medusa_aes_key();
-        let iv = crate::signer::constants::medusa_aes_iv();
+        let key = crate::constants::medusa_aes_key();
+        let iv = crate::constants::medusa_aes_iv();
         let aes = AesV3::new(&key, 1_700_000_000);
         let out = aes.encrypt(&[0u8; 248], &iv);
         // 1 字节 keystream 尾 + 248 字节掩码回写
@@ -261,8 +261,8 @@ mod tests {
 
     #[test]
     fn different_khronos_gives_different_ciphertext() {
-        let key = crate::signer::constants::medusa_aes_key();
-        let iv = crate::signer::constants::medusa_aes_iv();
+        let key = crate::constants::medusa_aes_key();
+        let iv = crate::constants::medusa_aes_iv();
         let data = [7u8; 248];
         let a = AesV3::new(&key, 1_700_000_000).encrypt(&data, &iv);
         let b = AesV3::new(&key, 1_700_000_001).encrypt(&data, &iv);
@@ -271,8 +271,8 @@ mod tests {
 
     #[test]
     fn encrypt_is_deterministic() {
-        let key = crate::signer::constants::medusa_aes_key();
-        let iv = crate::signer::constants::medusa_aes_iv();
+        let key = crate::constants::medusa_aes_key();
+        let iv = crate::constants::medusa_aes_iv();
         let data = [0xa5u8; 248];
         let aes = AesV3::new(&key, 1_700_000_000);
         assert_eq!(aes.encrypt(&data, &iv), aes.encrypt(&data, &iv));

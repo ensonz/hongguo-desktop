@@ -774,10 +774,10 @@ mod probe {
             .pointer("/account/cookies")
             .and_then(Value::as_str)
             .filter(|c| !c.is_empty());
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         // 复刻 merge_session_cookie：匿名兜底 + 账号覆盖（读 app_state 的
         // 私有函数不可行，测试里等价重写——两处必须同步改）
-        let mut fields: Vec<(String, String)> = crate::signer::device::anonymous_cookie(&device)
+        let mut fields: Vec<(String, String)> = hongguo_signer::device::anonymous_cookie(&device)
             .split("; ")
             .filter_map(|p| {
                 p.split_once('=')

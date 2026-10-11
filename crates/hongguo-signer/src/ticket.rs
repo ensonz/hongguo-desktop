@@ -6,11 +6,11 @@
 
 use base64::Engine;
 
-use crate::signer::device::DeviceProfile;
-use crate::signer::primitives::{be32, le32, md5_raw, sm3};
-use crate::signer::xargus::branch_of;
-use crate::signer::xgorgon::x_gorgon;
-use crate::signer::{build_medusa, helios};
+use crate::device::DeviceProfile;
+use crate::primitives::{be32, le32, md5_raw, sm3};
+use crate::xargus::branch_of;
+use crate::xgorgon::x_gorgon;
+use crate::{build_medusa, helios};
 
 /// 官方 App 接口 origin。
 pub const API_ORIGIN: &str = "https://api5-normal-sinfonlineb.fqnovel.com";
@@ -119,7 +119,8 @@ pub struct SignedRequest {
 /// ⚠️ 签名是「URL + body + 时间戳」三者的联合函数，任一处在发出前被改动
 ///    （包括 query 参数顺序、URL 编码方式、body 的字节内容）都会导致签名失配，
 ///    服务端静默丢弃（HTTP 200 + 空 body）。请勿在签完名之后再动 url / body。
-#[cfg(test)]
+///
+/// 不 `#[cfg(test)]` 门控：下游 crate 的测试经 `sign_post` / `sign_get` 调用它。
 pub fn sign_request(
     origin: &str,
     pathname: &str,
@@ -198,7 +199,7 @@ pub fn sign_request_with(
                 "application/json; charset=UTF-8".into(),
             ));
         }
-        headers.push(("x-ss-stub".into(), crate::signer::md5_hex_upper(b)));
+        headers.push(("x-ss-stub".into(), crate::md5_hex_upper(b)));
     }
 
     headers.extend_from_slice(extra_headers);
@@ -214,15 +215,14 @@ fn now_millis() -> u64 {
 }
 
 /// POST + 签名（默认业务 origin）。
-// M3 登录模块的便捷入口；当前仅测试引用，lib 构建下暂无消费者。
-#[cfg(test)]
+// M3 登录模块的便捷入口；下游 crate 的测试会调用，故不去 #[cfg(test)] 门控
+//（依赖 crate 对下游以非 test 方式编译，门控项会消失）。
 pub fn sign_post(pathname: &str, payload: Vec<u8>, device: &DeviceProfile) -> SignedRequest {
     sign_request(API_ORIGIN, pathname, Some(payload), device, &[])
 }
 
 /// GET + 签名（默认业务 origin）。
-// 同 sign_post：M3 的便捷入口，当前仅测试引用。
-#[cfg(test)]
+// 同 sign_post：下游 crate 的测试要用，故不再门控。
 pub fn sign_get(pathname: &str, device: &DeviceProfile) -> SignedRequest {
     sign_request(API_ORIGIN, pathname, None, device, &[])
 }
@@ -230,7 +230,7 @@ pub fn sign_get(pathname: &str, device: &DeviceProfile) -> SignedRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signer::device::video_device;
+    use crate::device::video_device;
 
     #[test]
     fn encode_query_escapes_specials() {
@@ -307,7 +307,7 @@ mod tests {
         device.set("device_id", "42");
         let custom_ua = "com.phoenix.read/73932 (Linux; U; Android 14; zh_CN; Xiaomi 14)";
         // 换 UA 不改字段：serde 打个补丁重建（等价于注册流程换机型档案）
-        let profile: crate::signer::device::DeviceProfile = {
+        let profile: crate::device::DeviceProfile = {
             let mut v = serde_json::to_value(&device).unwrap();
             v["user_agent"] = serde_json::Value::String(custom_ua.into());
             serde_json::from_value(v).unwrap()

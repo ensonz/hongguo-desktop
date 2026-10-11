@@ -11,9 +11,9 @@ use std::collections::VecDeque;
 
 use base64::Engine;
 
-use crate::signer::medusa::rand32;
-use crate::signer::primitives::{le32, md5_raw, ror64};
-use crate::signer::{APP_ID, CHANNEL_ID};
+use crate::medusa::rand32;
+use crate::primitives::{le32, md5_raw, ror64};
+use crate::{APP_ID, CHANNEL_ID};
 
 /// 扩散轮数。
 const ROUNDS: usize = 34;

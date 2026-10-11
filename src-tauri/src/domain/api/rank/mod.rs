@@ -147,7 +147,7 @@ fn dedup_rank_page(items: &mut Vec<RankItem>, session_id: &str) {
 /// 形态由**客户端版本号**决定（probe_rank_login_form 二分实证，与登录态
 /// 无关）：73932（7.3.9，hgplayer 1.1.3 内置红果版本）下发两级全量结构；
 /// 71332 老版本身份退化成扁平一级结构（无「全部」tab、面板分组丢失）。
-/// 设备档案已在启动时对齐版本（[`crate::signer::device::align_app_version`]），
+/// 设备档案已在启动时对齐版本（[`hongguo_signer::device::align_app_version`]），
 /// 一级形态的兼容归一保留在前端 normalizeTabs 里。
 pub(super) fn parse_cell_selector(data: Option<&Value>) -> Vec<RankTab> {
     let Some(tabs) = data
@@ -627,7 +627,7 @@ pub(crate) mod probe {
             ("version_code", "73932"),
             ("version_name", "7.3.9.32"),
         ];
-        let mut v = serde_json::to_value(crate::signer::video_device()).unwrap();
+        let mut v = serde_json::to_value(hongguo_signer::video_device()).unwrap();
         v["fields"] = serde_json::Value::Array(
             pairs
                 .into_iter()
@@ -652,9 +652,9 @@ pub(crate) mod probe {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_rank_paging() {
         let device_json = std::env::var("PROBE_DEVICE").expect("PROBE_DEVICE");
-        let mut device: crate::signer::device::DeviceProfile =
+        let mut device: hongguo_signer::device::DeviceProfile =
             serde_json::from_str(&device_json).expect("device json");
-        crate::signer::device::align_app_version(&mut device);
+        hongguo_signer::device::align_app_version(&mut device);
         let env = ApiEnv {
             proxy: hongguo_common::model::ProxyConfig::default(),
             device,
@@ -765,10 +765,10 @@ pub(crate) mod probe {
                 }
             }
         }
-        let device: crate::signer::device::DeviceProfile = serde_json::from_value(v).unwrap();
+        let device: hongguo_signer::device::DeviceProfile = serde_json::from_value(v).unwrap();
         let cookie = format!(
             "{}; {}",
-            crate::signer::device::anonymous_cookie(&device),
+            hongguo_signer::device::anonymous_cookie(&device),
             account_cookie
         );
         let env = ApiEnv {
@@ -813,10 +813,10 @@ pub(crate) mod probe {
                 }
             }
         }
-        let device: crate::signer::device::DeviceProfile = serde_json::from_value(v).unwrap();
+        let device: hongguo_signer::device::DeviceProfile = serde_json::from_value(v).unwrap();
         let env = ApiEnv {
             proxy: hongguo_common::model::ProxyConfig::default(),
-            cookie: Some(crate::signer::device::anonymous_cookie(&device)),
+            cookie: Some(hongguo_signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,
         };
@@ -933,10 +933,10 @@ pub(crate) mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_rank_selector_app_device() {
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let env = ApiEnv {
             proxy: hongguo_common::model::ProxyConfig::default(),
-            cookie: Some(crate::signer::device::anonymous_cookie(&device)),
+            cookie: Some(hongguo_signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,
         };

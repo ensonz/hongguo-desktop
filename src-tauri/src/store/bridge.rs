@@ -204,13 +204,13 @@ impl Store {
 
     // ---------- 设备档案 ----------
 
-    pub fn device_profile(&self) -> AppResult<Option<crate::signer::device::DeviceProfile>> {
+    pub fn device_profile(&self) -> AppResult<Option<hongguo_signer::device::DeviceProfile>> {
         self.exec(|db| Box::pin(entity::device_profile(db)))
     }
 
     pub fn save_device_profile(
         &self,
-        profile: &crate::signer::device::DeviceProfile,
+        profile: &hongguo_signer::device::DeviceProfile,
     ) -> AppResult<()> {
         let p = profile.clone();
         self.exec(move |db| Box::pin(async move { entity::save_device_profile(db, &p).await }))
@@ -222,7 +222,7 @@ impl Store {
     }
 
     /// 读上一代备份档案（没有换过档返回 None）。
-    pub fn device_profile_backup(&self) -> AppResult<Option<crate::signer::device::DeviceProfile>> {
+    pub fn device_profile_backup(&self) -> AppResult<Option<hongguo_signer::device::DeviceProfile>> {
         self.exec(|db| Box::pin(entity::device_profile_backup(db)))
     }
 

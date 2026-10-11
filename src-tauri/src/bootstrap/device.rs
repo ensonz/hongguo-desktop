@@ -23,7 +23,7 @@ use crate::domain::api::client::ApiEnv;
 use crate::domain::api::register::register_device;
 use crate::domain::api::search::search_series;
 use hongguo_common::AppError;
-use crate::signer::device::{DeviceProfile, align_app_version, video_device};
+use hongguo_signer::device::{DeviceProfile, align_app_version, video_device};
 use crate::store::Store;
 use hongguo_common::utils::time::now_ms;
 
@@ -196,7 +196,7 @@ async fn ensure_healthy(state: &AppState) {
     let static_env = ApiEnv {
         proxy: env.proxy.clone(),
         device: current.clone(),
-        cookie: Some(crate::signer::device::anonymous_cookie(&current)),
+        cookie: Some(hongguo_signer::device::anonymous_cookie(&current)),
         x_tt_token: None,
     };
     match probe(&static_env).await {
@@ -496,7 +496,7 @@ mod probe {
                 profile.set_ttreq(Some(r.ttreq));
                 let env = ApiEnv {
                     proxy: ProxyConfig::default(),
-                    cookie: Some(crate::signer::device::anonymous_cookie(&profile)),
+                    cookie: Some(hongguo_signer::device::anonymous_cookie(&profile)),
                     device: profile,
                     x_tt_token: None,
                 };

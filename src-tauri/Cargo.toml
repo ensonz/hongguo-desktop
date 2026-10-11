@@ -20,6 +20,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量（自身不依赖 tauri）。
 hongguo-common = { path = "../crates/hongguo-common" }
+# 请求签名（JS 1:1 移植，禁改写法）；自身不依赖 tauri。
+hongguo-signer = { path = "../crates/hongguo-signer" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"

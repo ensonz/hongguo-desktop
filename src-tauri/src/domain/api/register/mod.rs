@@ -86,7 +86,7 @@ pub fn tt_encrypt_v5_full(gz: &[u8], salt: &[u8; 32], iv: &[u8; 16]) -> Vec<u8> 
     use aes::Aes128;
     use aes::cipher::{BlockCipherEncrypt, KeyInit};
 
-    use crate::signer::tt_hash::{TT_ORD_LIST, TtHashCore};
+    use hongguo_signer::tt_hash::{TT_ORD_LIST, TtHashCore};
 
     // 盐 + 密钥派生。注意：派生的两次 calculate 与后面的完整性哈希
     // 共用同一个 TtHashCore——参考实现的 CF 进位标志跨调用成链，拆开
@@ -140,7 +140,7 @@ pub fn tt_decrypt_v5(body: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     use flate2::read::GzDecoder;
     use std::io::Read;
 
-    use crate::signer::tt_hash::{TT_ORD_LIST, TtHashCore};
+    use hongguo_signer::tt_hash::{TT_ORD_LIST, TtHashCore};
 
     if body.len() < 6 + 32 + 16 + 16 || body[..6] != TT_MAGIC {
         return Err(format!(
@@ -822,7 +822,7 @@ mod probe {
 
         // 注册签名档案：device_id/iid 必须为空（服务端要发新的），
         // cdid/openudid 与 query/body 保持同一指纹
-        let mut dev = crate::signer::video_device();
+        let mut dev = hongguo_signer::video_device();
         dev.set("device_id", "");
         dev.set("iid", "");
         dev.set("cdid", meta["cdid"].as_str().unwrap());
@@ -871,7 +871,7 @@ mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_register_profile_matrix() {
-        use crate::signer::video_device;
+        use hongguo_signer::video_device;
 
         let env0 = anon_env();
 
@@ -920,7 +920,7 @@ mod probe {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // P2：fresh 档案（73932，无 device_id/iid/cdid/openudid 字段）
-        let mut fresh = crate::signer::device::DeviceProfile::fresh_register_profile("", "");
+        let mut fresh = hongguo_signer::device::DeviceProfile::fresh_register_profile("", "");
         fresh.remove("cdid");
         fresh.remove("openudid");
         let env2 = ApiEnv {
