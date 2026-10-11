@@ -28,7 +28,11 @@ mod tests {
     fn services_do_not_touch_tokio_context_directly() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/service");
         let sources = crate::testing::source_guard::collect_sources(&dir);
-        assert!(!sources.is_empty(), "没扫到 service 层源码：{}", dir.display());
+        assert!(
+            !sources.is_empty(),
+            "没扫到 service 层源码：{}",
+            dir.display()
+        );
         for (path, text) in &sources {
             let runtime_src = text.split("#[cfg(test)").next().unwrap_or(text);
             for banned in ["tokio::spawn(", "Handle::current(", "block_on("] {

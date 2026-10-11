@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 
+use crate::protocol::stream::{ProgressiveStream, StreamCache};
 use hongguo_common::model::{Settings, VideoDefinition};
 use hongguo_common::{AppError, AppResult};
-use crate::protocol::stream::{ProgressiveStream, StreamCache};
 
 /// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，
 /// 顶层盒表从这里算出 moov 落点。
@@ -713,11 +713,7 @@ async fn fill_remaining_with_client(
 }
 
 /// 从稀疏缓冲拷出一段（调用方保证已覆盖）。
-fn sparse_snapshot(
-    sparse: &hongguo_mp4::streaming::SparseBuffer,
-    start: u64,
-    end: u64,
-) -> Vec<u8> {
+fn sparse_snapshot(sparse: &hongguo_mp4::streaming::SparseBuffer, start: u64, end: u64) -> Vec<u8> {
     let mut out = vec![0u8; (end - start) as usize];
     sparse.read_into(start, &mut out);
     out

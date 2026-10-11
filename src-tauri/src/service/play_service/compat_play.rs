@@ -12,8 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
-use hongguo_common::{AppError, AppResult};
 use crate::service::transcode_service::cache;
+use hongguo_common::{AppError, AppResult};
 
 /// 兜底转码的结果。
 pub struct CompatPlay {

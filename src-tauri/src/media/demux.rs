@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
-use hongguo_mp4::sample_table::{TrackInfo, collect_tracks};
 use hongguo_common::{AppError, AppResult};
+use hongguo_mp4::sample_table::{TrackInfo, collect_tracks};
 
 /// 一条可处理的轨道。
 #[derive(Debug, Clone)]

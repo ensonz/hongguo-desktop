@@ -9,8 +9,8 @@
 use serde_json::Value;
 
 use super::stream_pick::{Definition, list_definitions, pick_stream_at};
-use hongguo_common::{AppError, AppResult};
 use hongguo_common::utils::json::check_code;
+use hongguo_common::{AppError, AppResult};
 
 /// 一集的取流结果。
 #[derive(Debug, Clone, Default, PartialEq)]

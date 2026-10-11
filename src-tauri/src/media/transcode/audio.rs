@@ -6,9 +6,9 @@
 
 use std::path::Path;
 
+use hongguo_common::{AppError, AppResult};
 use hongguo_mp4::r#box::find_box;
 use hongguo_mp4::sample_table::TrackInfo;
-use hongguo_common::{AppError, AppResult};
 
 /// 音轨的封装参数。
 #[derive(Debug, Clone, Copy, PartialEq)]

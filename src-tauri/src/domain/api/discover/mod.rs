@@ -32,7 +32,9 @@ pub use model::{BrowseFilters, FeedItem, FeedPage, SelectorRow};
 pub use model::SelectorItem;
 // JSON/字段助手已收敛进 utils::json（P3-C9）；这里再导出，保持
 // `super::discover::X` 的既有跨域引用路径不变（rank/search/… 共 6 域）。
-pub(crate) use hongguo_common::utils::json::{check_code, int_field, num_field, parse_tags, str_field};
+pub(crate) use hongguo_common::utils::json::{
+    check_code, int_field, num_field, parse_tags, str_field,
+};
 
 use parse::{parse_browse_panel, parse_feed};
 
@@ -92,8 +94,7 @@ pub async fn fetch_browse(
     if !filters.creation_status.is_empty() {
         body["creation_status"] = serde_json::Value::String(filters.creation_status.clone());
     }
-    let body = serde_json::to_vec(&body)
-    .map_err(|e| AppError::Signer(e.to_string()))?;
+    let body = serde_json::to_vec(&body).map_err(|e| AppError::Signer(e.to_string()))?;
     let bytes = api_call_full(API_ORIGIN, LANDPAGE_PATH, Some(body), &[], env).await?;
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析响应失败: {e}")))?;

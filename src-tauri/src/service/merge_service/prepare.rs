@@ -7,9 +7,9 @@ use std::path::Path;
 
 use super::done_inputs;
 use crate::app_state::AppState;
-use hongguo_common::model::MergePreflight;
-use hongguo_common::AppResult;
 use crate::media::{codec_probe, disk_space};
+use hongguo_common::AppResult;
+use hongguo_common::model::MergePreflight;
 
 /// 收集某剧已下载的集（按集号升序），并做合并前校验。
 pub fn preflight(state: &AppState, series_id: &str) -> AppResult<MergePreflight> {

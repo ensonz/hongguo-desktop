@@ -3,8 +3,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use hongguo_common::model::{PlayRequest, PlayResponse};
 use hongguo_common::AppResult;
+use hongguo_common::model::{PlayRequest, PlayResponse};
 
 #[tauri::command]
 pub async fn play_series(

@@ -15,9 +15,9 @@ use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
-use hongguo_common::{AppError, AppResult};
 use hongguo_common::utils::json::{check_code, str_field};
 use hongguo_common::utils::time::now_ms;
+use hongguo_common::{AppError, AppResult};
 
 pub const READ_HISTORY_LIST_PATH: &str = "/reading/bookapi/read_history/list/v";
 const READ_HISTORY_UPDATE_PATH: &str = "/reading/bookapi/read_history/update/v";
@@ -122,10 +122,7 @@ fn num_to_string(v: &Value) -> String {
 /// 复用 `read_history/update`，每条带 `is_delete=true + use_soft_delete=true`，
 /// 其余进度字段全零（官方删除样本形态）。响应 `update_fail_datas` 非空 =
 /// 部分失败，报错给上层。
-pub async fn delete_watch_history(
-    items: &[(String, String, i64)],
-    env: &ApiEnv,
-) -> AppResult<()> {
+pub async fn delete_watch_history(items: &[(String, String, i64)], env: &ApiEnv) -> AppResult<()> {
     if items.is_empty() {
         return Ok(());
     }
@@ -166,8 +163,8 @@ pub async fn delete_watch_history(
     let body = serde_json::json!({ "update_datas": update_datas });
     let raw = serde_json::to_vec(&body)
         .map_err(|e| AppError::Media(format!("构造历史删除请求失败: {e}")))?;
-    let bytes = api_call_reading(LQ_API_ORIGIN, READ_HISTORY_UPDATE_PATH, Some(raw), &[], env)
-        .await?;
+    let bytes =
+        api_call_reading(LQ_API_ORIGIN, READ_HISTORY_UPDATE_PATH, Some(raw), &[], env).await?;
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析历史删除响应失败: {e}")))?;
     check_code(&value)?;
@@ -177,7 +174,9 @@ pub async fn delete_watch_history(
         .map(Vec::len)
         .unwrap_or(0);
     if fail_datas > 0 {
-        return Err(AppError::Media(format!("部分历史删除失败（{fail_datas} 条）")));
+        return Err(AppError::Media(format!(
+            "部分历史删除失败（{fail_datas} 条）"
+        )));
     }
     Ok(())
 }

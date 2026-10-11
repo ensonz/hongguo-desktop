@@ -15,8 +15,8 @@ use std::collections::HashSet;
 use parking_lot::Mutex;
 
 use crate::domain::api::client::ApiEnv;
-use hongguo_common::model::Settings;
 use crate::store::Store;
+use hongguo_common::model::Settings;
 
 /// 会话账本：处理过的 `{series_id}:{vid_index}`（预转过或查过无需转）。
 static HANDLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);

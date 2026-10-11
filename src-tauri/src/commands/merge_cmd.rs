@@ -7,12 +7,12 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::app_state::AppState;
-use hongguo_common::model::{MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask};
-use hongguo_common::{AppError, AppResult};
 use crate::service::download_service::events::names;
 use crate::service::merge_service::{
     candidates, compat, guard, prepare, progress, quick, remove_task,
 };
+use hongguo_common::model::{MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask};
+use hongguo_common::{AppError, AppResult};
 
 /// 全部合并任务。
 #[tauri::command]

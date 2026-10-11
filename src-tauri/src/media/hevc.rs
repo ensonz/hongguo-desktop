@@ -22,9 +22,9 @@
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use hongguo_common::{AppError, AppResult};
 use hongguo_mp4::r#box::find_box;
 use hongguo_mp4::sample_table::TrackInfo;
-use hongguo_common::{AppError, AppResult};
 
 /// VisualSampleEntry 载荷长度（ISO/IEC 14496-15）：
 /// reserved(6) + data_ref_idx(2) + pre_defined(2) + reserved(2) + pre_defined[3](12)

@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 
-use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan};
 use crate::protocol::range::{ProtocolResponse, RangeSpec, parse_range, partial_headers};
+use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan};
 
 /// 等待数据就绪的最长时间（秒）。超时返回 502，避免请求永久挂起。
 const WAIT_TIMEOUT_SECS: u64 = 30;

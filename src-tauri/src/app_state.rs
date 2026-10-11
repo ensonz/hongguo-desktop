@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use hongguo_common::model::settings::Settings;
 use crate::service::download_service::queue::DownloadQueue;
 use crate::service::download_service::scheduler::DownloadScheduler;
 use crate::store::Store;
+use hongguo_common::model::settings::Settings;
 
 /// 全局状态，由 Tauri 的 `manage` 注入。
 ///

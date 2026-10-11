@@ -7,8 +7,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use hongguo_common::model::{DownloadTask, QueueStatus};
 use hongguo_common::AppResult;
+use hongguo_common::model::{DownloadTask, QueueStatus};
 
 mod actions;
 mod cleanup;

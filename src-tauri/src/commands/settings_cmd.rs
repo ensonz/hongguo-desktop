@@ -3,8 +3,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use hongguo_common::model::{ProxyTestResult, Settings};
 use hongguo_common::AppResult;
+use hongguo_common::model::{ProxyTestResult, Settings};
 
 /// 读设置。
 #[tauri::command]

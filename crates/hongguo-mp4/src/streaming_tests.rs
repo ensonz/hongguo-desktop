@@ -16,8 +16,8 @@
 #![allow(dead_code, unused_imports)]
 
 use super::streaming::{SparseBuffer, StreamingPlan, locate_moov};
-use crate::crypto::cenc;
 use crate::r#box::build_box;
+use crate::crypto::cenc;
 use crate::decrypt_buffer::decrypt_mp4_buffer;
 
 fn cat(parts: &[&[u8]]) -> Vec<u8> {

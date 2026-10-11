@@ -179,10 +179,7 @@ mod tests {
             assert_eq!(&hex, *want, "第 {i} 个向量内容不符（分支判定错误？）");
 
             let low = crate::primitives::get_iv(
-                crate::primitives::get_iv(
-                    crate::primitives::get_iv(0x2023_0928, &qs),
-                    &body_md5,
-                ),
+                crate::primitives::get_iv(crate::primitives::get_iv(0x2023_0928, &qs), &body_md5),
                 &ts,
             ) & 15;
             branches.insert(low - ((low * 171) >> 9) * 3);

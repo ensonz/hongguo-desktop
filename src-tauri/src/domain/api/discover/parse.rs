@@ -7,8 +7,8 @@
 use serde_json::Value;
 
 use super::model::{FeedItem, FeedPage, SelectorItem, SelectorRow};
-use hongguo_common::{AppError, AppResult};
 use hongguo_common::utils::json::{int_field, num_field, parse_tags, str_field};
+use hongguo_common::{AppError, AppResult};
 
 /// 解析面板 data 节点为 selector 行列表。
 pub(super) fn parse_browse_panel(data: Option<&Value>) -> AppResult<Vec<SelectorRow>> {

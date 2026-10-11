@@ -31,7 +31,10 @@ fn walk(dir: &Path, out: &mut Vec<(PathBuf, String)>) {
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.ends_with("_tests.rs"));
-        if is_rs && !is_test_file && let Ok(text) = std::fs::read_to_string(&path) {
+        if is_rs
+            && !is_test_file
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
             out.push((path, text));
         }
     }

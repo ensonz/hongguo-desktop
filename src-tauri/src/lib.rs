@@ -98,8 +98,7 @@ pub fn run() {
                     if let tauri::WindowEvent::Resized(_) = event
                         && let Ok(now) = win.is_minimized()
                     {
-                        let prev = minimized
-                            .swap(now, std::sync::atomic::Ordering::AcqRel);
+                        let prev = minimized.swap(now, std::sync::atomic::Ordering::AcqRel);
                         if prev != now
                             && let Err(e) = win.emit("window-minimize", now)
                         {
