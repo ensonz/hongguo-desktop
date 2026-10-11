@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { CollectionPage } from '@/pages/collection/components/collection-page';
+import { createFileRoute, lazyRouteComponent } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/collections')({
-  component: CollectionPage,
+  component: lazyRouteComponent(
+    () => import('@/pages/collection/components/collection-page'),
+    'CollectionPage',
+  ),
 });

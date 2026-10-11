@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { StoragePage } from '@/pages/storage/components/storage-page';
+import { createFileRoute, lazyRouteComponent } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/storage')({
-  component: StoragePage,
+  component: lazyRouteComponent(
+    () => import('@/pages/storage/components/storage-page'),
+    'StoragePage',
+  ),
 });

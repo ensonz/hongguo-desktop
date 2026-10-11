@@ -429,7 +429,10 @@
     "busy": "上一个任务还在跑，请等它完成",
     "internal": "操作失败，请重试",
     "badPayload": "数据格式异常，请重试",
-    "storeLocked": "应用已在运行（可能被隐身模式隐藏了窗口），请从 Dock/任务栏打开它"
+    "storeLocked": "应用已在运行（可能被隐身模式隐藏了窗口），请从 Dock/任务栏打开它",
+    "routeCrashed": "页面出错了",
+    "routeCrashedBody": "界面渲染遇到异常，重试通常可以恢复。",
+    "notFoundBody": "要找的页面不存在，或者链接已经失效。"
   },
   "batch": {
     "manage": "管理",

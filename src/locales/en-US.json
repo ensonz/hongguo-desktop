@@ -429,7 +429,10 @@
     "busy": "The previous task is still running. Please wait for it to finish.",
     "internal": "The operation failed. Please try again.",
     "badPayload": "Unexpected data format. Please try again.",
-    "storeLocked": "The app is already running (its window may be hidden by incognito mode). Open it from the Dock/taskbar."
+    "storeLocked": "The app is already running (its window may be hidden by incognito mode). Open it from the Dock/taskbar.",
+    "routeCrashed": "Something went wrong on this page",
+    "routeCrashedBody": "The page hit a rendering error. A retry usually fixes it.",
+    "notFoundBody": "The page you are looking for does not exist, or the link is no longer valid."
   },
   "batch": {
     "manage": "Manage",

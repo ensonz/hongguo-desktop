@@ -331,8 +331,8 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, index, items.length, hasMore, isFetchingMore]);
 
-  // 不用手动 useCallback：依赖里的 source/长度每变一次本来就要新函数，
-  // React Compiler 能自动 memo；手动写反而和编译器打架（preserve-manual-memoization）。
+  // 依赖里的 source/长度每变一次本来就要新函数，useCallback 省不了重建。
+  // 别按「React Compiler 已启用」的口径写注释——本项目没装编译器插件。
   const step = (dir: 1 | -1) => {
     setIndexes((prev) => {
       const max = Math.max(0, items.length - 1);

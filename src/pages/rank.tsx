@@ -1,6 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { RankPage } from '@/pages/rank/components/rank-page';
+import { createFileRoute, lazyRouteComponent } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/rank')({
-  component: RankPage,
+  component: lazyRouteComponent(() => import('@/pages/rank/components/rank-page'), 'RankPage'),
 });

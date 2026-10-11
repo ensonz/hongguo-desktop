@@ -9,6 +9,7 @@ import { UpdateProvider } from '@/features/update/update-provider';
 import { useDownloadEvents } from '@/service/queries';
 import { useLocaleStore } from '@/stores/locale';
 import { t } from '@/locales';
+import { RouteNotFound } from '@/components/common/route-fallbacks';
 
 /** 小窗播放（label = "mini"）：不进应用壳——侧栏/顶栏/关闭确认都不属于它，
  *  整个窗口就是播放器本体。窗口 label 是静态事实，模块加载时判一次即可。 */
@@ -51,4 +52,6 @@ function RootComponent() {
 
 export const Route = createRootRoute({
   component: RootComponent,
+  // 不存在的路由（深链 404）：应用壳内的中文兜底页
+  notFoundComponent: RouteNotFound,
 });

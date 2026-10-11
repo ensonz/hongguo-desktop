@@ -1,12 +1,28 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
+import { ErrorBoundary } from 'react-error-boundary';
+import { toast } from 'sonner';
 import { routeTree } from './pages/routeTree.gen';
+import { PendingFallback, RendererCrashed, RouteError } from './components/common/route-fallbacks';
 import { applyTheme, useThemeStore } from './stores/theme';
 import './styles/index.css';
 
 const queryClient = new QueryClient({
+  // 全局错误面：查询/变更失败统一 toast（消息走 call() 归一的 i18n 文案，
+  // 事件/客户端异常也顺带覆盖）。组件层就地展示了错误（如批量操作的部分
+  // 失败明细）时，用 mutation.meta.silentOnError 声明跳过，不重复弹。
+  queryCache: new QueryCache({
+    onError: (error) => toast.error(error instanceof Error ? error.message : String(error)),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _vars, _ctx, mutation) => {
+      if (mutation.meta?.silentOnError === true) return;
+      toast.error(error instanceof Error ? error.message : String(error));
+    },
+  }),
   defaultOptions: {
     queries: {
       // 桌面应用是本地数据源，窗口聚焦时重取意义不大
@@ -20,6 +36,10 @@ const queryClient = new QueryClient({
 const router = createRouter({
   routeTree,
   context: { queryClient },
+  // 渲染异常 / 不存在的路由给中文兜底页（不配置会落到库里的英文默认页）；
+  // 页面组件 lazy 化后 pending 期间给骨架
+  defaultErrorComponent: RouteError,
+  defaultPendingComponent: PendingFallback,
   // search 参数按原样字符串解析/序列化。默认实现走 JSON.parse/stringify：
   // 19 位纯数字剧集 id 会被 parse 成 number 丢精度（末位归零），
   // 分享/手输的裸数字深链因此落到错的剧。应用里 search 只装字符串
@@ -47,7 +67,14 @@ if (!container) throw new Error('找不到 #root 挂载点');
 createRoot(container).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {/* 顶层渲染异常（路由组件之外的东西炸了）兜底；路由内的由
+          defaultErrorComponent 接，应用壳得以保留 */}
+      <ErrorBoundary FallbackComponent={RendererCrashed} onReset={() => window.location.reload()}>
+        <RouterProvider router={router} />
+      </ErrorBoundary>
+      {import.meta.env.DEV && (
+        <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
+      )}
     </QueryClientProvider>
   </StrictMode>,
 );
