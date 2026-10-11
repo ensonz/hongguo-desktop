@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PlayerView } from '@/features/player/components/player-page';
 import { play } from '@/service/commands';
@@ -379,37 +380,31 @@ export function HomePage() {
   // 静默停在「还没有选择剧集」就是用户反复看到的那个神秘界面
   if (seriesQuery.isError && current) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-        <p>{t('feed.loadFailed')}</p>
-        <p className="text-destructive text-xs">{String(seriesQuery.error)}</p>
-        <Button variant="outline" size="sm" onClick={() => void seriesQuery.refetch()}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('feed.loadFailed')}
+        detail={String(seriesQuery.error)}
+        onRetry={() => void seriesQuery.refetch()}
+      />
     );
   }
   if (loadError && items.length === 0) {
-    return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-        <p>{t('feed.loadFailed')}</p>
-        <p className="text-destructive text-xs">{loadError}</p>
-        <Button variant="outline" size="sm" onClick={retrySource}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
-    );
+    return <ErrorState message={t('feed.loadFailed')} detail={loadError} onRetry={retrySource} />;
   }
   // 首批在拉时不是空态：画面继续播上一次的剧，拉到位自动过去
   if (!current && items.length === 0 && !isLoading) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 py-16">
-        <p className="text-sm">{t('home.empty')}</p>
-        <Button variant="outline" size="sm" onClick={retrySource}>
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <Empty className="py-16">
+        <EmptyHeader>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('home.empty')}
+          </EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" size="sm" onClick={retrySource}>
+            {t('feed.retry')}
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
 

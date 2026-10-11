@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { History, Loader2, Play } from 'lucide-react';
+import { History, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -124,23 +132,28 @@ export function HistoryPage() {
   }
   if (error) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-        <p>{t('history.loadFailed')}</p>
-        <p className="text-destructive text-xs">{error.message}</p>
-        <Button variant="outline" size="sm" onClick={() => void refetch()}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('history.loadFailed')}
+        detail={error.message}
+        onRetry={() => void refetch()}
+      />
     );
   }
   if (items.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 p-4 py-16">
-        <History className="size-8 opacity-40" aria-hidden />
-        <p className="text-sm">{t('history.empty')}</p>
-        <p className="text-xs opacity-70">{t('history.emptyHint')}</p>
-      </div>
+      <Empty className="p-4 py-16">
+        <EmptyHeader>
+          <EmptyMedia>
+            <History className="size-8 opacity-40" aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('history.empty')}
+          </EmptyTitle>
+          <EmptyDescription className="text-xs opacity-70">
+            {t('history.emptyHint')}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -174,16 +187,20 @@ export function HistoryPage() {
 
       {shown.length === 0 ? (
         // 列表非空但被 tab/搜索滤空：给一行轻提示（文案区分场景）
-        <div className="text-muted-foreground flex flex-col items-center gap-2 py-16">
-          <History className="size-8 opacity-40" aria-hidden />
-          <p className="text-sm">
-            {query.trim() !== ''
-              ? t('common.searchNoMatch')
-              : tab === 'finished'
-                ? t('history.noMatchFinished')
-                : t('history.noMatchUnfinished')}
-          </p>
-        </div>
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyMedia>
+              <History className="size-8 opacity-40" aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle className="text-muted-foreground text-sm font-normal">
+              {query.trim() !== ''
+                ? t('common.searchNoMatch')
+                : tab === 'finished'
+                  ? t('history.noMatchFinished')
+                  : t('history.noMatchUnfinished')}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <>
           <div className="flex flex-col gap-2">

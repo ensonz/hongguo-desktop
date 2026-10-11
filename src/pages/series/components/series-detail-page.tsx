@@ -4,6 +4,8 @@ import { ArrowLeft, Flame, Heart, Hourglass, Play, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ErrorState } from '@/components/common/error-state';
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SeriesCover } from '@/components/series-cover';
@@ -196,13 +198,12 @@ export function SeriesDetailPage({
       )}
 
       {isError && !upcomingSeries && (
-        <div className="grid gap-3 py-16 text-center">
-          <p className="text-destructive text-sm">
-            {t('series.loadFailed')}
-            {error instanceof Error && `: ${error.message}`}
-          </p>
+        <ErrorState
+          message={t('series.loadFailed')}
+          detail={error instanceof Error ? error.message : undefined}
+        >
           <ResolveButton seriesId={seriesId} />
-        </div>
+        </ErrorState>
       )}
 
       {activeSeries && (
@@ -359,11 +360,19 @@ export function SeriesDetailPage({
 
             <TabsContent value="episodes">
               {activeSeries.episodes.length === 0 ? (
-                <div className="grid gap-3 py-10 text-center">
-                  <p className="text-muted-foreground text-sm">{t('series.noEpisodes')}</p>
+                <Empty className="py-10">
+                  <EmptyHeader>
+                    <EmptyTitle className="text-muted-foreground text-sm font-normal">
+                      {t('series.noEpisodes')}
+                    </EmptyTitle>
+                  </EmptyHeader>
                   {/* 未上线剧没有可解析的分集，重试无意义，只给文案 */}
-                  {!upcoming && <ResolveButton seriesId={seriesId} />}
-                </div>
+                  {!upcoming && (
+                    <EmptyContent>
+                      <ResolveButton seriesId={seriesId} />
+                    </EmptyContent>
+                  )}
+                </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
                   {/* 选集格对齐第三方：序号 + 第 N 集 + 右侧时长角标。

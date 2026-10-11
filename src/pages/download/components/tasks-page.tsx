@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { useDownloadActions, useDownloadTasks, useQueueStatus } from '@/service/queries';
 import { app as appApi } from '@/service/commands';
 import { formatBytes } from '@/utils/format';
@@ -164,7 +165,13 @@ export function TasksPage() {
       </div>
 
       {all.length === 0 ? (
-        <p className="text-muted-foreground py-16 text-center text-sm">{t('tasks.empty')}</p>
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyTitle className="text-muted-foreground text-sm font-normal">
+              {t('tasks.empty')}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <Card className="gap-0 overflow-hidden py-0">
           <Table>

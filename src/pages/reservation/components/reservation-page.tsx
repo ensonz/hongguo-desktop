@@ -5,6 +5,14 @@ import { BellRing, CalendarClock, Loader2, LogIn, Play, Star, Tv } from 'lucide-
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { cn } from '@/lib/utils';
@@ -120,20 +128,25 @@ export function ReservationPage() {
           ))}
         </div>
       ) : current.error ? (
-        <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-          <p>{t('reservation.loadFailed')}</p>
-          <p className="text-destructive text-xs">{current.error.message}</p>
-          <Button variant="outline" size="sm" onClick={() => void current.refetch()}>
-            <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-            {t('feed.retry')}
-          </Button>
-        </div>
+        <ErrorState
+          message={t('reservation.loadFailed')}
+          detail={current.error.message}
+          onRetry={() => void current.refetch()}
+        />
       ) : (current.data?.items.length ?? 0) === 0 ? (
-        <div className="text-muted-foreground flex flex-col items-center gap-2 py-16">
-          <BellRing className="size-8 opacity-40" aria-hidden />
-          <p className="text-sm">{t('reservation.empty')}</p>
-          <p className="text-xs opacity-70">{t('reservation.emptyHint')}</p>
-        </div>
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyMedia>
+              <BellRing className="size-8 opacity-40" aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle className="text-muted-foreground text-sm font-normal">
+              {t('reservation.empty')}
+            </EmptyTitle>
+            <EmptyDescription className="text-xs opacity-70">
+              {t('reservation.emptyHint')}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <>
           <div className="flex flex-col gap-2">

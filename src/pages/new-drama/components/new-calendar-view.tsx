@@ -1,7 +1,8 @@
 /** 上新日历视图：日期条（今天/周几换算）+ 当日上新列表。 */
 import { useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonRows } from '@/components/skeletons';
@@ -77,16 +78,19 @@ export function NewCalendarView() {
           {isLoading ? (
             <SkeletonRows count={6} height="h-20 rounded-xl" />
           ) : error ? (
-            <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-              <p>{t('newDrama.loadFailed')}</p>
-              <p className="text-destructive text-xs">{error.message}</p>
-              <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-                {t('feed.retry')}
-              </Button>
-            </div>
+            <ErrorState
+              message={t('newDrama.loadFailed')}
+              detail={error.message}
+              onRetry={() => void refetch()}
+            />
           ) : (data?.items.length ?? 0) === 0 ? (
-            <p className="text-muted-foreground py-16 text-center text-sm">{t('newDrama.empty')}</p>
+            <Empty className="py-16">
+              <EmptyHeader>
+                <EmptyTitle className="text-muted-foreground text-sm font-normal">
+                  {t('newDrama.empty')}
+                </EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="flex flex-col gap-2">
               {items.slice(0, visibleCount).map((item) => (

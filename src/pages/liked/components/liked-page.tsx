@@ -8,9 +8,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Heart, HeartOff, Loader2, Play } from 'lucide-react';
+import { Heart, HeartOff, Play } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -87,23 +94,26 @@ export function LikedPage() {
   }
   if (error) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-        <p>{t('liked.loadFailed')}</p>
-        <p className="text-destructive text-xs">{error.message}</p>
-        <Button variant="outline" size="sm" onClick={() => void refetch()}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('liked.loadFailed')}
+        detail={error.message}
+        onRetry={() => void refetch()}
+      />
     );
   }
   if (liked.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 p-4 py-16">
-        <Heart className="size-8 opacity-40" aria-hidden />
-        <p className="text-sm">{t('liked.empty')}</p>
-        <p className="text-xs opacity-70">{t('liked.emptyHint')}</p>
-      </div>
+      <Empty className="p-4 py-16">
+        <EmptyHeader>
+          <EmptyMedia>
+            <Heart className="size-8 opacity-40" aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('liked.empty')}
+          </EmptyTitle>
+          <EmptyDescription className="text-xs opacity-70">{t('liked.emptyHint')}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

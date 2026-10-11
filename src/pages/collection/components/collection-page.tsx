@@ -7,9 +7,16 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Loader2, Play, Star, StarOff } from 'lucide-react';
+import { Play, Star, StarOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -95,34 +102,37 @@ export function CollectionPage() {
     const notLoggedIn = error.message.includes('未登录');
     if (notLoggedIn) {
       return (
-        <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-          <Star className="size-8 opacity-40" aria-hidden />
-          <p className="text-sm">{t('collections.loginRequired')}</p>
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-            {t('feed.retry')}
-          </Button>
-        </div>
+        <ErrorState
+          message={t('collections.loginRequired')}
+          icon={<Star className="size-8 opacity-40" aria-hidden />}
+          onRetry={() => void refetch()}
+        />
       );
     }
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-        <p>{t('collections.loadFailed')}</p>
-        <p className="text-destructive text-xs">{error.message}</p>
-        <Button variant="outline" size="sm" onClick={() => void refetch()}>
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('collections.loadFailed')}
+        detail={error.message}
+        onRetry={() => void refetch()}
+      />
     );
   }
 
   if (items.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 p-4 py-16">
-        <Star className="size-8 opacity-40" aria-hidden />
-        <p className="text-sm">{t('collections.empty')}</p>
-        <p className="text-xs opacity-70">{t('collections.emptyHint')}</p>
-      </div>
+      <Empty className="p-4 py-16">
+        <EmptyHeader>
+          <EmptyMedia>
+            <Star className="size-8 opacity-40" aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('collections.empty')}
+          </EmptyTitle>
+          <EmptyDescription className="text-xs opacity-70">
+            {t('collections.emptyHint')}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonCardGrid } from '@/components/skeletons';
 import { SeriesCardGrid } from './series-card-grid';
@@ -383,9 +384,13 @@ export function BrowsePage() {
       {pending ? (
         <SkeletonCardGrid />
       ) : cards.length === 0 ? (
-        <p className="text-muted-foreground py-16 text-center text-sm">
-          {searching ? t('search.empty') : t('browse.empty')}
-        </p>
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyTitle className="text-muted-foreground text-sm font-normal">
+              {searching ? t('search.empty') : t('browse.empty')}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <RefreshShade refreshing={refreshing}>
           {/* 无限滚动：不再翻页补位，条目持续累积填满网格，
