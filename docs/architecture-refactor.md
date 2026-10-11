@@ -258,10 +258,10 @@ hongguo-desktop/
 
 > **执行顺序（已定）**：
 > - **阶段 0 · 地基**：`src-tauri` 原地成为 workspace 唯一 member（§9 机械耦合清单迁根），**零行为变更**，`make dev/test/lint` 全绿即通过。
-> - **阶段 1 · 清前置障碍**（**已完成 2026-10-11**）：`structure-improvement-plan` 的 P2（消 `signer→domain` 反向依赖）、7.1（生成器归位）、7.2（元测试 `SOURCES` 自动发现）、P4（重命名）——这些不清，阶段 2 会把它们带进 crate 结构。
+> - **阶段 1 · 清前置障碍**（**已完成 2026-10-11**）：fixture 迁出生产源码树（消 `signer→domain` 反向依赖）、生成器归位 `scripts/`、元测试改目录自动发现、下载选集器重命名——这些不清，阶段 2 会把它们带进 crate 结构。
 > - **阶段 2 · 自底向上拆 crate**：下列 1–6 步，**优先级按实测耦合**（§0）。
-> - **阶段 3 · 前端并行**：`structure` 的 P0 / P3 / §8.2.4 与后端拆分正交，随时插入。
-> - **会被拆分「吞掉」的 structure 结构项**（P1 `domain/api` 拆 payload/parse、P5 拆 `rank_cmd`、§8.2 请求体/事件载荷 struct 化）**并入对应 crate 一起做**，不单独排期——避免同一文件搬两遍。
+> - **阶段 3 · 前端并行**（与后端拆分正交，随时插入）：评论 / 剧评组件的双实现收敛（唯一的真实逻辑重复）、`components/` 两级散装归位、前端入参 zod 化。
+> - **会被拆分「吞掉」的结构项**（**并入对应 crate 一起做**，不单独排期——避免同一文件搬两遍）：`domain/api` 的 `mod` + `payload/parse` 拆分（随 `hongguo-api`）、前后端域粒度对齐 / `rank` 域拆分（随 `hongguo-api` · `hongguo-tauri`）、请求体与事件载荷强类型 struct（随对应 crate）。
 
 严格按依赖自底向上，每步保证 Tauri + React 路径可编译可运行。**优先级按实测耦合**（§0）：
 
@@ -288,7 +288,7 @@ hongguo-desktop/
 | Makefile（dev/build/test/lint/release… 全部 target） | 根 | 路径改指 workspace |
 | `tauri.conf.json`（`frontendDist: ../dist`、`beforeBuildCommand: pnpm build`、`devUrl: 1420`） | `src-tauri/` | 后端 crate 迁出后相对路径重算 |
 | CI workflow / `.githooks`（pre-commit 三目标 clippy + cargo test + eslint） | `.github/` `.githooks/` | 路径与 crate 名同步 |
-| **元测试清单** `commands/mod.rs`、`service/mod.rs` 的 `include_str!` 列表 | 各模块 | 随模块迁到对应 crate；`commands_do_not_touch_tokio_context_directly` 的 `SOURCES` 改自动发现（`structure-improvement-plan §7.2`） |
+| **元测试清单** `commands/mod.rs`、`service/mod.rs` 的 `include_str!` 列表 | 各模块 | **已改目录自动发现**（`utils::source_guard`）；迁 crate 时随模块走 |
 | **pub 面收敛**：`lib.rs` 现「模块全私有」（红线 7） | `lib.rs` | crate 边界必须 pub；需为每个 crate 显式定义对外 API，禁止 `pub use *` 泄底 |
 | 双端契约测试 / 黄金向量（签名、抓包比对） | `signer`、`domain/api` | 随对应 crate 迁移，勿丢守门人 |
 
@@ -334,7 +334,7 @@ hongguo-desktop/
 | 主题归属 | 先在 GPUI 壳内，独立成 crate 待有必要 | ✅ |
 | 两端长期共存 | 是（本方案前提，非待决项） | ✅ 已定 |
 | **GPUI 帧流 → 纹理集成** | —— | ❓ 待 spike（§5.3） |
-| 与 `structure-improvement-plan.md` 的先后 | 前置项（P2/7.1/7.2/P4）先做；P0/P3/§8.2.4 前端并行；重叠项（P1/P5/§8.2）并入对应 crate（§8） | ✅ 已定 |
+| 遗留结构项的执行时机 | 前置项已完成；前端项并行；重叠项（`domain/api` 拆分 / `rank` 域对齐 / 载荷 struct 化）并入对应 crate（§8） | ✅ 已定 |
 
 ---
 
@@ -342,7 +342,7 @@ hongguo-desktop/
 
 | 文档 | 关系 |
 | --- | --- |
-| `docs/structure-improvement-plan.md` | 同日另一份、更细更可执行（P0 评论双实现等）。**定序已定**（§8/§12）：前置项 P2/7.1/7.2/P4 先做；P0/P3/§8.2.4 前端并行；P1/P5/§8.2 并入对应 crate |
+| `docs/structure-improvement-plan.md` | **已删**（2026-10-11）：剩余项已并入本方案 §8；`git log --follow -- docs/structure-improvement-plan.md` 可找回 |
 | `docs/refactor-plan.md` | **已删**（git 历史可找回，`git log --follow`）。前期前后端重构计划 P0~P6 已落地 |
 | `docs/platform-transcode-progress.md` | **已删**（提交 `dd982a2` 清理转码档案）。转码决策档案见 git 历史 |
 | `docs/hongguo-api-endpoints.md` | 对接官方接口的唯一事实源；改 `domain/api` 前必读 |
