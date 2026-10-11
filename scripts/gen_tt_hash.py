@@ -4,13 +4,15 @@
 （自定义分组加密的轮密钥扩展与 CBC 加密）逐句自动转换；行为对拍由
 Rust 测试兜底（calculate 向量 + Python golden）。重生成后手工步骤：
 无（pub 化已内置）。
+
+在仓库根运行：`python scripts/gen_tt_hash.py`（`OUT` 相对仓库根）。
 """
 import io
 import re
 import tempfile
 
 SRC = tempfile.gettempdir() + '/ttencrypt.py'
-OUT = 'src/signer/tt_hash.rs'
+OUT = 'src-tauri/src/signer/tt_hash.rs'
 TAB = chr(9)
 NL = chr(10)
 
@@ -512,7 +514,7 @@ mod tests {
     /// 924 字节（8 块）真实 gz 输入的对拍。
     #[test]
     fn calculate_multi_block_924() {
-        let gz_hex = include_str!("../domain/api/testdata/py_gz.hex");
+        let gz_hex = include_str!("../../tests/fixtures/py_gz.hex");
         let gz: Vec<u8> = (0..gz_hex.trim().len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&gz_hex.trim()[i..i + 2], 16).unwrap())
