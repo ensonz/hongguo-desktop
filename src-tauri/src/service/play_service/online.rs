@@ -862,6 +862,11 @@ pub async fn fetch_plain_with(
     }
 }
 
+/// 在线缓存现状（分条数、已填充字节），供缓存占用统计读。
+pub fn status() -> (usize, u64) {
+    cache().status()
+}
+
 /// 清空在线缓存。
 pub fn clear() -> usize {
     let (count, _) = cache().status();

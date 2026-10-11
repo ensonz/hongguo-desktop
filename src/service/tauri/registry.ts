@@ -14,6 +14,8 @@ import {
   accountStateSchema,
   bookshelfEntrySchema,
   browseFiltersSchema,
+  cacheClearResultSchema,
+  cacheUsageSchema,
   calendarPageSchema,
   commentItemSchema,
   commentPageSchema,
@@ -81,8 +83,6 @@ export const COMMANDS = {
   install_hevc_extension: { args: noArgs, response: hevcInstallResultSchema },
   decode_capability: { args: noArgs, response: decodeCapabilitySchema },
   redetect_capability: { args: noArgs, response: decodeCapabilitySchema },
-  clear_compat_cache: { args: noArgs, response: z.number() },
-  clear_online_cache: { args: noArgs, response: z.number() },
   transcode_for_playback: {
     args: z.object({ seriesId: z.string(), vidIndex: z.number(), vid: z.string().optional() }),
     response: transcodePlaybackSchema,
@@ -362,6 +362,8 @@ export const COMMANDS = {
   // ---- 存储 ---------------------------------------------------------
   get_storage_usage: { args: noArgs, response: storageUsageSchema },
   get_storage_series: { args: noArgs, response: storageSeriesUsageSchema.array() },
+  get_cache_usage: { args: noArgs, response: cacheUsageSchema },
+  clear_cache: { args: noArgs, response: cacheClearResultSchema },
   delete_series_files: { args: z.object({ seriesId: z.string() }), response: z.number() },
   delete_episode_file: {
     args: z.object({ seriesId: z.string(), vidIndex: z.number() }),

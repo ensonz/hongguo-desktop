@@ -39,3 +39,22 @@ export const storageSeriesUsageSchema = z.object({
   bytes: z.number().nonnegative(),
   files: z.number().int().nonnegative(),
 });
+
+/** 单处缓存的占用（Rust `storage_service::cache::CachePart`）。 */
+export const cachePartSchema = z.object({
+  files: z.number().int().nonnegative(),
+  bytes: z.number().nonnegative(),
+});
+
+/** 三处缓存（在线内存流 / 兼容转码 / 封面转码）的占用总览。 */
+export const cacheUsageSchema = z.object({
+  online: cachePartSchema,
+  compat: cachePartSchema,
+  cover: cachePartSchema,
+});
+
+/** 一键清理的结果：items 含内存流分条，bytes 只算磁盘上释放的。 */
+export const cacheClearResultSchema = z.object({
+  items: z.number().int().nonnegative(),
+  bytes: z.number().nonnegative(),
+});

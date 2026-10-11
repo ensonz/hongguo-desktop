@@ -72,5 +72,11 @@ export {
   useRedetectCapability,
   useCompatPlayback,
 } from './play';
-export { useStorageUsage, useStorageSeries, useStorageActions } from './storage';
+export {
+  useStorageUsage,
+  useStorageSeries,
+  useCacheUsage,
+  useCacheClear,
+  useStorageActions,
+} from './storage';
 export { useWatchHistory, useWatchHistoryDelete } from './history';

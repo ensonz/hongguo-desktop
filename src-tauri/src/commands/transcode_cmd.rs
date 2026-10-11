@@ -1,7 +1,8 @@
-//! 转码能力查询、播放兼容兜底与转码缓存清理。
+//! 转码能力查询与播放兼容兜底。
 //!
 //! 真正的转码实现在 [`hongguo_media::transcode`]，由合并功能
 //! （`merge_service::compat`）与播放兼容兜底（`play_service::compat_play`）驱动。
+//! 缓存清理已并入 storage_cmd（`get_cache_usage` / `clear_cache`）。
 
 use std::path::PathBuf;
 
@@ -11,7 +12,6 @@ use tauri::Emitter;
 use crate::media::capability::probe::DecodeCapability;
 use crate::service::download_service::events::names::COMPAT_PROGRESS;
 use crate::service::play_service::compat_play::{self, CompatSource};
-use crate::service::transcode_service::cache;
 use hongguo_common::{AppError, AppResult};
 
 /// 硬解/软解能力。
@@ -129,16 +129,4 @@ pub async fn transcode_for_playback(
         backend: r.backend,
         elapsed_ms: r.elapsed_ms,
     })
-}
-
-/// 清空转码缓存。
-#[tauri::command]
-pub fn clear_compat_cache() -> usize {
-    cache::clear()
-}
-
-/// 清空在线流缓存。
-#[tauri::command]
-pub fn clear_online_cache() -> usize {
-    crate::service::play_service::online::clear()
 }

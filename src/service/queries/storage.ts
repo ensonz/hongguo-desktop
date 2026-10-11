@@ -14,6 +14,22 @@ export function useStorageSeries() {
   return useQuery({ queryKey: keys.storageSeries, queryFn: storage.seriesUsage });
 }
 
+/** 三处缓存（在线内存流 / 兼容转码 / 封面转码）的占用总览。 */
+export function useCacheUsage() {
+  return useQuery({ queryKey: keys.cacheUsage, queryFn: storage.cacheUsage });
+}
+
+/** 一键清缓存：成功后让占用统计失效，界面数字立刻回到清空后的样子。 */
+export function useCacheClear() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: storage.clearCache,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.cacheUsage });
+    },
+  });
+}
+
 export function useStorageActions() {
   const qc = useQueryClient();
   const invalidate = () => {

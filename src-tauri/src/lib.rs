@@ -205,11 +205,11 @@ pub fn run() {
             commands::transcode_cmd::decode_capability,
             commands::transcode_cmd::redetect_capability,
             commands::transcode_cmd::transcode_for_playback,
-            commands::transcode_cmd::clear_compat_cache,
-            commands::transcode_cmd::clear_online_cache,
             // 存储
             commands::storage_cmd::get_storage_usage,
             commands::storage_cmd::get_storage_series,
+            commands::storage_cmd::get_cache_usage,
+            commands::storage_cmd::clear_cache,
             commands::storage_cmd::delete_series_files,
             commands::storage_cmd::delete_episode_file,
             commands::storage_cmd::delete_all_downloaded,

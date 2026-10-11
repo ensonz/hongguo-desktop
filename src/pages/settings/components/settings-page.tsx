@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  useCacheClear,
+  useCacheUsage,
   useDecodeCapability,
   useRedetectCapability,
   useSaveSettings,
@@ -22,7 +24,7 @@ import {
   useStorageUsage,
   useTestProxy,
 } from '@/service/queries';
-import { app as appApi, transcode as transcodeApi } from '@/service/commands';
+import { app as appApi } from '@/service/commands';
 import { formatBytes } from '@/utils/format';
 import { t, tf } from '@/locales';
 import type { DecodeCapability, Settings } from '@/service/schema';
@@ -38,6 +40,8 @@ export function SettingsPage() {
   const { data: capability } = useDecodeCapability();
   const redetect = useRedetectCapability();
   const { data: usage } = useStorageUsage();
+  const { data: cacheUsage } = useCacheUsage();
+  const clearCache = useCacheClear();
   const testProxyMutation = useTestProxy();
 
   // 草稿为 null 表示「未修改」，直接用服务端值派生，避免 effect 同步引发级联渲染
@@ -313,32 +317,36 @@ export function SettingsPage() {
               : t('common.loading')}
           </p>
           {/* 磁盘清理只在存储页提供，这里只读占用与缓存清理。
-              点击必须有回音：成功报清理条数，失败弹错误——此前是纯
-              fire-and-forget，用户眼里就是「点了没反应」。 */}
-          <div className="flex gap-2">
+              三处缓存（在线内存流 / 转码 / 封面）合成一个入口：此前两个按钮
+              都不报大小，cover-cache 更是从未有清理入口——封面图片只进不出。
+              点击必须有回音：成功报清理条数与释放量，失败弹错误。 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm tabular-nums">
+              {cacheUsage
+                ? tf('settings.cacheUsage', {
+                    size: formatBytes(cacheUsage.compat.bytes + cacheUsage.cover.bytes),
+                    compat: formatBytes(cacheUsage.compat.bytes),
+                    cover: formatBytes(cacheUsage.cover.bytes),
+                    online: cacheUsage.online.files,
+                  })
+                : t('common.loading')}
+            </p>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                void transcodeApi.clearOnlineCache().then(
-                  (n) => toast.success(tf('settings.clearedCache', { count: n })),
-                  (e: Error) => toast.error(e.message),
-                );
-              }}
+              className="ml-auto"
+              disabled={clearCache.isPending}
+              onClick={() =>
+                clearCache.mutate(undefined, {
+                  onSuccess: (r) =>
+                    toast.success(
+                      tf('settings.cacheCleared', { count: r.items, size: formatBytes(r.bytes) }),
+                    ),
+                  onError: (e: Error) => toast.error(e.message),
+                })
+              }
             >
-              {t('settings.clearOnlineCache')}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                void transcodeApi.clearCompatCache().then(
-                  (n) => toast.success(tf('settings.clearedCache', { count: n })),
-                  (e: Error) => toast.error(e.message),
-                );
-              }}
-            >
-              {t('settings.clearCompatCache')}
+              {clearCache.isPending ? t('common.loading') : t('settings.clearCache')}
             </Button>
           </div>
         </CardContent>
