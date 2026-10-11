@@ -98,7 +98,7 @@
 | --- | --- | --- |
 | `hongguo-common` | 共用 serde 模型（`model/`）、`AppError`（`error.rs`，**不含 tauri 变体**）、工具（`utils/`）、跨端常量（`consts/`） | serde / serde_json / thiserror / uuid / chrono / dirs |
 | `hongguo-signer` | `signer/`——五头签名（x-gorgon 等）+ 设备注册原语；**自带 TT 哈希/加密（helios/medusa/tt_hash）**，JS 1:1 移植禁改写法 | base64 / rand / serde / md-5 / sm3 / hex / chrono（**不依赖 common 与 tauri**） |
-| `hongguo-mp4` | `domain/mp4/` + `domain/crypto/`——MP4 盒/样本表/稀疏缓冲/流式计划 + CENC-AES-CTR 解密 + 密钥派生 | common |
+| `hongguo-mp4` | `domain/mp4/` + `domain/crypto/`——MP4 盒/样本表/稀疏缓冲/流式计划 + CENC-AES-CTR 解密 + 密钥派生 | common + aes / ctr / base64 / log / parking_lot |
 | `hongguo-api` | `domain/api/`——官方 API 客户端（登录/推荐/搜索/详情/流地址/弹幕/互动等） | signer + common |
 | `hongguo-store` | `store/`——Turso 持久化、entity、迁移、恢复 | common |
 
@@ -265,7 +265,7 @@ hongguo-desktop/
 
 严格按依赖自底向上，每步保证 Tauri + React 路径可编译可运行。**优先级按实测耦合**（§0）：
 
-1. **抽枢纽底层**：`hongguo-common`（**已完成 2026-10-11**）→ `hongguo-signer`（**已完成 2026-10-11**）→ `hongguo-mp4` → `hongguo-api`
+1. **抽枢纽底层**：`hongguo-common`（**已完成 2026-10-11**）→ `hongguo-signer`（**已完成 2026-10-11**）→ `hongguo-mp4`（**已完成 2026-10-11**）→ `hongguo-api`
 2. **抽持久化**：`hongguo-store`
 3. **立流契约再抽媒体**：`hongguo-stream`（先落 §5.2 边界）→ `hongguo-media` → `hongguo-media-platform`
 4. **抽协议与业务**：`hongguo-protocol` → `hongguo-service`（service 改为只依赖 stream 契约）

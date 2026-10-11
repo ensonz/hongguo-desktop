@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 
+use crate::protocol::stream::{ProgressiveStream, StreamCache};
 use hongguo_common::model::{Settings, VideoDefinition};
 use hongguo_common::{AppError, AppResult};
-use crate::protocol::stream::{ProgressiveStream, StreamCache};
 
 /// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，
 /// 顶层盒表从这里算出 moov 落点。
@@ -465,11 +465,11 @@ async fn build_progressive(
     settings: &Settings,
     report: &(dyn Fn(u64, u64) + Sync),
 ) -> AppResult<(
-    Arc<crate::domain::mp4::streaming::SparseBuffer>,
+    Arc<hongguo_mp4::streaming::SparseBuffer>,
     Arc<ProgressiveStream>,
 )> {
     use crate::domain::api::client::{get_video_range, probe_video_len};
-    use crate::domain::mp4::streaming::{SparseBuffer, StreamingPlan, locate_moov, top_boxes_end};
+    use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan, locate_moov, top_boxes_end};
 
     let client = crate::domain::api::client::build_client(&settings.proxy)?;
     let total = probe_video_len(&client, &play.url).await?;
@@ -519,7 +519,7 @@ async fn build_progressive(
     let region = sparse_snapshot(&sparse, moov_start, moov_start + moov_size);
 
     let prog = if play.encrypted {
-        let key = crate::domain::crypto::key_derive::derive_key(&play.key_material)?;
+        let key = hongguo_mp4::crypto::key_derive::derive_key(&play.key_material)?;
         let plan = StreamingPlan::build(&region, moov_start, total, &key)?;
         let plain_len = plan.plain_len();
         Arc::new(ProgressiveStream {
@@ -552,7 +552,7 @@ async fn build_progressive(
 /// `Some(limit)` 时顺序填充到该字节数即收工，读者需求不受限；`None` 填满
 /// 整集。逐决策点求值，预取条目升格为当前集（或已有读者在等）的瞬间自动解除。
 async fn fill_remaining(
-    sparse: &Arc<crate::domain::mp4::streaming::SparseBuffer>,
+    sparse: &Arc<hongguo_mp4::streaming::SparseBuffer>,
     prog: &Arc<ProgressiveStream>,
     play: &crate::domain::api::play_url::PlayInfo,
     settings: &Settings,
@@ -589,7 +589,7 @@ enum Decision {
 /// 回绕在下一轮 `next_gap(0)` 必能找到洞（否则整集已满、走 `Done` 分支），
 /// 所以 Wrap 之后紧跟一次实际下载，**不存在连续 Wrap 的路径**——旧版
 /// 「回绕补洞」被 seek_hint 顶回原地空转的死循环，从这里结构上排除。
-fn next_target(sparse: &crate::domain::mp4::streaming::SparseBuffer, frontier: u64) -> Decision {
+fn next_target(sparse: &hongguo_mp4::streaming::SparseBuffer, frontier: u64) -> Decision {
     match sparse.next_gap(frontier) {
         Some((start, end)) => Decision::Fetch(start, end),
         None if sparse.downloaded() < sparse.len() => Decision::Wrap,
@@ -613,7 +613,7 @@ fn next_target(sparse: &crate::domain::mp4::streaming::SparseBuffer, frontier: u
 /// 前沿，不跳过缺口。不存在空转路径。
 async fn fill_remaining_with_client(
     client: &reqwest::Client,
-    sparse: &Arc<crate::domain::mp4::streaming::SparseBuffer>,
+    sparse: &Arc<hongguo_mp4::streaming::SparseBuffer>,
     prog: &Arc<ProgressiveStream>,
     cdn_url: &str,
     reporter: &ProgressReporter,
@@ -713,11 +713,7 @@ async fn fill_remaining_with_client(
 }
 
 /// 从稀疏缓冲拷出一段（调用方保证已覆盖）。
-fn sparse_snapshot(
-    sparse: &crate::domain::mp4::streaming::SparseBuffer,
-    start: u64,
-    end: u64,
-) -> Vec<u8> {
+fn sparse_snapshot(sparse: &hongguo_mp4::streaming::SparseBuffer, start: u64, end: u64) -> Vec<u8> {
     let mut out = vec![0u8; (end - start) as usize];
     sparse.read_into(start, &mut out);
     out
@@ -825,8 +821,8 @@ pub async fn fetch_plain_with(
     progress(received, total.max(received), "decrypting");
 
     if play.encrypted {
-        let key = crate::domain::crypto::key_derive::derive_key(&play.key_material)?;
-        crate::domain::mp4::decrypt_buffer::decrypt_mp4_buffer(&body, &key)
+        let key = hongguo_mp4::crypto::key_derive::derive_key(&play.key_material)?;
+        hongguo_mp4::decrypt_buffer::decrypt_mp4_buffer(&body, &key)
     } else {
         Ok(body)
     }
@@ -848,7 +844,7 @@ mod scheduler_tests {
     /// 决策函数没有任何可以「顶回」游标的外部状态。
     #[test]
     fn wrap_is_a_decision_not_a_loop() {
-        let sparse = crate::domain::mp4::streaming::SparseBuffer::new(100);
+        let sparse = hongguo_mp4::streaming::SparseBuffer::new(100);
         sparse.write(50, &[0u8; 5]); // 50-55
         sparse.write(90, &[0u8; 10]); // 90-100
         // 前沿在 90：其后全满、整集未满 → 回绕
@@ -870,7 +866,7 @@ mod scheduler_tests {
     fn demand_points_backwards_into_early_hole() {
         use crate::protocol::stream::ReaderDemand;
 
-        let sparse = crate::domain::mp4::streaming::SparseBuffer::new(100);
+        let sparse = hongguo_mp4::streaming::SparseBuffer::new(100);
         sparse.write(90, &[0u8; 10]); // 尾部已就绪（seek 到片尾之类的场景）
         let d = ReaderDemand::new();
         d.register(&[(10, 20)]); // 读者在等前沿之前的洞（回跳 seek）

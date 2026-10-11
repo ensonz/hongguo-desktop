@@ -34,8 +34,8 @@ pub fn decrypt_mp4_file(src: &Path, dst: &Path, key: &[u8; 16]) -> AppResult<u64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::mp4::r#box::build_box;
-    use crate::domain::mp4::sample_table::collect_tracks;
+    use crate::r#box::build_box;
+    use crate::sample_table::collect_tracks;
 
     /// 构造一个最小的可解析 MP4：`moov(trah(…stbl)) + mdat`。
     ///

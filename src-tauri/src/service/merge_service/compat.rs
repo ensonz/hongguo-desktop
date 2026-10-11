@@ -12,10 +12,10 @@ use super::done_inputs;
 use super::guard::RunningMerge;
 use super::progress::ProgressSink;
 use crate::app_state::AppState;
-use hongguo_common::model::MergeTask;
-use hongguo_common::{AppError, AppResult};
 use crate::media::transcode::TranscodeOptions;
 use crate::service::transcode_service::{cache, pipeline};
+use hongguo_common::model::MergeTask;
+use hongguo_common::{AppError, AppResult};
 
 /// 兼容合并：把每集转成 H.264 后流复制拼接。
 ///

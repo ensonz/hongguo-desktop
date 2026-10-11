@@ -1,12 +1,12 @@
 //! MP4 轨道/样本解复用。
 //!
-//! 与下载解密阶段共用 [`crate::domain::mp4`] 的 box 解析——同一份文件在两处
+//! 与下载解密阶段共用 [`hongguo_mp4`] 的 box 解析——同一份文件在两处
 //! 解析必须得到同样结果，否则合并出来的文件会和下载产物对不上。
 
 use std::path::Path;
 
-use crate::domain::mp4::sample_table::{TrackInfo, collect_tracks};
 use hongguo_common::{AppError, AppResult};
+use hongguo_mp4::sample_table::{TrackInfo, collect_tracks};
 
 /// 一条可处理的轨道。
 #[derive(Debug, Clone)]
@@ -136,7 +136,7 @@ mod tests {
     fn tail_moov_is_found_when_faststart_is_off() {
         // B 帧流关 faststart 后 moov 在 mdat 之后：单个 9MB 样本把 mdat
         // 顶过 8MB 头部读窗，moov 落到头部窗外——必须能定位尾部 moov
-        use crate::domain::mp4::fixtures::{TrackPlan, mp4_with_samples};
+        use hongguo_mp4::fixtures::{TrackPlan, mp4_with_samples};
         let dir = std::env::temp_dir().join(format!("hg-demux-tail-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("tail-moov.mp4");

@@ -10,7 +10,7 @@
 //!    明文偏移与密文偏移**一一对应**；moov 之后的内容按
 //!    `新 moov 长 − 旧 moov 长` 整体平移。
 //! 2. **CTR 是计数器模式**，样本内任意子区间都能独立解（见
-//!    [`crate::domain::crypto::cenc::decrypt_range`]），不需要样本前缀。
+//!    [`crate::crypto::cenc::decrypt_range`]），不需要样本前缀。
 //! 3. **异或可交换**：多轨样本重叠时，整文件解密是多次原地异或，
 //!    与「逐字节异或所有覆盖样本的 keystream」等价——所以这里不必关心
 //!    轨道顺序与重叠方式，逐字节与 [`super::decrypt_buffer`] 一致
@@ -222,7 +222,7 @@ impl StreamingPlan {
             let out_at = out_base + (overlap_s - cs) as usize;
             let skip = (overlap_s - seg.offset) as usize;
             let len = (overlap_e - overlap_s) as usize;
-            crate::domain::crypto::cenc::decrypt_range(
+            crate::crypto::cenc::decrypt_range(
                 &self.key,
                 &seg.iv,
                 skip,
@@ -337,6 +337,12 @@ impl SparseBuffer {
     /// 总长。
     pub fn len(&self) -> u64 {
         self.len
+    }
+
+    /// 空流（总长为 0）。与 [`Self::len`] 配对——pub 类型暴露了 `len` 就该给
+    /// `is_empty`，否则调用方只能用 `len() == 0` 表达。
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     /// 写入一段密文并唤醒等待者。

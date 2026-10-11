@@ -13,9 +13,9 @@
 
 use std::path::Path;
 
-use hongguo_common::AppResult;
 use crate::media::transcode::{TranscodeOptions, TranscodeResult};
 use crate::service::transcode_service::cache;
+use hongguo_common::AppResult;
 
 /// 转码一个文件。
 ///
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn a_real_mp4_with_video_samples_is_playable() {
-        use crate::domain::mp4::fixtures::{TrackPlan, mp4_with_samples};
+        use hongguo_mp4::fixtures::{TrackPlan, mp4_with_samples};
         let dir = std::env::temp_dir().join(format!("hg-pipeline-ok-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("real.mp4");
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn audio_only_output_is_not_playable() {
-        use crate::domain::mp4::fixtures::{TrackPlan, mp4_with_samples};
+        use hongguo_mp4::fixtures::{TrackPlan, mp4_with_samples};
         let dir = std::env::temp_dir().join(format!("hg-pipeline-audio-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("audio.mp4");

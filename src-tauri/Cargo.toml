@@ -22,6 +22,8 @@ tauri-build = { version = "2", features = [] }
 hongguo-common = { path = "../crates/hongguo-common" }
 # 请求签名（JS 1:1 移植，禁改写法）；自身不依赖 tauri。
 hongguo-signer = { path = "../crates/hongguo-signer" }
+# MP4 解析与 CENC 解密；依赖 common，不依赖 tauri。
+hongguo-mp4 = { path = "../crates/hongguo-mp4" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -135,3 +137,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
+# 本 crate 的测试要构造 MP4 样本，开启 hongguo-mp4 的测试辅助模块（fixtures /
+# streaming_tests）；生产构建不带该 feature。
+hongguo-mp4 = { path = "../crates/hongguo-mp4", features = ["test-support"] }

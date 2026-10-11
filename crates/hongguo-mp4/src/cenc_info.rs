@@ -83,7 +83,7 @@ pub(super) fn read_senc(data: &[u8], start: usize, size: usize, info: &mut Track
 mod tests {
 
     use super::*;
-    use crate::domain::mp4::r#box::build_box;
+    use crate::r#box::build_box;
 
     /// 构造 FullBox：`version(1) + flags(3)` 由本函数写入，
     /// `payload` 只放紧随其后的字段（如 sample_size / count / 数据）。

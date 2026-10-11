@@ -21,8 +21,8 @@
 
 use rusty_h265::Decoder;
 
-use hongguo_common::{AppError, AppResult};
 use crate::media::hevc::{START_CODE, param_nalus_from_hvcc, to_annexb};
+use hongguo_common::{AppError, AppResult};
 
 /// 解出主 item 并编码为 JPEG（质量 85）。
 pub fn decode_primary_to_jpeg(data: &[u8]) -> AppResult<Vec<u8>> {

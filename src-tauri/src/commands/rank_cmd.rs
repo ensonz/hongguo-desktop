@@ -170,7 +170,14 @@ pub async fn reservations_delete(
     let env = state.api_env();
     let all_select = all_select.unwrap_or(false);
     let not_del = not_del_item_ids.unwrap_or_default();
-    delete_reservations(&item_ids, all_select, &not_del, is_online.unwrap_or(true), &env).await?;
+    delete_reservations(
+        &item_ids,
+        all_select,
+        &not_del,
+        is_online.unwrap_or(true),
+        &env,
+    )
+    .await?;
     log::info!("[Reserve] 批量删除 {} 条预约", item_ids.len());
     Ok(())
 }

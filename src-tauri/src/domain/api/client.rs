@@ -489,9 +489,14 @@ async fn send_once(
             biz_query,
             &extra,
         ),
-        None => {
-            hongguo_signer::sign_request_with(origin, pathname, None, &env.device, biz_query, &extra)
-        }
+        None => hongguo_signer::sign_request_with(
+            origin,
+            pathname,
+            None,
+            &env.device,
+            biz_query,
+            &extra,
+        ),
     };
 
     let mut req = match &signed.body {

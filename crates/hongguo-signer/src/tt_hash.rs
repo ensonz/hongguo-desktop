@@ -1,6 +1,7 @@
-//! TTEncrypt V5 的魔改哈希与分组加密（Python 参考实现的机械翻译）。
-//! 函数体保持与参考实现逐句对应（不优化不改写），因此允许机械
-//! 翻译固有的风格告警。
+//! TTEncrypt V5 的哈希原语。历史路径：ARM 反汇编 → Python 参考实现 →
+//! 机械翻译成 Rust；参考实现已遗失，**本文件是唯一事实源**。
+//! 函数体保持与上游逐句对应（不优化不改写），因此允许机械翻译
+//! 固有的风格告警。
 #![allow(
     clippy::assign_op_pattern,
     clippy::same_item_push,
@@ -17,15 +18,32 @@
     dead_code
 )]
 //!
-//! - TtHashCore::calculate：SHA-512 骨架的哈希变体（128 字节块、
-//!   64 字节输出），K/IV 被平台魔改，用本文件的表；
-//! - hex_cf8 / hex_0a2：自定义分组加密的轮密钥扩展与 CBC 形态加密
-//!   （含 10 张非标准 S-box/T-table）。
+//! ## 算法考证（2026-10-11，对照标准 SHA-512 与官方 APK 逐值核验）
 //!
-//! 函数体是 gen_tt_hash.py 逐句自动转换（不要手改，重生成即可），
-//! 行为对拍由 calculate 向量测试 + Python golden 测试兜底。
+//! - `TtHashCore::calculate`：SHA-512 骨架的哈希变体（128 字节块、
+//!   64 字节输出）。K_TABLE / TT_IV 与标准 SHA-512 常量**逐值一致**
+//!   （只是按 32 位 (lo, hi) 字对存放）；`len % 128 <= 110` 时输出与
+//!   标准 SHA-512 逐字节相同（0/1/19/32/39/100/128/200 与 924B 多块
+//!   向量全对拍）。`len % 128 >= 111` 走 else 填充分支：缓冲区比标准
+//!   多 2 字节被整除截断，8 字节长度只有高 6 字节落入末块（低 2 字节
+//!   随截断丢失）——与 SHA-512 分叉，这就是「魔改」的全部所在
+//!   （len=127 的 golden 向量锁定该分叉：bitlen=1016 整个退化为零）。
+//! - 分组加密**不在本文件**：TT-Encrypt V5 的 AES-128-CBC 由 register
+//!   域用标准 `aes` crate 承担，等价性由 py_enc_accepted.hex（服务端
+//!   发号成功样本）的逐字节复现测试锁定。
+//! - TT_ORD_LIST 在官方 APK 的 `lib/arm64-v8a/libvideodec.so`
+//!   （`com/ss/ttm/ttvideodecode/Native`，SHA-256 7c4edec2…）偏移
+//!   0x5220 原样存在（全 APK 唯一命中）；该库相邻的 IV 常量簇槽位
+//!   为 `[0, IV0..IV6]`，与本项目 TT_IV 不同构——除 ORD_LIST 外不
+//!   可声称与该库逐表一致。
+//!
+//! 正确性锚：本文件向量测试 + py_gz 跨块对拍 + register 域两条真实
+//! 抓包字节级回归（样本说明见 `tests/fixtures/README.md`）。
 
-/// 魔改 K 表（160 个 u32 = 80 个 u64）
+/// K 表（160 个 u32 = 80 个 u64，按 (lo, hi) 字对存放）——逐值等于
+/// 标准 SHA-512 的 80 个 K 常量（2026-10-11 对拍核验 0/80 差异），
+/// 亦以原生 u64 数组见于官方 APK 的 libttcrypto / libbdsword /
+/// libEncryptor。
 const K_TABLE: [u32; 160] = [
     3609767458, 1116352408, 602891725, 1899447441, 3964484399, 3049323471, 2173295548, 3921009573,
     4081628472, 961987163, 3053834265, 1508970993, 2937671579, 2453635748, 3664609560, 2870763221,
@@ -49,13 +67,16 @@ const K_TABLE: [u32; 160] = [
     3409855158, 1288033470, 4234509866, 1501505948, 987167468, 1607167915, 1246189591, 1816402316,
 ];
 
-/// 初始状态（16 个 u32 = 8 个 u64；hex_c52 输出时高低字交换）
+/// 初始状态（16 个 u32 = 8 个 u64，按 (lo, hi) 字对存放）——逐值等于
+/// 标准 SHA-512 的 8 个 IV 常量；hex_c52 输出时按 (hi, lo) 大端展开，
+/// 与标准 digest 字节序一致。
 const TT_IV: [u32; 16] = [
     4089235720, 1779033703, 2227873595, 3144134277, 4271175723, 1013904242, 1595750129, 2773480762,
     2917565137, 1359893119, 725511199, 2600822924, 4215389547, 528734635, 327033209, 1541459225,
 ];
 
-/// TT-Encrypt V5 密钥派生盐（与版本一起固定）
+/// TT-Encrypt V5 密钥派生盐（与版本一起固定）。官方 APK 互证：在
+/// lib/arm64-v8a/libvideodec.so 偏移 0x5220 原样存在（全 APK 唯一命中）。
 pub const TT_ORD_LIST: [u8; 64] = [
     77, 212, 194, 230, 184, 49, 98, 9, 14, 82, 179, 199, 166, 115, 59, 164, 28, 178, 70, 43, 130,
     154, 181, 138, 25, 107, 57, 219, 87, 23, 117, 36, 244, 155, 175, 127, 8, 232, 214, 141, 38,
@@ -1124,7 +1145,10 @@ mod tests {
     /// 924 字节（8 块）真实 gz 输入的对拍。
     #[test]
     fn calculate_multi_block_924() {
-        let gz_hex = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/py_gz.hex"));
+        let gz_hex = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/py_gz.hex"
+        ));
         let gz: Vec<u8> = (0..gz_hex.trim().len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&gz_hex.trim()[i..i + 2], 16).unwrap())
@@ -1134,5 +1158,27 @@ mod tests {
             out.iter().map(|b| format!("{b:02x}")).collect::<String>(),
             "d6b7290f6f6a5c4d98ee5b8f9ea82c73749ce8680ea1b847c7e69c6c4708b1cea1b06b473bdb82ef2a35583bee4317b022eb09362dba7a80b6592006e4129cc1"
         );
+    }
+
+    /// CF 进位跨调用不残留：hex_27e / hex_30a 内 CF 都是先写后读，同一
+    /// core 连续多次 calculate 与每次新起 core 结果必须一致。register
+    /// 域「共用一个 TtHashCore」只是沿用参考实现的调用形态，不是正确性
+    /// 前提——本测试锁定这一性质，防止以讹传讹成「拆开算不出同样的 key」。
+    #[test]
+    fn shared_core_matches_fresh_cores() {
+        let salt: Vec<u8> = (0..32).collect();
+        let mut shared = TtHashCore::new();
+        let h1_shared = shared.calculate(&salt);
+        let mut seed = h1_shared.clone();
+        seed.extend_from_slice(&TT_ORD_LIST);
+        let key_shared = shared.calculate(&seed);
+
+        let h1_fresh = TtHashCore::new().calculate(&salt);
+        let mut seed2 = h1_fresh.clone();
+        seed2.extend_from_slice(&TT_ORD_LIST);
+        let key_fresh = TtHashCore::new().calculate(&seed2);
+
+        assert_eq!(h1_shared, h1_fresh, "第一次 calculate 即分叉");
+        assert_eq!(key_shared, key_fresh, "跨调用 CF 残留导致分叉");
     }
 }

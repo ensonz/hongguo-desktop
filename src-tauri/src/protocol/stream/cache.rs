@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 
 use super::progressive::ProgressiveStream;
 use hongguo_common::model::VideoDefinition;
-use crate::domain::mp4::streaming::SparseBuffer;
+use hongguo_mp4::streaming::SparseBuffer;
 
 /// 一档正在准备的流。
 pub struct StreamEntry {

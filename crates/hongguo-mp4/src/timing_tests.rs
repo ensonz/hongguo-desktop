@@ -5,7 +5,7 @@
 //! 把定长字段从 4 字节换成 8 字节）。
 
 use super::*;
-use crate::domain::mp4::r#box::build_box;
+use crate::r#box::build_box;
 
 /// FullBox：`version` 单独给，flags 恒为 0。
 fn full(kind: &[u8; 4], version: u8, payload: &[u8]) -> Vec<u8> {

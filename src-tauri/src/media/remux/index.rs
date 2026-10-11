@@ -18,9 +18,9 @@
 //! `edts` / `mvex` / `udta` 一律丢弃：编辑列表指向各集自己的片段，合并后语义
 //! 已不成立；时长改由样本表决定，对本地播放没有影响。
 
-use crate::domain::mp4::r#box::{BoxHeader, build_box, find_box, parse_boxes};
-use crate::domain::mp4::sample_table::{TrackInfo, collect_track};
 use hongguo_common::{AppError, AppResult};
+use hongguo_mp4::r#box::{BoxHeader, build_box, find_box, parse_boxes};
+use hongguo_mp4::sample_table::{TrackInfo, collect_track};
 
 /// 一个输入文件里的一条轨道：解析结果 + 要原样搬进产物的 box。
 pub struct SourceTrack {

@@ -337,7 +337,7 @@ fn patch_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::mp4::sample_table::collect_tracks;
+    use crate::sample_table::collect_tracks;
 
     /// 拼接若干 box 的字节（`&Vec<u8>` 不能直接 `concat`，统一走这里）。
     fn cat(parts: &[&[u8]]) -> Vec<u8> {

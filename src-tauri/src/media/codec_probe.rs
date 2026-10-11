@@ -7,8 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
-use hongguo_common::{AppError, AppResult};
 use crate::media::demux::demux_file;
+use hongguo_common::{AppError, AppResult};
 
 /// 某一条轨道的编码指纹。全部字段相同才算同一条编码。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,7 +122,7 @@ fn signature_of(path: &Path) -> Option<Vec<TrackSignature>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::mp4::fixtures::{TrackSpec, mp4};
+    use hongguo_mp4::fixtures::{TrackSpec, mp4};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-codec-probe-{tag}-{}", std::process::id()));

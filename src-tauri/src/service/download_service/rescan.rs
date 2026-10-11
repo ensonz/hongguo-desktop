@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::app_state::AppState;
-use hongguo_common::model::{DownloadTask, Series, Settings};
 use hongguo_common::AppResult;
+use hongguo_common::model::{DownloadTask, Series, Settings};
 
 /// 判定「磁盘上这个文件是一条有效分集」的最小体积。
 ///

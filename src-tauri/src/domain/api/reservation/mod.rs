@@ -194,8 +194,7 @@ pub async fn delete_reservations(
     });
     let raw = serde_json::to_vec(&payload)
         .map_err(|e| AppError::Media(format!("构造批量删预约请求失败: {e}")))?;
-    let bytes =
-        api_call_reading(LQ_API_ORIGIN, SUBSCRIBE_DELETE_PATH, Some(raw), &[], env).await?;
+    let bytes = api_call_reading(LQ_API_ORIGIN, SUBSCRIBE_DELETE_PATH, Some(raw), &[], env).await?;
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析批量删预约响应失败: {e}")))?;
     check_code(&value)

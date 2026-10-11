@@ -4,7 +4,7 @@
 //! 私有函数与类型。
 
 use super::*;
-use crate::domain::mp4::fixtures::{TrackSpec, full_box, mp4};
+use crate::fixtures::{TrackSpec, full_box, mp4};
 
 #[test]
 fn reads_stsz_variable_sizes() {
@@ -205,7 +205,7 @@ fn absurd_stco_count_is_capped() {
 /// box 容量内，不管输入怎么烂都不该出现 GB 级分配请求）。
 #[test]
 fn absurd_entry_counts_are_capped_everywhere() {
-    use crate::domain::mp4::{cenc_info, chunk_map};
+    use crate::{cenc_info, chunk_map};
 
     // stsc：version+flags(4) | count(4)=0xFFFFFFFF | 无 entries
     let mut payload = 0u32.to_be_bytes().to_vec();

@@ -18,11 +18,11 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
+use crate::store::db::Db;
+use crate::store::entity;
 use hongguo_common::model::settings::Settings;
 use hongguo_common::model::{DownloadTask, MergeTask, PlaybackPosition, Series};
 use hongguo_common::{AppError, AppResult};
-use crate::store::db::Db;
-use crate::store::entity;
 
 /// 一次投递到 DB 线程的活：拿一个连接克隆，跑一段异步逻辑。
 type Job = Box<dyn FnOnce(Db) -> BoxFuture<'static, ()> + Send + 'static>;
@@ -222,7 +222,9 @@ impl Store {
     }
 
     /// 读上一代备份档案（没有换过档返回 None）。
-    pub fn device_profile_backup(&self) -> AppResult<Option<hongguo_signer::device::DeviceProfile>> {
+    pub fn device_profile_backup(
+        &self,
+    ) -> AppResult<Option<hongguo_signer::device::DeviceProfile>> {
         self.exec(|db| Box::pin(entity::device_profile_backup(db)))
     }
 

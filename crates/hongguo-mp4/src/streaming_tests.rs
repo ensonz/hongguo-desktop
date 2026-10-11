@@ -9,10 +9,16 @@
 //! 视频样本上，双轨都解——XOR 组合律的用武之地）、非 16 字节对齐的
 //! 样本长度（37/129 这类奇数，检验区间解密的首块对齐）。
 
+// 作为 pub 测试辅助模块暴露给下游 crate 后：`feature = "test-support"` 的 lib
+// 构建里 `#[test]` 函数不存在，只服务于它们的辅助函数与 import 会显得未使用——
+// 这不是死代码，只是构建视角不同。用 allow 而非 expect：本 crate 的 test 构建里
+// 这些项确实被使用，expect 会因 lint 未触发（unfulfilled）而报错。
+#![allow(dead_code, unused_imports)]
+
 use super::streaming::{SparseBuffer, StreamingPlan, locate_moov};
-use crate::domain::crypto::cenc;
-use crate::domain::mp4::r#box::build_box;
-use crate::domain::mp4::decrypt_buffer::decrypt_mp4_buffer;
+use crate::r#box::build_box;
+use crate::crypto::cenc;
+use crate::decrypt_buffer::decrypt_mp4_buffer;
 
 fn cat(parts: &[&[u8]]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -148,7 +154,7 @@ fn layout_tracks() -> (EncTrack, EncTrack) {
 
 /// 组装一份完整 fixture：明文文件、密文文件、密钥。
 /// `moov_at_tail` 切换两种布局（平台流是尾部；头部布局检验平移映射）。
-pub(crate) fn assemble(moov_at_tail: bool) -> (Vec<u8>, Vec<u8>, [u8; 16]) {
+pub fn assemble(moov_at_tail: bool) -> (Vec<u8>, Vec<u8>, [u8; 16]) {
     let key = [0x5Fu8; 16];
     let (video, audio) = layout_tracks();
 

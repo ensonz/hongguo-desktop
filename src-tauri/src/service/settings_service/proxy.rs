@@ -10,8 +10,8 @@
 use std::time::Instant;
 
 use crate::domain::api::client::build_client;
-use hongguo_common::model::{ProxyConfig, ProxyTestResult};
 use hongguo_common::AppResult;
+use hongguo_common::model::{ProxyConfig, ProxyTestResult};
 
 /// 测试代理连通性，返回耗时。
 pub async fn test_proxy(draft: &ProxyConfig) -> AppResult<ProxyTestResult> {

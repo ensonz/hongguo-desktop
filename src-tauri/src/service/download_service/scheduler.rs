@@ -20,10 +20,10 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter};
 
 use crate::app_state::AppState;
-use hongguo_common::model::DownloadTask;
-use hongguo_common::{AppError, AppResult};
 use crate::service::download_service::events::{ProgressThrottle, names};
 use crate::service::download_service::worker::{self, EpisodeDownload, ProgressSink};
+use hongguo_common::model::DownloadTask;
+use hongguo_common::{AppError, AppResult};
 
 /// 调度器。
 pub struct DownloadScheduler {

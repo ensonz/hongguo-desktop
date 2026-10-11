@@ -331,7 +331,8 @@ mod tests {
     /// JSON 字符串内嵌数组或直接数组，都要归一；热度行取含「热度」的那条。
     #[test]
     fn sub_title_list_dual_shape_and_heat() {
-        let raw = serde_json::json!({ "series_sub_title_list": "[\"脑洞\",\"玄幻\",\"4105万热度\"]" });
+        let raw =
+            serde_json::json!({ "series_sub_title_list": "[\"脑洞\",\"玄幻\",\"4105万热度\"]" });
         let (tags, heat) = parse_sub_titles(&raw);
         assert_eq!(tags, vec!["脑洞", "玄幻", "4105万热度"]);
         assert_eq!(heat, "4105万热度");
@@ -343,7 +344,8 @@ mod tests {
 
         let (tags, heat) = parse_sub_titles(&serde_json::json!({}));
         assert!(tags.is_empty() && heat.is_empty());
-        let (tags, heat) = parse_sub_titles(&serde_json::json!({ "series_sub_title_list": ["脑洞", "玄幻"] }));
+        let (tags, heat) =
+            parse_sub_titles(&serde_json::json!({ "series_sub_title_list": ["脑洞", "玄幻"] }));
         assert_eq!(tags, vec!["脑洞", "玄幻"]);
         assert!(heat.is_empty(), "没有含「热度」的条目时热度行为空");
     }

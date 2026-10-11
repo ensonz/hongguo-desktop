@@ -8,9 +8,9 @@ use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
-use hongguo_common::{AppError, AppResult};
 use hongguo_common::utils::json::{check_code, int_field, num_field, str_field};
 use hongguo_common::utils::time::beijing_date;
+use hongguo_common::{AppError, AppResult};
 
 pub use model::{CalendarItem, CalendarPage};
 
@@ -367,7 +367,9 @@ pub(crate) mod probe {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_new_calendar() {
         let env = anon_env();
-        let page = fetch_new_calendar(None, None, &env).await.expect("上新日历");
+        let page = fetch_new_calendar(None, None, &env)
+            .await
+            .expect("上新日历");
         println!(
             "[calendar] dates={:?} default={:?} items={} has_more={} #1={:?}",
             page.dates.first().zip(page.dates.last()),

@@ -7,19 +7,17 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 ├─ commands/*_cmd.rs    # 薄：参数校验 + 转调 service，与 service 同名同构
 ├─ service/*_service/   # 业务编排（一个服务一个目录）
 ├─ domain/api/<域>/     # 官方 API 端点客户端，每域一目录（mod+model[+parse]；改前必读 docs/hongguo-api-endpoints.md）
-├─ domain/model/*       # serde 领域模型（与前端 zod schema 对齐）
-├─ signer/              # 请求签名，JS 1:1 移植，禁改写法（已迁 crates/hongguo-signer）
 ├─ store/              # Turso 内嵌库（db/bridge + entity/ 六组实体）
 └─ app_state.rs         # AppState = Arc<AppStateInner>
 ```
 
-- 已迁出的共用 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）与 `crates/hongguo-signer`（请求签名，JS 1:1 禁改）。本 crate 用 `hongguo_common::model::X`、`hongguo_signer::...` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
+- 已迁出的 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）、`crates/hongguo-signer`（请求签名，JS 1:1 禁改）、`crates/hongguo-mp4`（MP4 解析与 CENC 解密）。本 crate 用 `hongguo_common::…` / `hongguo_signer::…` / `hongguo_mp4::…` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
 
 - command 层两条硬纪律（有静态测试扫源码）：禁 `tokio::spawn`/`Handle::current`/`block_on`（主线程 IPC 回调无 Tokio 上下文，会 panic→abort）；起后台任务用 `tauri::async_runtime::spawn`。
 - **锁不跨 await**：`AppStateInner` 的字段全是 `RwLock`（parking_lot，guard 非 Send）。读状态走快照方法 `state.settings()` / `state.queue()` / `state.device()`（clone 出来用），绝不把 guard 带过 await 点。
 - 外呼命令标准开头：`let env = state.api_env();`——一次调用链内环境（代理+设备+Cookie）不变，避免「签名用 A 设备、请求带 B Cookie」。
 - service 层「归一化与校验一体」：校验的是归一化之后的结果，拆两个函数会留下顺序写反的窗口（settings_service 注释）。
-- **持久化与传输分离**：`store/entity/` 只被 bridge 转调，SQL 与行存储细节不出 store 层；IPC 出入参一律是 `domain/model/` 的 serde 模型（与前端 zod schema 对齐）。
+- **持久化与传输分离**：`store/entity/` 只被 bridge 转调，SQL 与行存储细节不出 store 层；IPC 出入参一律是 `hongguo_common::model` 的 serde 模型（与前端 zod schema 对齐）。
 
 ## 新增 command（五步全链路见 references/ipc.md）
 

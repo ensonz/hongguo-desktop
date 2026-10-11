@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::Emitter;
 
-use hongguo_common::{AppError, AppResult};
 use crate::media::capability::probe::DecodeCapability;
 use crate::service::download_service::events::names::COMPAT_PROGRESS;
 use crate::service::play_service::compat_play::{self, CompatSource};
 use crate::service::transcode_service::cache;
+use hongguo_common::{AppError, AppResult};
 
 /// 硬解/软解能力。
 #[tauri::command]
