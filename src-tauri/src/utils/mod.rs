@@ -8,3 +8,7 @@ pub(crate) mod hex;
 pub(crate) mod json;
 pub(crate) mod time;
 pub(crate) mod url;
+
+// 元测试辅助（扫源码断言约定）。仅测试构建编译，生产树零残留。
+#[cfg(test)]
+pub(crate) mod source_guard;
