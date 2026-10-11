@@ -95,6 +95,29 @@ cargo build --workspace
 ⚠️ 注意：目标 crate 首次参与构建那一次会显著更慢（A1 首轮 52.7 s，含新 crate
 全量 codegen + 重链），复测要等预热后再读数。
 
+### 3b `hongguo-media` 之后（2026-10-11）
+
+| 探针 | check | build | 重建的 hongguo crate |
+| --- | --- | --- | --- |
+| B1 `crates/hongguo-media/src/transcode.rs` | 1.5 s | **26.0 s** | `hongguo-media`, `hongguo-desktop` |
+| B2 `src-tauri/src/service/merge_service/compat.rs` | 1.4 s | 19.1 s | `hongguo-desktop` |
+
+**结论：改 media 文件的增量 build 变慢了（18.6 s → 26 s），这是拆分的真实代价。**
+
+原因很直白：改动落在 media 上时，现在要多付一次 `hongguo-media` 的 codegen；而下游
+`hongguo-desktop` 无论改哪边都要整体重编 + 重链——Cargo 的跨 crate 泛型实例化不会因为
+「代码搬进另一个 crate」就少做一遍。check 不受影响（1.4 s 持平），改壳文件（B2）也持平。
+
+**换来的是边界，不是秒数**：
+
+- 改 media 与改壳不再扩大对方的检查范围；`cargo check -p hongguo-media` 可脱离 tauri 单跑；
+- 壳的依赖图变薄——`rusty_h265` / `rusty_h264` / `muxide` / `sysinfo` 四个重型依赖
+  随编解码核心移出，只有 media 需要它们；
+- `hongguo-media` 的 76 个用例可以在不编 tauri 的前提下跑完（1.1 s）。
+
+> 教训：**如果哪天要拿「编译更快」当拆分的理由，这张表就是反例。** 拆分的正当理由
+> 始终是职责边界与可复用性（GPUI 壳要单独用 media），不是构建时间。
+
 ## 6. 附带发现：本机 `make lint` 在 `cargo clean` 后会挂在 `objc2-exception-helper`
 
 两个 macOS 交叉 clippy 用 `CC_...=true` / `AR_...=true` 占位，让
