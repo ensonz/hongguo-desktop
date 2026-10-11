@@ -33,6 +33,11 @@ export function useTranscodeFallback(params: {
   srcKeyRef: React.RefObject<string>;
   setSrcKey: (key: string) => void;
   currentSeries?: Series;
+  /**
+   * 解码失败的裁决入口（轮询命中后调用）：父层据此决定直接兜底转码，
+   * 还是先弹「装扩展 vs 转兼容」的主卡（无 HEVC 机器）。
+   */
+  onDecodeFailure: () => void;
 }) {
   const {
     videoRef,
@@ -45,6 +50,7 @@ export function useTranscodeFallback(params: {
     srcKeyRef,
     setSrcKey,
     currentSeries,
+    onDecodeFailure,
   } = params;
   const compatPlay = useCompatPlayback();
   /** mutate 引用恒定；整个 mutation 对象每渲染都是新的，进依赖会重置探测计时 */
@@ -114,6 +120,8 @@ export function useTranscodeFallback(params: {
 
   // 解码失败探测：播放在走、画面出不来、且时间确实在推进。
   // 三个条件缺一不可——刚起播那一瞬间 videoWidth 本来就是 0。
+  // 命中后走 onDecodeFailure 裁决：无 HEVC 机器先问「装扩展还是转兼容」，
+  // 其余情况直接兜底转码。
   useEffect(() => {
     if (!playSrc || compatSrc || error) return;
     const v = videoRef.current;
@@ -121,11 +129,11 @@ export function useTranscodeFallback(params: {
     const timer = setInterval(() => {
       if (v.videoWidth === 0 && !v.paused && v.currentTime > 0.3) {
         clearInterval(timer);
-        startCompat();
+        onDecodeFailure();
       }
     }, 1200);
     return () => clearInterval(timer);
-  }, [playSrc, compatSrc, error, startCompat, videoRef]);
+  }, [playSrc, compatSrc, error, onDecodeFailure, videoRef]);
 
   // 换集就换一把「已兜底过」的记号：产物与进度都靠 key 自己失效，
   // 这里只需允许新的一集再兜底一次。
