@@ -21,6 +21,7 @@
 - `src/` 前端：React 19 + TS + Vite + TanStack Router/Query + Zustand + Tailwind v4 + shadcn/ui + zod。`pages/` + `features/` + `service/` + `stores/` + `components/`
 - `src-tauri/` 后端：Rust，分层 `commands(薄) → service(编排) → domain/api(外部接口) + store(持久化)`
 - `crates/hongguo-common/` 共用底座：领域模型（`model/`）、统一错误（`error.rs`，无 tauri 依赖）、纯工具（`utils/`）、跨端常量（`consts/`）。Tauri 壳与未来 GPUI 壳共用；常量归属规则见 `consts/mod.rs` 头注释
+- `crates/hongguo-signer/` 请求签名：字节系五头签名 + 设备注册原语；**JS 1:1 移植禁改写法**，`constants.rs` 的值与服务端一一对应不得改动（无 common / tauri 依赖）
 - Rust 侧已 workspace 化：根 `Cargo.toml`（members / `resolver` / `[patch]` / `[profile]` 都在根），`Cargo.lock`、`target/`、`vendor/` 也都在仓库根；cargo 一律在**仓库根**跑（`--workspace`）。`vendor/` 被 `[workspace] exclude` 排除，不参与 lint/test/format
 - `captures/` 抓包工具与数据（`addon.py` 抓包 / `audit.py` 参数审计），`docs/` 仓库文档，`scripts/` 构建辅助脚本
 
