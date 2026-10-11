@@ -11,7 +11,7 @@
 //! 3. **所有有 IV 的轨都要解**，不只是视频轨。漏掉音轨会得到「有画面没声音」。
 
 use super::sample_table::collect_tracks;
-use crate::domain::crypto::cenc;
+use crate::crypto::cenc;
 use hongguo_common::{AppError, AppResult};
 
 /// 在内存中解密整个 MP4。

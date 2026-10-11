@@ -272,8 +272,8 @@ mod e2e_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::mp4::fixtures::{TrackPlan, mp4_with_samples};
-    use crate::domain::mp4::sample_table::collect_tracks;
+    use hongguo_mp4::fixtures::{TrackPlan, mp4_with_samples};
+    use hongguo_mp4::sample_table::collect_tracks;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-remux-{tag}-{}", std::process::id()));

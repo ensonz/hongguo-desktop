@@ -48,7 +48,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Variant::{VARIANT, VARIANT_0_0, VARIANT_0_0_0, VT_UI4};
 use windows::core::{GUID, Interface};
 
-use crate::domain::mp4::sample_table::TrackInfo;
+use hongguo_mp4::sample_table::TrackInfo;
 use hongguo_common::{AppError, AppResult};
 
 use super::PlatformRequest;

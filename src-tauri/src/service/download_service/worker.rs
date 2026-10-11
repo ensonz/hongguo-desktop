@@ -109,9 +109,9 @@ pub async fn download_episode(
 /// - 明流走 `rename`，临时文件已经不在原处，这里的删除是 no-op。
 fn finalize(temp: &Path, output: &Path, episode: &EpisodeDownload) -> AppResult<()> {
     let result: AppResult<()> = if episode.encrypted {
-        match crate::domain::crypto::key_derive::derive_key(&episode.key_material) {
+        match hongguo_mp4::crypto::key_derive::derive_key(&episode.key_material) {
             Ok(key) => {
-                crate::domain::mp4::decrypt_file::decrypt_mp4_file(temp, output, &key).map(|_| ())
+                hongguo_mp4::decrypt_file::decrypt_mp4_file(temp, output, &key).map(|_| ())
             }
             Err(e) => Err(e),
         }

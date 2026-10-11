@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
-use crate::domain::mp4::r#box::find_box;
-use crate::domain::mp4::sample_table::TrackInfo;
+use hongguo_mp4::r#box::find_box;
+use hongguo_mp4::sample_table::TrackInfo;
 use hongguo_common::{AppError, AppResult};
 
 /// 音轨的封装参数。
