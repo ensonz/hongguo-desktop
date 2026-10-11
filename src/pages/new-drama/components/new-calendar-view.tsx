@@ -1,9 +1,9 @@
 /** 上新日历视图：日期条（今天/周几换算）+ 当日上新列表。 */
 import { useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/common/error-state';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonRows } from '@/components/skeletons';
 import { useNewCalendar } from '@/service/queries';
@@ -50,26 +50,29 @@ export function NewCalendarView() {
       {/* 日期条常驻不参与 loading：切日期只换下方列表（keepPreviousData
           平滑过渡）；首屏日期未到时骨架占位，不留一条空行。
           按钮官方同款：均匀铺满一行，星期小字 + 日期大字，选中主色底 */}
-      <div className="flex min-h-14 flex-wrap items-center gap-2">
+      <ToggleGroup
+        type="single"
+        value={active}
+        onValueChange={(v) => v !== '' && setDate(v)}
+        className="flex min-h-14 flex-wrap items-center gap-2"
+      >
         {isLoading && dates.length === 0
           ? Array.from({ length: 8 }, (_, i) => (
               <Skeleton key={i} className="h-14 min-w-16 flex-1 rounded-lg" />
             ))
           : dates.map((d) => (
-              <Button
+              <ToggleGroupItem
                 key={d}
-                size="sm"
-                variant={active === d ? 'default' : 'outline'}
-                className="h-14 min-w-14 flex-1 flex-col gap-0 rounded-lg px-1 py-1.5 sm:max-w-20"
-                onClick={() => setDate(d)}
+                value={d}
+                className="text-primary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-14 min-w-14 flex-1 flex-col gap-0 rounded-lg border px-1 py-1.5 shadow-xs transition-colors data-[state=on]:border-transparent sm:max-w-20"
               >
                 <span className="text-[11px] leading-tight opacity-80">{formatWeekday(d)}</span>
                 <span className="text-sm leading-tight font-semibold tabular-nums">
                   {formatDayMonth(d)}
                 </span>
-              </Button>
+              </ToggleGroupItem>
             ))}
-      </div>
+      </ToggleGroup>
 
       {/* 列表滚动区（日期条下方唯一会滚的地方）：切日期用 key 重挂载
           归零滚动——新的一天从第一条看起，不停在旧日期的滚动位置 */}

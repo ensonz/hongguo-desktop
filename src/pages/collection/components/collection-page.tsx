@@ -21,6 +21,7 @@ import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
@@ -139,23 +140,22 @@ export function CollectionPage() {
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <ToggleGroup
+          type="single"
+          value={typeTab}
+          onValueChange={(v) => v !== '' && setTypeTab(v as TypeTab)}
+          className="flex items-center gap-2"
+        >
           {TYPE_TABS.map(({ key, labelKey }) => (
-            <button
+            <ToggleGroupItem
               key={key}
-              type="button"
-              onClick={() => setTypeTab(key)}
-              className={cn(
-                'rounded-full px-4 py-1.5 text-sm transition-colors',
-                typeTab === key
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
+              value={key}
+              className="bg-muted text-muted-foreground hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground rounded-full px-4 py-1.5 text-sm transition-colors data-[state=on]:font-medium"
             >
               {t(labelKey)}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <ListSearch
           value={query}
           onChange={setQuery}

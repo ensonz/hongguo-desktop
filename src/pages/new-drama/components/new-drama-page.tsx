@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router';
-import { Button } from '@/components/ui/button';
 import { TopBarTab, TopBarTabsPortal } from '@/components/layout/top-bar-tabs';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { t } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import { useSessionState } from '@/hooks/use-scroll-restore';
@@ -75,19 +75,22 @@ export function NewDramaPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {/* 频道胶囊只属于新剧推荐（cell_gender 是推荐流参数，日历不分频道） */}
         {view === 'recommend' && (
-          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <ToggleGroup
+            type="single"
+            value={String(gender)}
+            onValueChange={(v) => v !== '' && setGender(Number(v))}
+            className="mt-3 flex flex-wrap items-center justify-end gap-2"
+          >
             {GENDERS.map(({ value, labelKey }) => (
-              <Button
+              <ToggleGroupItem
                 key={value}
-                size="sm"
-                variant={gender === value ? 'default' : 'outline'}
-                className="rounded-full px-4"
-                onClick={() => setGender(value)}
+                value={String(value)}
+                className="text-primary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-8 rounded-full border px-4 text-sm shadow-xs transition-colors data-[state=on]:border-transparent"
               >
                 {t(labelKey)}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         )}
 
         {view === 'recommend' ? (

@@ -4,6 +4,7 @@ import { History, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/common/error-state';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   Empty,
   EmptyDescription,
@@ -160,23 +161,22 @@ export function HistoryPage() {
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <ToggleGroup
+          type="single"
+          value={tab}
+          onValueChange={(v) => v !== '' && setTab(v as HistoryTab)}
+          className="flex items-center gap-2"
+        >
           {TABS.map(({ key, labelKey }) => (
-            <button
+            <ToggleGroupItem
               key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={cn(
-                'rounded-full px-4 py-1.5 text-sm transition-colors',
-                tab === key
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
+              value={key}
+              className="bg-muted text-muted-foreground hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground rounded-full px-4 py-1.5 text-sm transition-colors data-[state=on]:font-medium"
             >
               {t(labelKey)}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <ListSearch
           value={query}
           onChange={setQuery}

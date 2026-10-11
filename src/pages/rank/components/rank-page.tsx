@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { ErrorState } from '@/components/common/error-state';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
-import { cn } from '@/lib/utils';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonRows } from '@/components/skeletons';
@@ -107,25 +107,26 @@ export function RankPage() {
           className="flex w-36 shrink-0 scrollbar-thin flex-col gap-1 overflow-y-auto"
           aria-label={t('rank.subLists')}
         >
-          {(currentTab?.subs ?? []).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => {
-                if (s.id === sub) return;
-                setSub(s.id);
-                setPanel('');
-              }}
-              className={cn(
-                'rounded-md px-3 py-2 text-left text-sm transition-colors',
-                s.id === sub
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-              )}
-            >
-              {s.name}
-            </button>
-          ))}
+          <ToggleGroup
+            type="single"
+            value={sub}
+            onValueChange={(v) => {
+              if (v === '') return;
+              setSub(v);
+              setPanel('');
+            }}
+            className="flex flex-col gap-1"
+          >
+            {(currentTab?.subs ?? []).map((s) => (
+              <ToggleGroupItem
+                key={s.id}
+                value={s.id}
+                className="text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-auto w-full justify-start rounded-md px-3 py-2 text-left text-sm transition-colors data-[state=on]:font-medium"
+              >
+                {s.name}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
           {(currentTab?.subs.length ?? 0) === 0 &&
             isLoading &&
             Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-9 rounded-md" />)}
