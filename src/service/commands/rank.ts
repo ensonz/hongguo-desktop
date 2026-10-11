@@ -18,8 +18,13 @@ export const rank = {
   /** 新剧推荐（gender: 2=全部；offset 步长 18；翻页回传响应的 sessionId）。 */
   newDrama: (gender: number, offset?: number, sessionId?: string) =>
     call('new_drama_list', { gender, offset: offset ?? 0, sessionId: sessionId ?? '' }),
-  /** 上新日历（date 传返回值 dates 里的日期，不传取默认日）。 */
-  calendar: (date?: string) => call('new_drama_calendar', date != null ? { date } : undefined),
+  /** 上新日历（date 传返回值 dates 里的日期，不传取默认日；游标懒翻页）。 */
+  calendar: (date?: string, offset?: number, sessionId?: string) =>
+    call('new_drama_calendar', {
+      ...(date != null && date !== '' ? { date } : {}),
+      ...(offset ? { offset } : {}),
+      ...(sessionId ? { sessionId } : {}),
+    }),
   /** 我的预约（匿名通常空表；登录后条目带 hasSubscribed）。 */
   reservations: (isOnline = true) => call('reservation_list', { isOnline }),
   /** 预约 / 取消预约（需要登录）。 */

@@ -303,7 +303,13 @@ export const COMMANDS = {
     response: rankPageSchema,
   },
   new_drama_calendar: {
-    args: z.object({ date: z.string() }).optional(),
+    args: z
+      .object({
+        date: z.string().optional(),
+        offset: z.number().optional(),
+        sessionId: z.string().optional(),
+      })
+      .optional(),
     response: calendarPageSchema,
   },
   reservation_list: {

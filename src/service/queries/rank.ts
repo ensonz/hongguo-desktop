@@ -85,14 +85,42 @@ export function useNewDrama(gender: number) {
   return useInfiniteStream(query, newDramaItems);
 }
 
-/** 上新日历（date 为空串取默认日；切日期保旧列表平滑过渡）。 */
+/**
+ * 上新日历（date 为空串取默认日；切日期 keepPreviousData 保旧列表平滑过渡）。
+ *
+ * 服务端是多天混排 + 游标翻页，Rust 按展示日过滤后**单页返回**——这里
+ * 用无限查询懒翻页（滚到底再拉下一页），不再一次性串行吃满所有页
+ * （那曾是切换日期肉眼可见卡顿的根源）。
+ */
 export function useNewCalendar(date: string) {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: keys.newCalendar(date),
-    queryFn: () => rank.calendar(date === '' ? undefined : date),
+    queryFn: ({ pageParam }) => rank.calendar(date, pageParam.offset, pageParam.sessionId),
+    initialPageParam: { offset: 0, sessionId: '' },
+    getNextPageParam: (last) =>
+      last.hasMore && last.nextOffset > 0
+        ? { offset: last.nextOffset, sessionId: last.sessionId }
+        : undefined,
     staleTime: 0,
     placeholderData: keepPreviousData,
   });
+
+  return {
+    /** 日期条（每页响应都带 calendar_schema，取首页的即可） */
+    dates: query.data?.pages[0]?.dates ?? [],
+    defaultDate: query.data?.pages[0]?.defaultDate ?? '',
+    items: useMemo(
+      () => dedupBy(query.data?.pages.flatMap((p) => p.items) ?? [], (i) => i.seriesId),
+      [query.data],
+    ),
+    isLoading: query.isPending,
+    isFetching: query.isFetching,
+    error: query.error,
+    refetch: () => query.refetch(),
+    hasMore: query.hasNextPage,
+    isFetchingMore: query.isFetchingNextPage,
+    loadMore: () => void query.fetchNextPage().catch(() => undefined),
+  };
 }
 
 /** 我的预约（isOnline：已上线 / 待上线 tab）。 */
