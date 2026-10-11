@@ -7,6 +7,7 @@
 //! 当前不依赖任何其他 hongguo-* crate；若将来出现反向依赖需求，先怀疑
 //! 归属是否放错了层。
 
+pub mod consts;
 pub mod error;
 pub mod model;
 pub mod utils;

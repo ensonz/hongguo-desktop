@@ -10,12 +10,13 @@ pub mod range;
 pub mod register;
 pub mod stream;
 
-/// 本地文件协议 scheme。
-pub const LOCAL_SCHEME: &str = "hongguo-local";
-/// 在线流协议 scheme。
-pub const STREAM_SCHEME: &str = "hongguo-stream";
-/// 封面转码协议 scheme。
-pub const COVER_SCHEME: &str = "hongguo-cover";
+/// 自定义协议 scheme 名（前后端契约）。
+///
+/// 定义已上移到 `hongguo-common::consts::scheme`（跨 crate 共用）；此处按本
+/// 模块旧名再导出，`register.rs` 等沿用 `LOCAL_SCHEME` 等命名不改。
+pub use hongguo_common::consts::scheme::{
+    COVER as COVER_SCHEME, LOCAL as LOCAL_SCHEME, STREAM as STREAM_SCHEME,
+};
 
 /// 自定义协议对外的 URL 前缀（按平台选择形态）。
 ///

@@ -3,6 +3,8 @@
 //! signer 的 `now_millis`（u64）是 JS 1:1 移植的一部分、禁改区，**不**收敛
 //! 进来；它与 [`now_ms`] 只差返回类型（u64/i64），语义各自保留。
 
+use crate::consts::units::{MS_PER_DAY, MS_PER_HOUR};
+
 /// 当前 unix 毫秒（i64；时钟早于 1970 时给 0）。
 ///
 /// 来源：bootstrap/device.rs 的 `now_ms`（退避窗口、注册时间戳等需要
@@ -23,7 +25,7 @@ pub fn beijing_date(ts_ms: i64) -> String {
         return String::new();
     }
     // Hinnant 的 civil_from_days：days 自 1970-01-01
-    let z = (ts_ms + 8 * 3_600_000).div_euclid(86_400_000) + 719_468;
+    let z = (ts_ms + 8 * MS_PER_HOUR).div_euclid(MS_PER_DAY) + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
