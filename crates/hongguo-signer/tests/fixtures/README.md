@@ -7,15 +7,16 @@
 ## `py_gz.hex` 的细节
 
 - **格式**：单行 hex，无空白；`1f8b` 即 gzip 魔数。
-- **为什么是 924 字节**：`TtHashCore::calculate` 按 128 字节分块，924 字节 = 7 块整 + 余量，**专门压在跨块链接（CF 进位）这条路径上**——单块向量测不到它。
+- **为什么是 924 字节**：`TtHashCore::calculate` 按 128 字节分块，924 字节 = 7 块整 + 余量，**专门压在跨块状态链接这条路径上**——单块向量测不到它。
 - **它保护什么**：`tt_hash.rs` 是 TTEncrypt V5（设备注册 body 加密）的核心算法。算错一个 bit 的后果是服务端静默拒绝（HTTP 200 + 0 字节 / `device_id=0`），所以这条路径必须有真实输入的端到端对拍。
-- **别删**：它是「Rust 实现 ↔ 上游参考实现同链」的物证。
+- **别删**：真实 gz 输入的 golden 对拍物证（期望值已随向量测试固化）。
 
-## 上游参考实现的现状
+## `tt_hash.rs` 的事实源与正确性锚
 
-`tt_hash.rs` 由 `scripts/gen_tt_hash.py` 从 Python 参考实现 `ttencrypt.py` **机械翻译**而来（函数体保持逐句对应，刻意不做惯用化改写）。
+`tt_hash.rs` 历史上由一次性脚本从 Python 参考实现机械翻译而来；参考实现（临时文件）已遗失、生成脚本已移除，**`tt_hash.rs` 本身就是唯一事实源**，按普通 Rust 代码维护（没有「重新生成」一说），改动由以下锚兜底：
 
-⚠️ **该参考实现未入库**（历史上是临时文件，现已在 `%TEMP%` 中丢失），因此生成器当前**不可重跑**：
+- `tt_hash.rs` 内的 `calculate_*` 向量测试（含 len=127 的魔改填充分支 golden 与共享/独立核等价测试）；
+- 本目录 `py_gz.hex` 的跨块对拍；
+- register 域两条真实抓包字节级回归（`src-tauri/tests/fixtures/` 的 `register_req_real.bin` 与 `py_enc_accepted.hex`，后者是服务端发号成功样本的逐字节复现锁）。
 
-- `tt_hash.rs` 是唯一事实源，任何改动只能靠 `calculate_*` 向量测试兜底；
-- 若将来拿到 `ttencrypt.py`，放到脚本里 `SRC` 指的位置即可恢复生成链路。
+算法考证（2026-10-11，详见 `tt_hash.rs` 模块文档）：K/IV 与标准 SHA-512 常量逐值一致；`len % 128 <= 110` 时 `calculate` 与 SHA-512 逐字节相同，`>= 111` 的填充分支与标准分叉（len=127 golden 锁定）；`TT_ORD_LIST` 在官方 APK 的 `lib/arm64-v8a/libvideodec.so` 偏移 0x5220 原样存在（全 APK 唯一命中）。

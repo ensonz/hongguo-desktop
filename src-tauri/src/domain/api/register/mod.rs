@@ -64,9 +64,9 @@ pub fn tt_encrypt_v5_with_salt(plaintext: &[u8], salt: &[u8; 32]) -> Vec<u8> {
     use flate2::write::GzEncoder;
     use std::io::Write;
 
-    // gzip（mtime=0），随后把头部的 XFL/OS 两字节覆写为 0——参考实现
-    // （ttencrypt.py）与真机 App 的 gzip 头都是 00/00；flate2 默认写
-    // 02/ff，服务端按 zlib 家族头校验，不覆写会被静默拒绝
+    // gzip（mtime=0），随后把头部的 XFL/OS 两字节覆写为 0——真机 App
+    // 抓包样本（register_req_real.bin）的 gzip 头就是 00/00；flate2 默认
+    // 写 02/ff，服务端按 zlib 家族头校验，不覆写会被静默拒绝
     let mut gz = {
         let mut enc = GzEncoder::new(Vec::new(), flate2::Compression::best());
         enc.write_all(plaintext).expect("gzip 写入内存不可能失败");
@@ -75,7 +75,7 @@ pub fn tt_encrypt_v5_with_salt(plaintext: &[u8], salt: &[u8; 32]) -> Vec<u8> {
     gz[8] = 0;
     gz[9] = 0;
     // IV 随机并原样放进 header（服务端按 header 里的 IV 解密，不校验其
-    // 与 salt 的派生关系——真机与参考实现的 IV 均非派生值）
+    // 与 salt 的派生关系——真机抓包与历史 Python 对拍的 IV 均非派生值）
     let iv: [u8; 16] = rand::random();
     tt_encrypt_v5_full(&gz, salt, &iv)
 }
@@ -88,9 +88,10 @@ pub fn tt_encrypt_v5_full(gz: &[u8], salt: &[u8; 32], iv: &[u8; 16]) -> Vec<u8> 
 
     use hongguo_signer::tt_hash::{TT_ORD_LIST, TtHashCore};
 
-    // 盐 + 密钥派生。注意：派生的两次 calculate 与后面的完整性哈希
-    // 共用同一个 TtHashCore——参考实现的 CF 进位标志跨调用成链，拆开
-    // 就算不出同样的 key。
+    // 盐 + 密钥派生。三次 calculate 共用一个 TtHashCore 只是沿用参考
+    // 实现的调用形态——CF 进位在每次 calculate 内部都先写后读，跨调用
+    // 不残留，共享核与独立核结果一致（tt_hash 的
+    // shared_core_matches_fresh_cores 测试锁定）。
     let mut core = TtHashCore::new();
     let h1 = core.calculate(salt);
     let mut seed = h1;
@@ -108,7 +109,9 @@ pub fn tt_encrypt_v5_full(gz: &[u8], salt: &[u8; 32], iv: &[u8; 16]) -> Vec<u8> 
     let pad = 16 - payload.len() % 16;
     payload.extend(std::iter::repeat(pad as u8).take(pad));
 
-    // 标准 AES-128-CBC（分组算法与参考实现等价，已三方对拍）
+    // 标准 AES-128-CBC（与上游 Python 参考实现等价，由
+    // py_enc_accepted.hex 逐字节复现测试锁定——样本为服务端发号成功的
+    // Python 加密 body，见 tests/fixtures/README.md）
     let cipher = Aes128::new((&key_arr).into());
     let mut prev = iv_arr;
     let mut out = Vec::with_capacity(payload.len());
@@ -131,9 +134,8 @@ pub fn tt_encrypt_v5_full(gz: &[u8], salt: &[u8; 32], iv: &[u8; 16]) -> Vec<u8> 
 
 /// TT-Encrypt V5 解密（对拍/取证用）：返回 (明文字节, 抓包里的 gz 字节)。
 ///
-/// 解密链与加密完全对称：同一个 `TtHashCore` 实例按 salt → 派生 → gz 的
-/// 顺序重放三次 calculate（CF 进位链），并用 payload 前 48 字节校验
-/// 完整性哈希。
+/// 解密链与加密完全对称：按 salt → 派生 → gz 的顺序重放三次 calculate
+/// （与加密同一调用形态），并用 payload 前 48 字节校验完整性哈希。
 pub fn tt_decrypt_v5(body: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     use aes::Aes128;
     use aes::cipher::{BlockCipherDecrypt, KeyInit};
