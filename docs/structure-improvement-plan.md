@@ -9,6 +9,7 @@
 ## 0. 结论与健康基线
 
 结构大方向是干净的，问题集中在**「约定只落实了一半」**和**一处真实的逻辑双实现**。
+另有一项跨层规则硬违反列入 §8：`dev-habits` 第 54 条（禁裸 JSON/map 拼参数与载荷）——后端 25 处事件载荷、22 处第三方请求体、前端 65 处 IPC 入参对象字面量待静态类型化。
 不存在死代码、不存在循环依赖、i18n 双语完全对齐——已裸跑核实的基线：
 
 | 检查项 | 命令 | 结果 |
@@ -170,12 +171,14 @@ src-tauri/src/domain/api/testdata/
 ### 4.1 位置与现状
 
 `frontend.md` 目录归属第 5 条：「shadcn 件 → `ui/`；布局壳 → `layout/`；跨页展示件 → `common/`」。
-实际 `common/` 里只有 `emoji/`，4 个跨页展示件散在 `components/` 根：
+实际 `common/` 里只有 `emoji/`，6 个跨页展示件散在 `components/` 根：
 
 | 文件 | 行数 | 使用处 |
 | --- | --- | --- |
 | `src/components/refresh-shade.tsx` | 34 | 6 处 |
 | `src/components/series-cover.tsx` | 44 | 5 处 |
+| `src/components/batch-manage.tsx` | 118 | 4 处（collection/history/liked/reservation 四页） |
+| `src/components/series-row-card.tsx` | 102 | 2 处（rank-row、calendar-row） |
 | `src/components/list-search.tsx` | 32 | 4 处 |
 | `src/components/skeletons.tsx` | 32 | 4 处 |
 
@@ -183,7 +186,7 @@ src-tauri/src/domain/api/testdata/
 
 ### 4.2 改动
 
-4 个文件移入 `src/components/common/`，`components/` 收敛成 `ui` / `common` / `layout`
+6 个文件移入 `src/components/common/`，`components/` 收敛成 `ui` / `common` / `layout`
 三个子目录、零散 file。**与 P0 的 `common/comment/` 合并为一次提交**——两次 import
 改写一次做完，比分开多做一轮全量引用改动划算。
 
@@ -286,7 +289,71 @@ CDP probe `/rank` `/new` `/reservations` 三页。
 
 ---
 
-## 8. 推进顺序与提交切分
+## 8. P1 —— dev-habits 第 54 条落地面：参数与载荷静态类型化
+
+> 依据：`dev-habits` 第 54 条——「参数与载荷一律用静态类型承载，禁裸 JSON/map 拼装：Rust 定义 `struct`（`Serialize`/`Deserialize`），Go 定义结构体 + `json` tag，TS 用 zod schema + `z.infer` 推导类型；`serde_json::json!`、`map[string]any`、对象字面量只允许出现在测试 fixture 与日志序列化」。
+> 上游同步：落地后 `references/ipc.md` 第三节「payload 用 `serde_json::json!({...})`」作废，改为「载荷定义静态类型 struct」——那是当初为省事留的口子，正是本节要堵的口。
+
+### 8.1 位置与现状
+
+三类违反面已逐类核实（数字为裸跑 grep 的站点数，非估算）：
+
+**① Rust 事件载荷：25 处 emit 站点用 `json!` / `to_value` 拼装**
+
+| 文件 | 站点 | 载荷形状 |
+| --- | --- | --- |
+| `commands/download/actions.rs` | 6 | `{id}` / `{}`，其中 1 处 `to_value(task)` |
+| `commands/download/cleanup.rs` | 3 | `{}` ×2，其中 1 处 `to_value(task)` |
+| `service/download_service/scheduler.rs` | 5 | `{id}`×2、`{id,error}`、进度四字段、`{}` |
+| `commands/login_cmd.rs` | 5 | MFA 五态（`{state,message}` / `{state,name}`） |
+| `commands/app_cmd.rs` | 3 | `{visible}`（走 `emit_to`） |
+| `service/play_service/online.rs` | 2 | 进度五字段 |
+| `commands/transcode_cmd.rs` | 1 | `{key,percent,phase}` |
+
+三个加重情节：
+
+- `actions.rs`/`cleanup.rs` 各有一处 `serde_json::to_value(task).unwrap_or_default()`——顺手吞掉序列化错误（`dev-habits #14`）；而 `merge_cmd.rs` 的 `&task`/`&snapshot`、`series_cmd.rs` 的 `&series_id`、`lib.rs` 的 `()` 就是仓内现成的正确范式，只差铺开。
+- 前端 `useEvent<DownloadTask | null>(EVENTS.downloadTaskAdded, invalidate)` 之类是**假类型**：handler 是 invalidate，载荷既不被消费也不被校验，Rust 侧改键名前端零感知。
+- `LoginMfaState`/`OnlineProgress`/`CompatProgress`/`IncognitoVisibility` 四类载荷 Rust 侧**没有任何类型**；前端 `OnlineProgress`/`CompatProgress` 还是手写 `export type` 而非 zod（`service/schema/play.ts:44,56`）——契约两侧手抄，无校验点。
+
+**② Rust 第三方请求体：22 处生产态 `json!` 构造**
+
+| 文件 | 站点 | 说明 |
+| --- | --- | --- |
+| `domain/api/danmaku/mod.rs` | 6 | §2 已列的 5 个 `*_payload` 构造器，返回 `Value`；已有抓包比对测试兜底 |
+| `domain/api/interact/mod.rs` | 15 | 点赞/评论/回复发送载荷；其中 2 处 `payload["reply_to_reply_id"] = json!(rr)` 是条件字段下标插入 |
+| `domain/api/login/mfa.rs` | 1 | MFA biz 载荷（80 行） |
+
+豁免不动（第 54 条后半句明许）：各域测试段的 `json!` fixture（`detail/parse.rs`、`login/mod.rs`、`mfa.rs` 测试段、`danmaku`/`calendar` 测试段）、`register/mod.rs:454` 的 TT_DEBUG dump（调试输出）。
+
+**③ 前端 IPC 入参：`call` 的 `args?: Record<string, unknown>` 是动态口子**
+
+83 个 `call` 站点中 65 处传对象字面量（如 `commands/login.ts` 的 `{ mobile, code, mobileTicket: ticket ?? null }`）。对象字面量赋给索引签名不做键名检查——键名拼错 `tsc` 放过，运行时才被 Rust 拒。响应侧已合规（全走 zod），入参侧无 schema。
+
+### 8.2 改动
+
+1. **事件载荷 struct 化（25 处）**：下载系载荷（`{id}`、`{id,error}`、进度、空载荷）定义在 `service/download_service/events.rs`（与 `names` 同处，契约集中）；login/app/transcode/online 的载荷定义在各自 `*_cmd.rs`/`play_service` 顶部，能复用 `domain/model` 已有模型的优先复用。统一 `#[serde(rename_all = "camelCase")]`，键名与前端现状逐字对齐。
+2. **空载荷用 marker struct，wire 零变化**：`queue-changed` 的 `json!({})` 改为 `emit(name, &QueueChanged)`（`struct QueueChanged;`，序列化仍是 `{}`）——载荷有了类型，wire 不动，前端无感。
+3. **第三方请求体 struct 化，与 §2 P1 合流**：`*_payload` 构造器改返回 `Payload` struct——**字段声明顺序必须与 `json!` 字面量顺序一致**（client `to_vec` 出的 body 字节序不能变，`payload_shape_matches_capture` 等抓包比对测试就是守门人）；`reply_to_reply_id` 条件字段改 `Option<i64>` + `#[serde(skip_serializing_if = "Option::is_none")]`，替掉下标插入。danmaku 随 §2 样板第一批做，interact/mfa 随 P1 各域推进；`payload.rs` 的职责相应写成「构造类型化 Payload」，不是「搬 `Value` 构造器」。
+4. **前端入参 zod 化（65 处）**——**2026-10-11 升级：本条由 `docs/frontend-optimization-plan.md` §5 的 `COMMANDS` 命令注册表方案取代**。args zod 化照做，但落在注册表（命令名 → {args zod, response zod}）而非调用点 `satisfies`，命令名裸字符串与响应 schema 缺失两个洞一并堵上；以下原文留档：在 `service/schema/<域>.ts` 为带参命令补 args zod schema（与响应 schema 同文件），`z.infer` 出参数类型、调用点用 `satisfies`/标注约束对象字面量——把 `Record<string, unknown>` 的键名检查从运行时提到编译期。不做运行时 parse：入参都是本端构造的值，parse 属 `dev-habits #14` 的兜底；仅少数来源不纯的点（持久化读出的旧数据）局部 parse。
+5. **文档同步**：`references/ipc.md` 第三节 payload 一句改为「载荷定义静态类型 struct」；`references/backend.md` 模型规约补一条「第三方请求体同受模型规约约束」。
+
+### 8.3 性质与验证
+
+性质：**行为中性**——事件载荷键名不变（空载荷走 marker struct，wire 仍是 `{}`）；请求体字节序不变（字段顺序对齐 + 抓包比对测试守门）；前端只多编译期约束。唯一行为差异：`to_value(task).unwrap_or_default()` 换成 `&task` 后，序列化失败不再退化为「发 null」而是整次 emit 静默失败（`let _ =`）——前者本就是吞错兜底，丢了更诚实。
+
+验证：`cargo test --lib`（四个抓包比对测试全绿）+ `make lint` + `pnpm typecheck` + `pnpm lint` + `pnpm knip`；CDP probe 覆盖 `/player`（转码/在线进度事件）、`/tasks`（下载事件全态）、登录 MFA 五态、隐身切换（`emit_to` 的窗口目标）四条链路。
+
+### 8.4 不作
+
+- `signer/`、`media/platform`、`player/` 渲染结构——禁改区照旧。
+- 测试 fixture 与 TT_DEBUG dump 内的 `json!`——第 54 条后半句明许。
+- `bootstrap/device.rs` 的 `device_meta_set(Value)`——存储层接口，属第 24 条的领域，另案。
+- `lib.rs` 的 `emit("close-requested", ())`、`merge_cmd` 的 `&task`/`&snapshot`、`series_cmd` 的 `&series_id`——已类型化，不动。
+
+---
+
+## 9. 推进顺序与提交切分
 
 按「纯移动/重命名」与「行为可见改动」分开的原则分批：
 
@@ -294,8 +361,9 @@ CDP probe `/rank` `/new` `/reservations` 三页。
 | --- | --- | --- | --- |
 | 第一批 | §3 P2 testdata 搬迁、§5 P4 重命名、§7.1 生成器归位 | 纯移动 | 三个独立 commit（一个动作一个） |
 | 第二批 | §1 P0 共享评论件 + §4 P3 `common/` 归位 | 搬家 + 一处删除合并 | 先 `refactor:` 搬家，后 `refactor:` 收敛 i18n 与拆分 queries（若 i18n 键值有变更则单独一个） |
-| 第三批 | §2 P1 danmaku 拆 `payload.rs`/`parse.rs` 做样板 | 纯拆分 | 一个域一个 commit |
-| 第四批 | §6 P5 命令域对齐 | 纯搬迁 | 前端、后端分开 |
+| 第三批 | §2 P1 danmaku 拆 `payload.rs`/`parse.rs` 做样板 + §8.2.1 事件载荷 struct 化（25 处）+ §8.2.3 danmaku 请求体随样板 struct 化 | 纯拆分 + 行为中性 | danmaku 拆分一个 commit；事件载荷一个 commit（25 处一次做完，不留半途状态）；请求体并入 danmaku commit |
+| 第四批 | §6 P5 命令域对齐 + §8.2.4 前端入参 zod 化（65 处，按域同批补；已升级为 `COMMANDS` 注册表方案，见 §8.2.4 标注） | 纯搬迁 + 行为中性 | 前端、后端分开；args schema 随各域 schema 文件落 |
+| 随 P1 各域 | §8.2.3 其余域（interact/login mfa）请求体 struct 化，跟着「一个域一个 commit」走 | 行为中性 | 随各域 commit |
 | 随时 | §7 零散项 | 各自独立 | 随手带走 |
 
 每批交付前裸跑确认退出码（不用管道吞失败）：`pnpm typecheck`、`pnpm lint`、`pnpm test`、
