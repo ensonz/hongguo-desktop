@@ -27,9 +27,8 @@
 
 ### 方式二：手动下载安装
 
-1. 下载扩展安装包（约 2.4 MB）：
-   <https://pixeldrain.com/u/jZmUr1cp>（打开页面点下载，或直链
-   <https://pixeldrain.com/api/file/jZmUr1cp?download>）。
+1. 下载扩展安装包（约 2.4 MB，Gitee 直链，国内可直达）：
+   <https://gitee.com/it00021hot/hongguo-desktop/raw/main/HEVC视频扩展-双击安装.appx>。
 2. 下载完成后双击 `.appx` 文件，按系统弹窗点「安装」。
 3. 装好后**重启应用**即可正常播放。
 
@@ -54,9 +53,8 @@ Add-AppxPackage -Path "$HOME\Downloads\HEVC视频扩展.appx"
 
 若自动安装失败（网络受限或微软源不通），手动安装任选其一：
 
-1. **离线备用包**（约 1.8 MB，常驻镜像）：
-   <https://pixeldrain.com/u/DE8nquEB>（直链
-   <https://pixeldrain.com/api/file/DE8nquEB?download>）。
+1. **离线备用包**（约 1.8 MB，Gitee 直链，国内可直达）：
+   <https://gitee.com/it00021hot/hongguo-desktop/raw/main/MicrosoftEdgeWebview2Setup.exe>。
    下载后双击 `MicrosoftEdgeWebview2Setup.exe`，装完**重启应用**。
 2. **微软官方在线安装器**（Evergreen Bootstrapper）：
    <https://developer.microsoft.com/microsoft-edge/webview2/>

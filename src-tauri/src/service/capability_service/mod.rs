@@ -11,9 +11,11 @@ use hongguo_common::{AppError, AppResult};
 
 /// HEVC 视频扩展 appx 的下载直链与期望 SHA-256。
 ///
-/// 链接是维护者的镜像（pixeldrain），换镜像时同步改这两个常量；哈希不一致
-/// 一律拒装——防链接被换、传输损坏，也防第三方文件床的任何意外。
-const HEVC_APPX_URL: &str = "https://pixeldrain.com/api/file/jZmUr1cp?download";
+/// 链接是维护者 Gitee 仓库根目录的仓库内直链（国内直连友好；原 pixeldrain
+/// 镜像直链已被其反盗链策略 403 拒绝），换镜像时同步改这两个常量；哈希
+/// 不一致一律拒装——防链接被换、传输损坏，也防文件床的任何意外。
+const HEVC_APPX_URL: &str =
+    "https://gitee.com/it00021hot/hongguo-desktop/raw/main/HEVC视频扩展-双击安装.appx";
 const HEVC_APPX_SHA256: &str = "46695112aa70a05faf71c69ecf4ff0502a3b82d152168d3ffb67219eafe51b85";
 
 /// 按需下载并安装 HEVC 视频扩展，返回安装后的能力重探结果。
