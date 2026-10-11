@@ -2298,6 +2298,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "hongguo-api"
+version = "0.4.3"
+dependencies = [
+ "aes 0.9.3",
+ "chrono",
+ "flate2",
+ "futures-util",
+ "hex",
+ "hongguo-common",
+ "hongguo-signer",
+ "log",
+ "parking_lot",
+ "rand 0.10.3",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "hongguo-common"
 version = "0.4.3"
 dependencies = [
@@ -2326,6 +2346,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
+ "hongguo-api",
  "hongguo-common",
  "hongguo-mp4",
  "hongguo-signer",
