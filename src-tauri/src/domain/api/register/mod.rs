@@ -510,7 +510,7 @@ mod tests {
     /// 锁死「派生链 + AES-CBC + PKCS7 + gzip 字节流」与官方客户端一致。
     #[test]
     fn tt_v5_real_capture_roundtrip() {
-        let body = include_bytes!("../testdata/register_req_real.bin");
+        let body = include_bytes!("../../../../tests/fixtures/register_req_real.bin");
         let (plain, app_gz) = tt_decrypt_v5(body).expect("真实抓包应能解密");
 
         // 解出的明文必须是合法 AppLog 注册 JSON
@@ -542,7 +542,7 @@ mod tests {
     /// TT-Encrypt V5 body，解密需通过 digest[16..64] 校验）。
     #[test]
     fn tt_v5_reproduces_accepted_body() {
-        let hex = include_str!("../testdata/py_enc_accepted.hex");
+        let hex = include_str!("../../../../tests/fixtures/py_enc_accepted.hex");
         let hex = hex.trim();
         let body: Vec<u8> = (0..hex.len())
             .step_by(2)
