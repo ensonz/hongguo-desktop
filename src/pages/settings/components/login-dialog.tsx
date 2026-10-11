@@ -1,13 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Send, ShieldCheck, X } from 'lucide-react';
+import { Send, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import { login as loginApi } from '@/service/commands';
 import { useEvent } from '@/service/tauri/events';
+import { EVENTS } from '@/service/tauri/types';
 import { useAuthRefresh } from '@/service/queries';
 import { t, tf } from '@/locales';
 import type { LoginResult } from '@/service/schema';
+
+/**
+ * `login-mfa-state` 事件的载荷（Rust `login_cmd.rs::LOGIN_MFA_STATE` 三态，
+ * 两端同 commit 改；F5 收进 EventPayloads 后以 zod 推导为准）。
+ */
+type LoginMfaState =
+  | { state: 'success'; name: string }
+  | { state: 'failed'; message: string }
+  | { state: 'waiting'; message: string };
 
 /**
  * 登录弹窗（hgplayer 同款形态）：表单 → MFA 上行短信等待 → 自动登录。
@@ -47,18 +66,18 @@ export function LoginDialog({
   }, [countdown]);
 
   // 后台 MFA 轮询事件：成功（自动登录完成）/ 失败 / 新一轮验证提示
-  useEvent<{ state: string; message?: string; name?: string }>('login-mfa-state', (payload) => {
+  useEvent<LoginMfaState>(EVENTS.loginMfaState, (payload) => {
     if (payload.state === 'success') {
       setMfaTips(null);
       setCode('');
       refreshAuth();
-      toast.success(tf('settings.loginSuccess', { name: payload.name ?? '' }));
+      toast.success(tf('settings.loginSuccess', { name: payload.name }));
       onOpenChange(false);
       onSuccess();
     } else if (payload.state === 'failed') {
       setMfaTips(null);
-      toast.error(payload.message ?? t('settings.loginMfaFailed'));
-    } else if (payload.state === 'waiting' && payload.message) {
+      toast.error(payload.message);
+    } else {
       setMfaTips(payload.message);
     }
   });
@@ -120,60 +139,52 @@ export function LoginDialog({
     setMfaTips(null);
   };
 
-  if (!open) return null;
-
   const maskedMobile =
     mobile.length === 11 ? `${mobile.slice(0, 3)}****${mobile.slice(7)}` : mobile;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => e.target === e.currentTarget && onOpenChange(false)}
-    >
-      <div className="bg-background w-full max-w-sm rounded-xl border shadow-2xl">
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <h2 className="text-base font-semibold">{t('settings.loginTitle')}</h2>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground"
-            onClick={() => onOpenChange(false)}
-            aria-label="close"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t('settings.loginTitle')}</DialogTitle>
+          <DialogDescription>{t('settings.loginPrompt')}</DialogDescription>
+        </DialogHeader>
 
-        <div className="flex flex-col gap-3 px-5 py-4">
-          {mfaTips ? (
-            <>
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Loader2 className="size-4 animate-spin" />
-                {t('settings.loginMfaWaiting')}
-              </div>
-              <p className="text-muted-foreground text-sm">{maskedMobile}</p>
-              <div className="bg-muted flex items-start gap-2 rounded-lg p-3 text-sm">
-                <ShieldCheck className="text-primary mt-0.5 size-4 shrink-0" />
-                <span className="font-medium">{mfaTips}</span>
-              </div>
-              <p className="text-muted-foreground text-xs">{t('settings.loginMfaBackground')}</p>
-              <Button variant="outline" onClick={() => void cancelMfa()}>
-                {t('common.cancel')}
-              </Button>
-            </>
-          ) : (
-            <>
+        {mfaTips ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Spinner />
+              {t('settings.loginMfaWaiting')}
+            </div>
+            <p className="text-muted-foreground text-sm">{maskedMobile}</p>
+            <div className="bg-muted flex items-start gap-2 rounded-lg p-3 text-sm">
+              <ShieldCheck className="text-primary mt-0.5 size-4 shrink-0" />
+              <span className="font-medium">{mfaTips}</span>
+            </div>
+            <p className="text-muted-foreground text-xs">{t('settings.loginMfaBackground')}</p>
+            <Button variant="outline" onClick={() => void cancelMfa()}>
+              {t('common.cancel')}
+            </Button>
+          </div>
+        ) : (
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="login-mobile">{t('settings.loginMobilePlaceholder')}</FieldLabel>
               <Input
+                id="login-mobile"
                 inputMode="numeric"
-                placeholder={t('settings.loginMobilePlaceholder')}
                 value={mobile}
                 maxLength={11}
                 onChange={(e) => setMobile(e.target.value.replace(/\D/g, ''))}
               />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="login-code">{t('settings.loginCodePlaceholder')}</FieldLabel>
               <div className="flex gap-2">
                 <Input
                   ref={codeInputRef}
+                  id="login-code"
                   inputMode="numeric"
-                  placeholder={t('settings.loginCodePlaceholder')}
                   value={code}
                   maxLength={6}
                   className="flex-1"
@@ -195,17 +206,17 @@ export function LoginDialog({
                     : t(busy ? 'settings.loginSending' : 'settings.loginSendCode')}
                 </Button>
               </div>
-              <Button
-                disabled={busy || code.length < 4 || mobile.length !== 11}
-                onClick={() => void doLogin()}
-              >
-                {busy ? t('settings.loginBusy') : t('settings.loginAction')}
-              </Button>
-              <p className="text-muted-foreground text-xs">{t('settings.loginRiskNote')}</p>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+            </Field>
+            <Button
+              disabled={busy || code.length < 4 || mobile.length !== 11}
+              onClick={() => void doLogin()}
+            >
+              {busy ? t('settings.loginBusy') : t('settings.loginAction')}
+            </Button>
+            <p className="text-muted-foreground text-xs">{t('settings.loginRiskNote')}</p>
+          </FieldGroup>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
