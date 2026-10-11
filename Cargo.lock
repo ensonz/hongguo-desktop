@@ -2299,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-api"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "aes 0.9.3",
  "chrono",
@@ -2319,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-common"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "chrono",
  "dirs",
@@ -2331,7 +2331,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-desktop"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "aes 0.9.3",
  "anyhow",
@@ -2348,11 +2348,11 @@ dependencies = [
  "hongguo-api",
  "hongguo-common",
  "hongguo-media",
+ "hongguo-media-platform",
  "hongguo-mp4",
  "hongguo-signer",
  "hongguo-store",
  "hongguo-stream",
- "jpeg-encoder",
  "log",
  "md-5",
  "mouse_position",
@@ -2380,12 +2380,11 @@ dependencies = [
  "tokio-util",
  "urlencoding",
  "uuid",
- "windows",
 ]
 
 [[package]]
 name = "hongguo-media"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "hongguo-common",
  "hongguo-mp4",
@@ -2400,8 +2399,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "hongguo-media-platform"
+version = "0.4.4"
+dependencies = [
+ "hongguo-common",
+ "hongguo-media",
+ "hongguo-mp4",
+ "jpeg-encoder",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "windows",
+]
+
+[[package]]
 name = "hongguo-mp4"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "aes 0.9.3",
  "base64 0.23.1",
@@ -2413,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-signer"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -2427,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-store"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "chrono",
  "dirs",
@@ -2443,7 +2457,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-stream"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "hongguo-common",
  "hongguo-mp4",

@@ -15,6 +15,7 @@ members = [
     "crates/hongguo-api",
     "crates/hongguo-common",
     "crates/hongguo-media",
+    "crates/hongguo-media-platform",
     "crates/hongguo-mp4",
     "crates/hongguo-signer",
     "crates/hongguo-store",
@@ -29,7 +30,7 @@ exclude = ["vendor/*"]
 # 各 crate 共享的 package 字段：发版只改这里一处（另需改 package.json 与
 # tauri.conf.json），成员用 `xxx.workspace = true` 继承。
 [workspace.package]
-version = "0.4.3"
+version = "0.4.4"
 edition = "2024"
 # MSRV 跟随当前 stable 工具链（1.99）。应用不是库，MSRV 只影响依赖解析。
 rust-version = "1.99"
