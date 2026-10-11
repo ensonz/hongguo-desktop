@@ -76,8 +76,14 @@ pub async fn transcode_for_playback(
             return Err(AppError::InvalidArgs("既没有本地文件，也没有 vid".into()));
         };
         let settings = state.settings();
-        let play =
-            crate::domain::api::play_url::fetch_play_url(&vid, None, &state.api_env()).await?;
+        // 转码源必须保持全量候选：HEVC-only 的剧集兜底转码还要拿 HEVC 源
+        let play = crate::domain::api::play_url::fetch_play_url(
+            &vid,
+            None,
+            crate::domain::api::stream_pick::DecoderCapability::Full,
+            &state.api_env(),
+        )
+        .await?;
         // 取流占前 20%，转码占后 80%：两段都动，但用户看到的是一条连续的进度
         emit(0.0, "downloading");
         let plain = crate::service::play_service::online::fetch_plain(&play, &settings).await?;

@@ -189,10 +189,17 @@ async fn run_one(
     let settings = state.settings();
 
     // 1) 取流地址（签名 + 清晰度择优）
-    // 下载固定取最高档：清晰度切换是播放时的交互，下载侧没有这个概念
-    let play = crate::domain::api::play_url::fetch_play_url(&task.vid, None, &state.api_env())
-        .await
-        .map_err(|e| AppError::Network(e.to_string()))?;
+    // 下载固定取最高档：清晰度切换是播放时的交互，下载侧没有这个概念。
+    // 选流模式保持 Full：下载件是否按解码能力翻转见 hevc-playback-plan 开放问题，
+    // 下载件的播放走既有 compat 兜底。
+    let play = crate::domain::api::play_url::fetch_play_url(
+        &task.vid,
+        None,
+        crate::domain::api::stream_pick::DecoderCapability::Full,
+        &state.api_env(),
+    )
+    .await
+    .map_err(|e| AppError::Network(e.to_string()))?;
 
     // 2) 输出路径（档案查询是单条 SQL，同步快查即回）
     let series_title = state
