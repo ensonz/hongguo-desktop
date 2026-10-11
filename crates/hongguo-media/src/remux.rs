@@ -26,8 +26,8 @@ pub fn sort_by_index(files: &[(u32, PathBuf)]) -> Vec<(u32, PathBuf)> {
 
 /// 流复制合并。
 ///
-/// 快速合并要求所有输入的编码一致：由 [`crate::media::codec_probe::check`] 探测、
-/// 在 [`crate::service::merge_service::quick::quick_merge`] 上强制执行。
+/// 快速合并要求所有输入的编码一致：由 [`crate::codec_probe::check`] 探测、
+/// 在 `service::merge_service::quick::quick_merge`（上层壳）上强制执行。
 /// [`index::plan`] 里的结构检查是第二道闸，管的是探测不到的轨数、轨道顺序与
 /// 电影时基——任一对不上都只会产出连索引都过不去的文件。
 pub fn concat_copy(inputs: &[PathBuf], output: &Path) -> AppResult<(u64, usize)> {
@@ -38,7 +38,7 @@ pub fn concat_copy(inputs: &[PathBuf], output: &Path) -> AppResult<(u64, usize)>
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
 
-    let temp = crate::service::download_service::worker::temp_path_for(output);
+    let temp = hongguo_common::utils::path::temp_path_for(output);
     // 上一轮崩在中途会留下半个临时文件，先清掉再动手
     let _ = std::fs::remove_file(&temp);
 
@@ -265,9 +265,9 @@ fn read_header_boxes(path: &Path) -> AppResult<(Vec<u8>, Vec<u8>)> {
     }
 }
 
-#[cfg(test)]
-#[path = "remux/e2e_tests.rs"]
-mod e2e_tests;
+// 真实短剧文件的端到端验证曾挂在 `remux/` 下，但它同时要平台硬编、ffmpeg 与
+// 服务层（compat_play），三边都不属于本 crate——已随 3b 迁到壳里的
+// `src-tauri/src/testing/media_pipeline_e2e.rs`。
 
 #[cfg(test)]
 mod tests {

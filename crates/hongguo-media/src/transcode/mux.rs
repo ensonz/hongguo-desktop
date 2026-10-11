@@ -31,7 +31,7 @@ pub fn mux_h264(
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
-    let temp = crate::service::download_service::worker::temp_path_for(output);
+    let temp = hongguo_common::utils::path::temp_path_for(output);
 
     // 直接写文件而不是攒在内存里：短剧单集可能上百 MB
     let file = std::fs::File::create(&temp).map_err(|e| AppError::Io(e.to_string()))?;
@@ -201,7 +201,7 @@ mod tests {
         let size = mux_h264(&out, &frames, 192, 108, None, &opts).expect("B 帧流封装应成功");
         assert!(size > 0);
 
-        let demuxed = crate::media::demux::demux_file(&out).expect("产物应能解复用");
+        let demuxed = crate::demux::demux_file(&out).expect("产物应能解复用");
         let video = demuxed.video_track().expect("产物应有视频轨");
         assert_eq!(
             video.info.samples.len(),
@@ -283,18 +283,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hg-mux-scale-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("scale.mp4");
-        let _fmt = crate::media::transcode::audio::AudioFormat {
+        let _fmt = crate::transcode::audio::AudioFormat {
             sample_rate: 44100,
             channels: 2,
         };
         let opts = TranscodeOptions::default();
-        let fmt = crate::media::transcode::audio::AudioFormat {
+        let fmt = crate::transcode::audio::AudioFormat {
             sample_rate: 44100,
             channels: 2,
         };
         mux_h264(&out, &frames, 192, 108, Some((fmt, &audio)), &opts).expect("规模封装应成功");
 
-        let demuxed = crate::media::demux::demux_file(&out).expect("产物应能解复用");
+        let demuxed = crate::demux::demux_file(&out).expect("产物应能解复用");
         let video = demuxed.video_track().expect("应有视频轨");
         assert_eq!(video.info.samples.len(), n, "样本数应一致");
         let data = std::fs::read(&out).unwrap();

@@ -38,7 +38,7 @@ pub fn transcode_with_ffmpeg(req: &TranscodeRequest<'_>, encoder: &Encoder) -> A
     if let Some(parent) = req.output.parent() {
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
-    let temp = crate::service::download_service::worker::temp_path_for(req.output);
+    let temp = hongguo_common::utils::path::temp_path_for(req.output);
 
     let args = build_args(req, encoder, &temp);
 

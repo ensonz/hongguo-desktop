@@ -11,7 +11,7 @@
 
 use parking_lot::RwLock;
 
-use crate::media::Backend;
+use hongguo_media::Backend;
 
 /// 探测结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

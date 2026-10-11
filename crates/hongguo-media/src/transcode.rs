@@ -64,7 +64,7 @@ pub struct TranscodeResult {
     pub decoder: String,
     pub encoder: String,
     /// 实际走的后端（并行度/超订信号以它为准，别再猜字符串）
-    pub backend: crate::media::Backend,
+    pub backend: crate::Backend,
 }
 
 /// 一条音轨的采集结果：封装参数 + 逐帧 `(时间戳, ADTS 帧)`。
@@ -106,7 +106,7 @@ pub fn transcode_file(
     let started = std::time::Instant::now();
 
     // 1) 解复用，拿到样本表
-    let demuxed = crate::media::demux::demux_file(input)?;
+    let demuxed = crate::demux::demux_file(input)?;
     let video = demuxed
         .video_track()
         .ok_or_else(|| AppError::Media("没有视频轨".into()))?;
@@ -117,7 +117,7 @@ pub fn transcode_file(
 
     // hvcC 参数集（VPS/SPS/PPS）必须先喂给解码器，否则首个 IRAP 无法解。
     // length_size 决定样本的长度前缀宽度，转 Annex-B 时要用。
-    let (annexb_prefix, length_size) = crate::media::hevc::read_parameter_sets(input, &video.info)?;
+    let (annexb_prefix, length_size) = crate::hevc::read_parameter_sets(input, &video.info)?;
 
     // 源时间轴。固定 25fps 的合成时间轴曾是默认：源不是 25fps 时视频轨整体
     // 变速、与按真实时间累计的音轨漂移。现在只有拿不到 stts 的畸形文件才回落。
@@ -172,7 +172,7 @@ pub fn transcode_file(
         frames: encoded.frames as u64,
         decoder: "rusty_h265".into(),
         encoder: "rusty_h264".into(),
-        backend: crate::media::Backend::Rust,
+        backend: crate::Backend::Rust,
     })
 }
 
@@ -180,9 +180,12 @@ pub fn transcode_file(
 ///
 /// 与软解路径共享同一套 [`collect_audio`] 与 [`mux::mux_h264`]——音轨不解码、
 /// AAC 直通、faststart 封装，任何后端产出的 MP4 完全同构。
-pub(super) fn mux_with_audio(
+///
+/// 对外可见是刻意的：平台硬编（VT / MF）在 `hongguo-media-platform`，与本 crate
+/// 不同 crate，但它必须产出与软解路径逐字节同构的容器。
+pub fn mux_with_audio(
     input: &Path,
-    demuxed: &crate::media::demux::Demuxed,
+    demuxed: &crate::demux::Demuxed,
     output: &Path,
     units: &[(f64, Vec<u8>, bool)],
     width: usize,
@@ -205,7 +208,10 @@ pub(super) fn mux_with_audio(
 }
 
 /// 从文件读一段字节（解码样本用）。
-pub(super) fn read_range(path: &Path, offset: u64, size: u64) -> AppResult<Vec<u8>> {
+///
+/// 与 [`mux_with_audio`] 同理对外可见：平台后端（`hongguo-media-platform`）按
+/// 样本偏移自己喂解码器，需要这个读段入口。
+pub fn read_range(path: &Path, offset: u64, size: u64) -> AppResult<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).map_err(|e| AppError::Io(e.to_string()))?;
     f.seek(SeekFrom::Start(offset))
@@ -224,10 +230,7 @@ mod tests;
 ///
 /// 源音轨在解密后已是明文 AAC，**原样搬运**即可——不解码成 PCM，也不重新编码。
 /// 没有音轨时返回 `None`，产物就是纯视频（与 ffmpeg `-an` 的行为一致）。
-fn collect_audio(
-    input: &Path,
-    demuxed: &crate::media::demux::Demuxed,
-) -> AppResult<Option<AudioTrack>> {
+fn collect_audio(input: &Path, demuxed: &crate::demux::Demuxed) -> AppResult<Option<AudioTrack>> {
     let Some(track) = demuxed.audio_track() else {
         return Ok(None);
     };

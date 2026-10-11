@@ -92,7 +92,7 @@ pub(super) fn decode_and_encode(
             continue;
         }
         // MP4 样本是「长度前缀 + NAL」，解码器只认 Annex-B
-        let data = crate::media::hevc::to_annexb(&raw, length_size);
+        let data = crate::hevc::to_annexb(&raw, length_size);
         if data.is_empty() {
             continue;
         }

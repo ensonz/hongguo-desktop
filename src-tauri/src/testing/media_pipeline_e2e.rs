@@ -11,7 +11,7 @@
 //! `make test-rust`。跑法：
 //!
 //! ```text
-//! HONGGUO_E2E_DIR=<一堆已解密 mp4 所在目录> cargo test --lib media::remux::e2e -- --nocapture
+//! HONGGUO_E2E_DIR=<一堆已解密 mp4 所在目录> cargo test --lib testing::media_pipeline_e2e -- --nocapture
 //! HONGGUO_DATA_DIR=<临时目录> # 让 compat-cache 落在临时目录，不碰真实存档
 //! ```
 
@@ -21,9 +21,10 @@ use std::time::Instant;
 
 use serde_json::Value;
 
+use crate::media::ffmpeg;
 use crate::media::ffmpeg::transcode_with_ffmpeg;
-use crate::media::remux::concat_copy;
-use crate::media::{ffmpeg, transcode};
+use hongguo_media::remux::concat_copy;
+use hongguo_media::transcode;
 
 /// 没设就整体跳过：真实文件不进 `make test-rust`。
 ///
@@ -54,7 +55,7 @@ fn episodes() -> Option<Vec<PathBuf>> {
 /// 能参与合并的子集：与第 1 集编码参数不一致的那几集被剔掉。
 ///
 /// 短剧各集是平台**分别**编码的，同一部剧里混着不同分辨率是常态，所以「全部
-/// 一起合」经常根本不成立。判定复用应用自己的 [`crate::media::codec_probe`]，
+/// 一起合」经常根本不成立。判定复用应用自己的 [`hongguo_media::codec_probe`]，
 /// 保证测试里的口径和界面上的口径是同一份。
 fn mergeable_episodes() -> Option<(Vec<PathBuf>, Option<u32>)> {
     let files = episodes()?;
@@ -63,7 +64,7 @@ fn mergeable_episodes() -> Option<(Vec<PathBuf>, Option<u32>)> {
         .enumerate()
         .map(|(i, p)| (i as u32 + 1, p.clone()))
         .collect();
-    let mismatch = crate::media::codec_probe::check(&numbered).mismatch_episode;
+    let mismatch = hongguo_media::codec_probe::check(&numbered).mismatch_episode;
     let keep = match mismatch {
         None => files,
         Some(bad) => files
@@ -132,7 +133,7 @@ fn probe(path: &Path) -> Value {
 /// 产物时长（秒）。走 `mdhd` 而不是 `format=duration`——后者对某些封装器
 /// 会取到编辑列表算出来的值，和样本时间轴对不上。
 fn media_seconds(path: &Path) -> f64 {
-    let tracks = crate::media::demux::demux_file(path).expect("产物应能解复用");
+    let tracks = hongguo_media::demux::demux_file(path).expect("产物应能解复用");
     tracks
         .video_track()
         .map(|t| t.info.media_duration as f64 / t.info.media_timescale.max(1) as f64)
@@ -182,7 +183,7 @@ fn mixed_resolution_episodes_are_refused_with_a_readable_message() {
         .enumerate()
         .map(|(i, p)| (i as u32 + 1, p.clone()))
         .collect();
-    match crate::media::codec_probe::check(&numbered).mismatch_episode {
+    match hongguo_media::codec_probe::check(&numbered).mismatch_episode {
         None => {
             let (size, _) = concat_copy(&files, &out).unwrap();
             assert!(size > 0, "全部一致时应当能合出文件");
@@ -211,7 +212,7 @@ fn real_episodes_merge_into_one_continuous_timeline() {
     let source_samples: usize = files
         .iter()
         .map(|p| {
-            crate::media::demux::demux_file(p)
+            hongguo_media::demux::demux_file(p)
                 .unwrap()
                 .video_track()
                 .unwrap()
@@ -226,7 +227,7 @@ fn real_episodes_merge_into_one_continuous_timeline() {
     let (size, count) = concat_copy(&files, &out).unwrap();
     let elapsed = started.elapsed();
 
-    let merged = crate::media::demux::demux_file(&out).expect("产物应能解复用");
+    let merged = hongguo_media::demux::demux_file(&out).expect("产物应能解复用");
     let video = merged.video_track().unwrap();
 
     assert_eq!(count, files.len());
@@ -256,7 +257,7 @@ fn real_episodes_merge_into_one_continuous_timeline() {
     let sources: Vec<Vec<(u64, u64)>> = files
         .iter()
         .map(|p| {
-            crate::media::demux::demux_file(p)
+            hongguo_media::demux::demux_file(p)
                 .unwrap()
                 .video_track()
                 .unwrap()
@@ -376,11 +377,11 @@ fn ffmpeg_transcode_produces_playable_h264() {
 fn platform_pipeline_produces_playable_h264() {
     let Some(mut all) = episodes() else { return };
     let src = all.swap_remove(0);
-    let is_hevc = crate::media::demux::demux_file(&src)
+    let is_hevc = hongguo_media::demux::demux_file(&src)
         .ok()
         .and_then(|d| {
             d.video_track()
-                .map(|t| crate::media::hevc::is_hevc(&t.info.codec))
+                .map(|t| hongguo_media::hevc::is_hevc(&t.info.codec))
         })
         .unwrap_or(false);
     if !is_hevc {
@@ -405,7 +406,7 @@ fn platform_pipeline_produces_playable_h264() {
 
     assert_eq!(video_codec(&out), "h264", "产物应是 H.264");
     // 源带音轨时必须直通为 AAC；纯视频源（合成 fixture）产物同样纯视频
-    let src_has_audio = crate::media::demux::demux_file(&src)
+    let src_has_audio = hongguo_media::demux::demux_file(&src)
         .map(|d| d.audio_track().is_some())
         .unwrap_or(false);
     if src_has_audio {
@@ -419,7 +420,7 @@ fn platform_pipeline_produces_playable_h264() {
     );
     // 拼接硬约束的预演：第 2 集之后各集要在第 1 集的参数集下可解，
     // 产物码流必须自带 SPS/PPS——这里只验「moov 与样本表自洽」
-    let verified = crate::media::demux::demux_file(&out).expect("产物应能再次解复用");
+    let verified = hongguo_media::demux::demux_file(&out).expect("产物应能再次解复用");
     assert!(
         verified
             .video_track()
@@ -443,11 +444,11 @@ fn platform_transcode_produces_playable_h264() {
     let Some(mut all) = episodes() else { return };
     let src = all.swap_remove(0);
     // 平台路径只接 HEVC；H.264 源归 ffmpeg 直转，不在这条链上
-    let is_hevc = crate::media::demux::demux_file(&src)
+    let is_hevc = hongguo_media::demux::demux_file(&src)
         .ok()
         .and_then(|d| {
             d.video_track()
-                .map(|t| crate::media::hevc::is_hevc(&t.info.codec))
+                .map(|t| hongguo_media::hevc::is_hevc(&t.info.codec))
         })
         .unwrap_or(false);
     if !is_hevc {
@@ -471,7 +472,7 @@ fn platform_transcode_produces_playable_h264() {
     let elapsed = started.elapsed();
 
     assert_eq!(video_codec(&out), "h264", "产物应是 H.264");
-    let src_has_audio = crate::media::demux::demux_file(&src)
+    let src_has_audio = hongguo_media::demux::demux_file(&src)
         .map(|d| d.audio_track().is_some())
         .unwrap_or(false);
     if src_has_audio {
@@ -520,7 +521,7 @@ fn softdecode_and_ffmpeg_output_are_both_decodable() {
     let ff_elapsed = ff_started.elapsed();
 
     for (label, path) in [("软解", &soft_out), ("ffmpeg", &ff_out)] {
-        let tracks = crate::media::demux::demux_file(path).expect("产物应能解复用");
+        let tracks = hongguo_media::demux::demux_file(path).expect("产物应能解复用");
         assert!(tracks.video_track().is_some(), "{label} 产物应有视频轨");
         assert!(
             (media_seconds(path) - media_seconds(&src)).abs() < media_seconds(&src) * 0.01,
@@ -597,7 +598,7 @@ fn compat_merge_unifies_mixed_resolutions_by_scaling() {
     // 挑一集 1080p 与一集非 1080p
     let mut picks: Vec<PathBuf> = Vec::new();
     for p in &files {
-        let tracks = crate::media::demux::demux_file(p).unwrap();
+        let tracks = hongguo_media::demux::demux_file(p).unwrap();
         let t = tracks.video_track().unwrap();
         let want_1080 = picks.is_empty();
         if (want_1080 && t.info.height == 1080) || (!want_1080 && t.info.height != 1080) {
@@ -615,7 +616,7 @@ fn compat_merge_unifies_mixed_resolutions_by_scaling() {
 
     let dir = scratch("compat-mixed");
     let seconds = |p: &Path| {
-        let t = crate::media::demux::demux_file(p).unwrap();
+        let t = hongguo_media::demux::demux_file(p).unwrap();
         let v = t.video_track().unwrap();
         v.info.media_duration as f64 / v.info.media_timescale.max(1) as f64
     };
@@ -647,7 +648,7 @@ fn compat_merge_unifies_mixed_resolutions_by_scaling() {
     let (_, count) = concat_copy(&scaled, &out).expect("统一分辨率后应当能拼");
     assert_eq!(count, 2);
 
-    let tracks = crate::media::demux::demux_file(&out).unwrap();
+    let tracks = hongguo_media::demux::demux_file(&out).unwrap();
     let v = tracks.video_track().unwrap();
     assert_eq!(
         (v.info.width, v.info.height),
@@ -715,7 +716,7 @@ async fn compat_playback_transcodes_a_real_hevc_episode() {
     assert!(got.url.contains("hongguo-local"), "实际: {}", got.url);
 
     let path = crate::service::transcode_service::cache::cache_file("e2e-cp", 1);
-    let tracks = crate::media::demux::demux_file(&path).unwrap();
+    let tracks = hongguo_media::demux::demux_file(&path).unwrap();
     let v = tracks.video_track().expect("产物要有视频轨");
     assert_eq!(v.info.codec, "avc1", "兜底的产物必须是 H.264");
     assert!(!v.info.samples.is_empty());
