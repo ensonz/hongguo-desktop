@@ -9,11 +9,11 @@ pnpm-lock.yaml
 # 构建产物
 dist/
 src-tauri/gen/
-src-tauri/target/
+target/
 
 # vendor 的第三方 crate 源码保持原样（patch 用，diff 越小越好）；
-# 不 ignore 的话 format:check 会红在别人的代码上
-src-tauri/vendor/
+# 不 ignore 的话 format:check 会红在别人的代码上（workspace 化后 vendor 在仓库根）
+vendor/
 
 # skill 资产不是本项目代码（对齐 eslint.config.js 的 .agents 豁免）；
 # 不 ignore 的话 format:check 会红在 skill 自带的示例文件上

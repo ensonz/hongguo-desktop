@@ -1,6 +1,7 @@
 # 提交前置检查：Rust 三目标零警告（Windows 宿主 + macOS aarch64/x86_64 交叉）、
 # 忽略标签禁令（-D clippy::allow_attributes，#[allow] 直接拒；确需断言用
 # #[expect(reason)]，lint 不再触发时编译失败）、测试与前端 lint。
+# Rust 侧在仓库根执行（workspace 根 manifest），--workspace 覆盖全部成员 crate。
 # 启用：git config core.hooksPath .githooks
 name: CI
 
@@ -48,7 +49,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: .
           key: ${{ matrix.rust_target }}
 
       - name: Install frontend deps
@@ -61,9 +62,7 @@ jobs:
         run: pnpm exec eslint . --max-warnings=0
 
       - name: Rust tests
-        working-directory: src-tauri
-        run: cargo test --lib
+        run: cargo test --workspace --lib
 
       - name: Rust clippy（零警告 + 忽略标签禁令）
-        working-directory: src-tauri
-        run: cargo clippy ${{ matrix.clippy_args }} -- -D warnings -D clippy::allow_attributes
+        run: cargo clippy --workspace ${{ matrix.clippy_args }} -- -D warnings -D clippy::allow_attributes

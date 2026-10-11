@@ -257,7 +257,7 @@ hongguo-desktop/
 ## 8. 迁移顺序（保持可运行）
 
 > **执行顺序（已定）**：
-> - **阶段 0 · 地基**：`src-tauri` 原地成为 workspace 唯一 member（§9 机械耦合清单迁根），**零行为变更**，`make dev/test/lint` 全绿即通过。
+> - **阶段 0 · 地基**（**已完成 2026-10-11**）：`src-tauri` 原地成为 workspace 唯一 member（§9 机械耦合清单迁根）——根 `Cargo.toml`（`resolver="3"` + members + `[patch]` + `[profile]`）、`.cargo/config.toml`、`vendor/`、`Cargo.lock`、`target/` 均落仓库根；**零行为变更**（迁移前后 `cargo metadata` 721 包逐包比对一致、patch 仍命中 `vendor/`），`cargo test` 651 全绿 + clippy 三目标零警告 + 前端门禁全绿。
 > - **阶段 1 · 清前置障碍**（**已完成 2026-10-11**）：fixture 迁出生产源码树（消 `signer→domain` 反向依赖）、生成器归位 `scripts/`、元测试改目录自动发现、下载选集器重命名——这些不清，阶段 2 会把它们带进 crate 结构。
 > - **阶段 2 · 自底向上拆 crate**：下列 1–6 步，**优先级按实测耦合**（§0）。
 > - **阶段 3 · 前端并行**（与后端拆分正交，随时插入）：评论 / 剧评组件的双实现收敛（唯一的真实逻辑重复）、`components/` 两级散装归位、前端入参 zod 化。
