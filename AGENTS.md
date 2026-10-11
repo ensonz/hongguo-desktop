@@ -13,7 +13,7 @@
 | 写前端：组件 / hooks / 查询 / store / 样式 / i18n / 路由 | `.agents/skills/hongguo-dev/references/frontend.md` |
 | 写后端：command / service / store / 迁移 / 测试          | `.agents/skills/hongguo-dev/references/backend.md`  |
 | 对接官方 App 接口（抓包 / 端点 / 参数）                  | `docs/hongguo-api-endpoints.md`                     |
-| 动转码 / 平台硬编（media / platform）                    | `docs/platform-transcode-progress.md`               |
+| 逆向分析官方 APK / hgplayer（协议 / 端点考证）           | `.agents/skills/hongguo-dev/references/reverse.md`  |
 | WebView 调试 / CDP 自动化                                | `docs/webview-cdp-testing.md`                       |
 
 ## 目录结构

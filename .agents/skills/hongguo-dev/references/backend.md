@@ -85,4 +85,4 @@ pub fn series_by_id(&self, series_id: &str) -> AppResult<Option<Series>> {
 
 ## 动 media/platform 前必读
 
-`docs/platform-transcode-progress.md`：VT/MF 硬编的决策档案 + 11 条已修 FFI bug 全录（B 帧四连、CFNumber 双重释放、`is_sync_sample` 语义反转…）。转码分流单入口 `pipeline::transcode`（平台硬编 → ffmpeg → 纯 Rust 软解），别绕开它直连后端。跨平台验证方法论也在该文档（显示序只用 pts 集合比对）。
+转码分流单入口 `pipeline::transcode`（平台硬编 → ffmpeg → 纯 Rust 软解），别绕开它直连后端。跨平台验证口径：显示序只用 pts 集合比对。VT/MF 硬编的决策档案与已修 FFI bug 全录在 git 历史（原 `docs/platform-transcode-progress.md`，文档清理时删除，`git log --follow` 可找回）。
