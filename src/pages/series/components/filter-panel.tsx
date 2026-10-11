@@ -1,5 +1,5 @@
 /** 找剧筛选面板：官方多维选项的渲染与单选交互。 */
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 import type { BrowseFilters } from '@/service/schema';
@@ -36,7 +36,7 @@ export function FilterPanel({
   if (loading) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 py-2 text-sm">
-        <Loader2 className="size-3.5 animate-spin" />
+        <Spinner className="size-3.5" />
         {t('common.loading')}
       </div>
     );

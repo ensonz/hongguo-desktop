@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Loader2, Play, Star } from 'lucide-react';
+import { BellRing, Play, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { SeriesRowCard } from '@/components/series-row-card';
 import { rank as rankApi } from '@/service/commands';
 import { usePlaySeries } from '@/hooks/use-play-series';
@@ -129,7 +130,7 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
             }}
           >
             {reserve.isPending ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <Spinner aria-hidden />
             ) : (
               <BellRing className="size-4" aria-hidden />
             )}

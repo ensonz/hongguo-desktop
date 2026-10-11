@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Loader2, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
@@ -321,11 +322,7 @@ export function BrowsePage() {
             )}
           </Popover>
           <Button type="submit" disabled={!keyword.trim() || resubmitting}>
-            {resubmitting ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Search className="size-4" />
-            )}
+            {resubmitting ? <Spinner /> : <Search className="size-4" />}
             {t('search.submit')}
           </Button>
           {searching && (
@@ -408,7 +405,7 @@ export function BrowsePage() {
         <>
           {browse.isFetchingMore && (
             <p className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-sm">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <Spinner aria-hidden />
               {t('feed.loadingMore')}
             </p>
           )}

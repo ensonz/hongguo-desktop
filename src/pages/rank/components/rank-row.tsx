@@ -1,9 +1,10 @@
 /** 榜单行卡片：进详情为主动作，右侧按上线状态给播放/预约。 */
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Bell, Check, Flame, Loader2, Play } from 'lucide-react';
+import { Bell, Check, Flame, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { SeriesRowCard } from '@/components/series-row-card';
 import { useReserveSeries } from '@/service/queries';
@@ -116,7 +117,7 @@ export function RankRow({ item }: { item: RankItem }) {
             }}
           >
             {reserve.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              <Spinner className="size-3.5" aria-hidden />
             ) : reserved ? (
               <Check className="size-3.5" aria-hidden />
             ) : (

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
 import { ErrorState } from '@/components/common/error-state';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RefreshShade } from '@/components/refresh-shade';
@@ -176,7 +176,7 @@ export function RankPage() {
                   <div ref={sentinelRef} className="h-px" aria-hidden />
                   {rank.isFetchingMore && (
                     <p className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-sm">
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      <Spinner aria-hidden />
                       {t('feed.loadingMore')}
                     </p>
                   )}

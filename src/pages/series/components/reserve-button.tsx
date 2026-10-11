@@ -1,7 +1,8 @@
 /** 未上线剧集的预约按钮（项目标准 outline 按钮，与收藏/点赞同一语言）。 */
-import { Bell, Check, Loader2 } from 'lucide-react';
+import { Bell, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { useReservations, useReserveSeries } from '@/service/queries';
 import { t } from '@/locales';
 
@@ -34,7 +35,7 @@ export function ReserveButton({ seriesId }: { seriesId: string }) {
       }}
     >
       {reserve.isPending ? (
-        <Loader2 className="size-4 animate-spin" aria-hidden />
+        <Spinner aria-hidden />
       ) : reserved ? (
         <Check className="size-4" aria-hidden />
       ) : (

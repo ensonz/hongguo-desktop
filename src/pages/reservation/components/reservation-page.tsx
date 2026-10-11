@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BellRing, CalendarClock, Loader2, LogIn, Play, Star, Tv } from 'lucide-react';
+import { BellRing, CalendarClock, LogIn, Play, Star, Tv } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/common/error-state';
 import {
@@ -380,7 +381,7 @@ function ReservationCard({
               onClick={() => cancel.mutate()}
             >
               {cancel.isPending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
+                <Spinner aria-hidden />
               ) : (
                 <BellRing className="size-4" aria-hidden />
               )}
