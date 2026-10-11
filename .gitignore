@@ -28,6 +28,10 @@ captures/*
 !captures/audit.py
 !captures/addon.py
 
+# 逆向分析临时产物（jadx 运行日志/状态文件，正本在分析目录不入库）
+jadx*.log
+jadx-status.txt
+
 # ZCode 工作目录
 .zcode/
 .zcodeignore
