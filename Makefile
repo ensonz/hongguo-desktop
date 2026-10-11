@@ -25,8 +25,10 @@ build:
 test:
 	pnpm test
 
+# Rust 侧一律在仓库根执行：根 manifest 是 workspace 根，--workspace 覆盖全部
+# 成员 crate（阶段 0 只有 src-tauri 一个，拆分后自动跟进，无需再改本文件）。
 test-rust:
-	cd src-tauri && cargo test
+	cargo test --workspace
 
 # 质量闸门：一票否决。make 遇到非零退出就中止本 target 并让 make 整体失败，
 # 所以任何一道检查挂掉都是红的。别用 `-` 前缀或 `|| true` 把失败吞掉。
@@ -36,16 +38,15 @@ test-rust:
 # objc2-exception-helper 的 C 编译步骤，check/clippy 不链接、结果不受影响。
 # -D clippy::allow_attributes 是忽略标签禁令：#[allow] 直接拒；确需断言用
 # #[expect(reason)]——lint 不再触发时编译失败，杜绝过期放行。
-# 每行是独立 shell，`cd` 只对本行有效——这是对的，不要合并成一行。
 lint:
 	pnpm lint
 	pnpm format:check
-	cd src-tauri && cargo clippy --all-targets -- -D warnings -D clippy::allow_attributes
-	cd src-tauri && CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true cargo clippy --target aarch64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
-	cd src-tauri && CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true cargo clippy --target x86_64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
+	cargo clippy --workspace --all-targets -- -D warnings -D clippy::allow_attributes
+	CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true cargo clippy --workspace --target aarch64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
+	CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true cargo clippy --workspace --target x86_64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
 
 fmt:
-	cd src-tauri && cargo fmt
+	cargo fmt --all
 
 # 生成物：图标（含 macOS 标准留白）、macOS 名称本地化、Windows 安装器脚本。
 # 都是「生成后提交」的产物——构建不依赖本机 Python/ImageMagick/网络，
@@ -70,5 +71,6 @@ release:
 # 不用 rimraf：它不在 devDependencies 里，`pnpm exec rimraf` 必然失败。
 # Node 一定有，fs.rmSync 跨平台（Windows / macOS / Linux 通吃），
 # force:true 让路径不存在也不报错。
+# target 在 workspace 根（迁移前的旧 src-tauri/target 需手动删一次）。
 clean:
-	node -e "for (const p of ['dist', 'src-tauri/target']) require('fs').rmSync(p, { recursive: true, force: true })"
+	node -e "for (const p of ['dist', 'target']) require('fs').rmSync(p, { recursive: true, force: true })"
