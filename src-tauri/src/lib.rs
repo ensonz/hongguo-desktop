@@ -185,6 +185,9 @@ pub fn run() {
             commands::play_cmd::play_prefetch,
             commands::play_cmd::save_playback_position,
             commands::play_cmd::series_progress,
+            // 播放解码能力（探测 / HEVC 扩展按需安装）
+            commands::capability_cmd::playback_capability,
+            commands::capability_cmd::install_hevc_extension,
             // 转码（合并功能用；播放兜底已下线）
             commands::transcode_cmd::decode_capability,
             commands::transcode_cmd::redetect_capability,

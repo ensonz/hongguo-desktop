@@ -62,3 +62,9 @@ export type CompatProgress = {
 };
 
 export type DecodeCapability = z.infer<typeof decodeCapabilitySchema>;
+
+/** 本机 WebView2 能否解 HEVC（决定无扩展机器的选流与扩展安装引导）。 */
+export const playbackCapabilitySchema = z.boolean();
+
+/** HEVC 扩展安装结果：安装后的能力重探值。 */
+export const hevcInstallResultSchema = z.boolean();

@@ -2,6 +2,7 @@
 //!
 //! 与 [`crate::commands`] 同名同构：看目录就能定位 command → service 的对应关系。
 
+pub mod capability_service;
 pub mod download_service;
 pub mod merge_service;
 pub mod play_service;

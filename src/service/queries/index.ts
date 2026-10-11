@@ -68,6 +68,8 @@ export {
   usePlay,
   useSavePosition,
   useDecodeCapability,
+  usePlaybackCapability,
+  useInstallHevcExtension,
   useRedetectCapability,
   useCompatPlayback,
 } from './play';

@@ -22,6 +22,7 @@ export const keys = {
   storageUsage: ['storage-usage'] as const,
   storageSeries: ['storage-series'] as const,
   capability: ['decode-capability'] as const,
+  playbackCapability: ['playback-capability'] as const,
   browsePanel: ['browse-panel'] as const,
   browseFeed: (filters: BrowseFilters) => ['browse-feed', filters] as const,
   relatedSeries: (seriesId: string) => ['related-series', seriesId] as const,
