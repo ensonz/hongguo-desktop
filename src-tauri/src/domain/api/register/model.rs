@@ -2,8 +2,9 @@
 
 /// 注册产物（gzip JSON 响应的解包）。
 ///
-/// 备注：TT-Encrypt V5 的解密方向生产未用到（注册只加密），对拍用 Python
-/// 参考实现（ttencrypt.py 的 TT.decrypt）即可。
+/// 备注：TT-Encrypt V5 的解密方向生产未用到（注册只加密）；解密侧的对拍基准
+/// 是入库的真实样本（`tests/fixtures/register_req_real.bin` /
+/// `py_enc_accepted.hex`），上游 Python 参考实现（`ttencrypt.py`）未入库。
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterResult {
