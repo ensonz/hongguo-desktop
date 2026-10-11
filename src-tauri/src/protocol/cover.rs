@@ -16,9 +16,9 @@
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
-use crate::utils::hex;
+use hongguo_common::utils::hex;
 
-use super::range::ProtocolResponse;
+use hongguo_stream::range::ProtocolResponse;
 
 /// 供给封面/头像转码。
 ///
@@ -50,10 +50,23 @@ pub fn serve(raw_path: &str) -> Result<ProtocolResponse, String> {
         log::warn!("[Cover] 封面/头像获取失败: {e} ({remote})");
         e
     })?;
+    // 写缓存前必须确保目录存在：cover-cache 没有任何启动/清理路径会创建
+    // （兼容转码缓存有转码服务负责建，这里没有）——全新安装的机器上目录
+    // 不存在，下载转码全部成功也会死在最后一步写盘，且曾是零日志静默 404。
+    let dir = hongguo_store::paths::cover_cache_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        let msg = format!("创建封面缓存目录失败: {e}");
+        log::warn!("[Cover] {msg}");
+        return Err(msg);
+    }
     // 先写临时文件再改名：转一半的图不该被缓存住
     let final_path = cache_path(&remote, ext);
     let tmp = cache_tmp(&remote);
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("写封面缓存失败: {e}"))?;
+    if let Err(e) = std::fs::write(&tmp, &bytes) {
+        let msg = format!("写封面缓存失败: {e}");
+        log::warn!("[Cover] {msg}");
+        return Err(msg);
+    }
     let _ = std::fs::rename(&tmp, &final_path);
     Ok((200, headers(ct, bytes.len()), bytes))
 }
@@ -68,7 +81,7 @@ fn cache_path(remote: &str, ext: &str) -> std::path::PathBuf {
     let mut hasher = Sha256::new();
     hasher.update(remote.as_bytes());
     let digest = hex::encode(&hasher.finalize());
-    crate::store::paths::cover_cache_dir().join(format!("{digest}.{ext}"))
+    hongguo_store::paths::cover_cache_dir().join(format!("{digest}.{ext}"))
 }
 
 /// 写入中的临时文件（与最终扩展名无关，rename 时才落定为最终名）。
@@ -76,7 +89,7 @@ fn cache_tmp(remote: &str) -> std::path::PathBuf {
     let mut hasher = Sha256::new();
     hasher.update(remote.as_bytes());
     let digest = hex::encode(&hasher.finalize());
-    crate::store::paths::cover_cache_dir().join(format!("{digest}.tmp"))
+    hongguo_store::paths::cover_cache_dir().join(format!("{digest}.tmp"))
 }
 
 fn headers(ct: &str, len: usize) -> Vec<(String, String)> {
@@ -104,7 +117,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
     //    「不可用」，本进程内不再尝试，「重新检测」清缓存）
     #[cfg(target_os = "windows")]
     if let Some(result) =
-        crate::media::platform::wic::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
+        hongguo_media_platform::platform::wic::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
     {
         match result {
             Ok(bytes) => return Ok((bytes, JPEG_KIND.0, JPEG_KIND.1)),
@@ -113,7 +126,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
     }
 
     // 2) ffmpeg 级：直接吃 http 输入，一步到位
-    if let Some(ffmpeg) = crate::media::ffmpeg::probe::ffmpeg_path() {
+    if let Some(ffmpeg) = hongguo_media_platform::ffmpeg::probe::ffmpeg_path() {
         let tmp = cache_tmp(remote);
         let out = std::process::Command::new(ffmpeg)
             .args([
@@ -149,7 +162,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
 
     // 3) 纯软解级：HEIF 解析 + rusty_h265 + JPEG，零外部依赖
     let heic = bytes_of(&mut downloaded, remote)?;
-    let jpeg = crate::media::heif::decode_primary_to_jpeg(heic)
+    let jpeg = hongguo_media::heif::decode_primary_to_jpeg(heic)
         .map_err(|e| format!("HEIC 软解失败: {e}"))?;
     Ok((jpeg, JPEG_KIND.0, JPEG_KIND.1))
 }

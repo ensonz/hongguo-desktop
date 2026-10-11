@@ -12,8 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::error::{AppError, AppResult};
 use crate::service::transcode_service::cache;
+use hongguo_common::{AppError, AppResult};
 
 /// 兜底转码的结果。
 pub struct CompatPlay {
@@ -44,7 +44,7 @@ pub async fn ensure_compat(
         return Ok(CompatPlay {
             url,
             cached: true,
-            backend: crate::media::capability::selected_backend()
+            backend: hongguo_media_platform::capability::selected_backend()
                 .decoder_label()
                 .to_string(),
             elapsed_ms: 0,
@@ -124,7 +124,7 @@ fn plaintext_temp_path_for(target: &Path) -> PathBuf {
 
 /// 视频轨时长（秒）。读不出来返回 `None`。
 fn video_seconds(path: &Path) -> Option<f64> {
-    let tracks = crate::media::demux::demux_file(path).ok()?;
+    let tracks = hongguo_media::demux::demux_file(path).ok()?;
     let v = tracks.video_track()?;
     (v.info.media_timescale > 0)
         .then(|| v.info.media_duration as f64 / v.info.media_timescale as f64)
@@ -147,7 +147,7 @@ mod tests {
         // 命中缓存时不该碰源，也不再起一次转码
         let dir = std::env::temp_dir().join(format!("hg-compat-hit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         let p = cache::cache_file("s", 1);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, vec![7u8; 200 * 1024]).unwrap();
@@ -172,7 +172,7 @@ mod tests {
     async fn a_missing_source_is_an_error_not_an_empty_artifact() {
         let dir = std::env::temp_dir().join(format!("hg-compat-miss-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         let missing = dir.join("nope.mp4");
         let r = ensure_compat("s2", 1, CompatSource::LocalFile(&missing), &|_| {}).await;
         assert!(r.is_err(), "源不存在时必须报错，不能产出空文件");
@@ -185,7 +185,7 @@ mod tests {
         let target = cache::cache_file("s", 22);
         // 兼容播放的明文输入不能与流水线为最终输出创建的临时文件重名。
         let source = plaintext_temp_path_for(&target);
-        let ffmpeg_output = crate::service::download_service::worker::temp_path_for(&target);
+        let ffmpeg_output = hongguo_common::utils::path::temp_path_for(&target);
         assert_ne!(source, ffmpeg_output, "ffmpeg 会把自己的临时输出误认成输入");
     }
 
@@ -194,7 +194,7 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("hg-compat-temp-cleanup-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let _scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let _scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         let target = cache::cache_file("cleanup", 1);
         let source_temp = plaintext_temp_path_for(&target);
 

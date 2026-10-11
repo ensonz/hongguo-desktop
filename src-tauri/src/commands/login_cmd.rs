@@ -7,12 +7,10 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::login::{
-    self, LoginOutcome, MfaContext, MfaFlow, PassportUser, UpsmsState,
-};
-use crate::domain::model::AccountState;
-use crate::error::{AppError, AppResult};
 use crate::service::login_service::{account, csrf, polling};
+use hongguo_api::login::{self, LoginOutcome, MfaContext, MfaFlow, PassportUser, UpsmsState};
+use hongguo_common::model::AccountState;
+use hongguo_common::{AppError, AppResult};
 
 /// 发送短信验证码。发码会话的 csrf 凭据暂存 AppState（sms_login 消费）。
 #[tauri::command]
@@ -210,7 +208,7 @@ mod tests {
     /// 真实通道号（parse 层已做 95→106 修正，这里锁序列化形状）。
     #[test]
     fn mfa_serializes_to_frontend_shape() {
-        let r = mfa_result(&crate::domain::api::login::MfaContext {
+        let r = mfa_result(&hongguo_api::login::MfaContext {
             retry_tag: "1".into(),
             sms_code_key: "k".into(),
             channel_mobile: "10691859839103".into(),

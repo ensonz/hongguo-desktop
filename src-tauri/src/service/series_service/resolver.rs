@@ -7,14 +7,11 @@
 //! 输入只收剧集 ID（收藏/历史/详情的档案回退都传 ID）。分享链接解析
 //! 已随找剧输入框的链接支持一起下线（2026-10-09）。
 
-use crate::domain::model::Series;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::Series;
+use hongguo_common::{AppError, AppResult};
 
 /// 解析剧集：输入是纯数字剧集 ID。
-pub async fn resolve_series(
-    input: &str,
-    env: &crate::domain::api::client::ApiEnv,
-) -> AppResult<Series> {
+pub async fn resolve_series(input: &str, env: &hongguo_api::client::ApiEnv) -> AppResult<Series> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err(AppError::InvalidArgs("请输入剧集 ID".into()));
@@ -25,7 +22,7 @@ pub async fn resolve_series(
         ));
     }
 
-    let list = crate::domain::api::detail::fetch_episode_list(trimmed, env).await?;
+    let list = hongguo_api::detail::fetch_episode_list(trimmed, env).await?;
     log::info!(
         "[Series] 官方接口命中《{}》共 {} 集",
         list.title,
@@ -49,18 +46,16 @@ mod tests {
 
     #[tokio::test]
     async fn empty_input_errors() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
-        );
+        let env =
+            hongguo_api::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         assert!(resolve_series("", &env).await.is_err());
         assert!(resolve_series("   ", &env).await.is_err());
     }
 
     #[tokio::test]
     async fn non_numeric_input_errors() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
-        );
+        let env =
+            hongguo_api::client::ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         assert!(resolve_series("随便一段文字", &env).await.is_err());
         // 分享链接形态也不再支持：当普通非法输入拒掉
         assert!(

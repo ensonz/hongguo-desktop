@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, State};
 
 use crate::app_state::AppState;
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 窗口关闭拦截的「前端就绪」闸门：前端界面挂载完成后置位。
 ///
@@ -43,12 +43,12 @@ pub fn open_folder(app: AppHandle, state: State<'_, AppState>, series_id: String
         .map(|t| t.file_path)
         .find(|p| !p.is_empty())
         .ok_or_else(|| {
-            crate::error::AppError::NotFound(format!("剧集 {series_id} 没有已下载文件"))
+            hongguo_common::AppError::NotFound(format!("剧集 {series_id} 没有已下载文件"))
         })?;
 
     app.opener()
         .reveal_item_in_dir(std::path::Path::new(&path))
-        .map_err(|e| crate::error::AppError::Io(e.to_string()))
+        .map_err(|e| hongguo_common::AppError::Io(e.to_string()))
 }
 
 /// 用系统默认浏览器打开外部网址。
@@ -64,13 +64,13 @@ pub fn open_external_page(app: AppHandle, page: String) -> AppResult<()> {
         "https://ffmpeg.org/download.html",
     ];
     if !ALLOWED.contains(&page.as_str()) {
-        return Err(crate::error::AppError::InvalidArgs(format!(
+        return Err(hongguo_common::AppError::InvalidArgs(format!(
             "不允许打开的网址: {page}"
         )));
     }
     app.opener()
         .open_url(page, None::<&str>)
-        .map_err(|e| crate::error::AppError::Io(e.to_string()))
+        .map_err(|e| hongguo_common::AppError::Io(e.to_string()))
 }
 
 /// 前端界面挂载完成：此后窗口关闭请求转交前端弹确认框，不再直接退出。

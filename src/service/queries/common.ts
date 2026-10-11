@@ -25,6 +25,7 @@ export const keys = {
   mergePreflight: (id: string) => ['merge-preflight', id] as const,
   storageUsage: ['storage-usage'] as const,
   storageSeries: ['storage-series'] as const,
+  cacheUsage: ['cache-usage'] as const,
   capability: ['decode-capability'] as const,
   playbackCapability: ['playback-capability'] as const,
   browsePanel: ['browse-panel'] as const,

@@ -7,8 +7,22 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     // captures/ 是逆向用的抓包产物与提取脚本（第三方混淆代码 + 数据），
-    // 不是本项目源码，lint 范围只覆盖 src 与脚本；.agents/ 是 skill 资产
-    ignores: ['dist', 'captures', 'src-tauri', 'routeTree.gen.ts', 'node_modules', '.agents'],
+    // 不是本项目源码，lint 范围只覆盖 src 与脚本；.agents/ 是 skill 资产；
+    // vendor/ 是 patch 用的第三方 crate（workspace 化后位于仓库根）；
+    // target/ 是 Rust 构建产物目录——release 构建会在
+    // target/release/build/**/tauri-codegen-assets/ 下生成前端资源 .js，
+    // 不排除就会被当成待 lint 的源码整片报解析错误（debug 下没有该目录，
+    // 只在跑过 release 构建后才暴露）。
+    ignores: [
+      'dist',
+      'captures',
+      'src-tauri',
+      'vendor',
+      'target',
+      'routeTree.gen.ts',
+      'node_modules',
+      '.agents',
+    ],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],

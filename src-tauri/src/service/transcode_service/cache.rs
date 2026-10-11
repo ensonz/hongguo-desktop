@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::store::paths::{COMPAT_CACHE_MAX_BYTES, compat_cache_dir};
+use hongguo_store::paths::{COMPAT_CACHE_MAX_BYTES, compat_cache_dir};
 
 /// 某集的缓存文件名。
 pub fn cache_file(series_id: &str, vid_index: u32) -> PathBuf {
@@ -41,7 +41,7 @@ const CAP_CEILING: u64 = 16 * 1024 * 1024 * 1024;
 /// 必然反复淘汰重转），小盘上又放得太满。跟着可用空间走更合理：
 /// **最多占当前空闲的一成**，落在 [2GB, 16GB] 之间。
 fn effective_cap() -> u64 {
-    let free = crate::media::disk_space::free_space_at(&compat_cache_dir()).unwrap_or(0);
+    let free = hongguo_media::disk_space::free_space_at(&compat_cache_dir()).unwrap_or(0);
     if free == 0 {
         // 查不到空闲就退回旧行为，不因为一次探测失败就把缓存清光
         return COMPAT_CACHE_MAX_BYTES;

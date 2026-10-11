@@ -30,29 +30,17 @@ mod tests {
     /// 等异步结果一律走 `tauri::async_runtime`（内部用全局运行时，任意
     /// 线程可调）。async fn 里 `tokio::time::sleep` 这类**在运行时内**的
     /// 调用不在禁止之列；测试代码允许自建 runtime。
+    ///
+    /// 源码清单由目录自动发现（[`crate::testing::source_guard`]），不再手工登记——
+    /// 新增 command 文件漏登记曾让本守护静默失效。
     #[test]
     fn commands_do_not_touch_tokio_context_directly() {
-        const SOURCES: &[&str] = &[
-            include_str!("app_cmd.rs"),
-            include_str!("danmaku_cmd.rs"),
-            include_str!("device_cmd.rs"),
-            include_str!("discover_cmd.rs"),
-            include_str!("history_cmd.rs"),
-            include_str!("interact_cmd.rs"),
-            include_str!("login_cmd.rs"),
-            include_str!("merge_cmd.rs"),
-            include_str!("play_cmd.rs"),
-            include_str!("rank_cmd.rs"),
-            include_str!("series_cmd.rs"),
-            include_str!("settings_cmd.rs"),
-            include_str!("storage_cmd.rs"),
-            include_str!("transcode_cmd.rs"),
-            include_str!("download/mod.rs"),
-            include_str!("download/actions.rs"),
-            include_str!("download/cleanup.rs"),
-        ];
-        for src in SOURCES {
-            let runtime_src = src.split("#[cfg(test)").next().unwrap_or(src);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
+        let sources = crate::testing::source_guard::collect_sources(&dir);
+        assert!(!sources.is_empty(), "没扫到命令层源码：{}", dir.display());
+        for (path, text) in &sources {
+            // 内联测试段允许自建 runtime，先截掉再扫
+            let runtime_src = text.split("#[cfg(test)").next().unwrap_or(text);
             for banned in [
                 "tokio::spawn(",
                 "tokio::runtime",
@@ -62,7 +50,8 @@ mod tests {
                 assert!(
                     !runtime_src.contains(banned),
                     "命令层不允许裸用 {banned}：主线程无 Tokio 上下文，会 panic→abort。\n\
-                     起后台任务/等异步结果请用 tauri::async_runtime。出处片段：\n{runtime_src}"
+                     起后台任务/等异步结果请用 tauri::async_runtime。出处：{}",
+                    path.display()
                 );
             }
         }

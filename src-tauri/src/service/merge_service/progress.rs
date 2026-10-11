@@ -5,7 +5,7 @@
 //! 但事件发射闭包会被 `merge_cmd` 捕获 `AppHandle`，用泛型会把闭包类型
 //! 传染到两个 merge 实现的签名上。
 
-use crate::domain::model::MergeTask;
+use hongguo_common::model::MergeTask;
 
 /// 进度跨过步进时上报。
 ///

@@ -20,10 +20,10 @@ use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter};
 
 use crate::app_state::AppState;
-use crate::domain::model::DownloadTask;
-use crate::error::{AppError, AppResult};
 use crate::service::download_service::events::{ProgressThrottle, names};
 use crate::service::download_service::worker::{self, EpisodeDownload, ProgressSink};
+use hongguo_common::model::DownloadTask;
+use hongguo_common::{AppError, AppResult};
 
 /// 调度器。
 pub struct DownloadScheduler {
@@ -191,10 +191,10 @@ async fn run_one(
     // 1) 取流地址（签名 + 清晰度择优）
     // 下载固定取最高档：清晰度切换是播放时的交互，下载侧没有这个概念。
     // 选流模式保持 Full（下载件不做解码能力翻转），下载件的播放走既有 compat 兜底。
-    let play = crate::domain::api::play_url::fetch_play_url(
+    let play = hongguo_api::play_url::fetch_play_url(
         &task.vid,
         None,
-        crate::domain::api::stream_pick::DecoderCapability::Full,
+        hongguo_api::stream_pick::DecoderCapability::Full,
         &state.api_env(),
     )
     .await
@@ -256,7 +256,8 @@ async fn run_one(
 fn persist(state: &AppState) {
     // 调度器跑在后台任务里，没有调用方能接住错误；
     // 落盘失败已由 `persist_tasks` 记进日志，这里只需让它在这里终止。
-    let _ = crate::store::persist_tasks(state, "Download");
+    let _ =
+        crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Download");
 }
 
 #[cfg(test)]

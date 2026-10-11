@@ -1,6 +1,6 @@
 //! 兼容合并：转 H.264/AAC。
 //!
-//! 与兼容模式共用 `media::transcode` 的同一条流水线，区别只是
+//! 与兼容模式共用 `hongguo_media::transcode` 的同一条流水线，区别只是
 //! 「一集」变「多集」——流复制拼接成全集再转，或逐集转再流复制。
 //! 这里选择后者：内存占用恒定，且能复用单集转码的缓存。
 
@@ -12,10 +12,10 @@ use super::done_inputs;
 use super::guard::RunningMerge;
 use super::progress::ProgressSink;
 use crate::app_state::AppState;
-use crate::domain::model::MergeTask;
-use crate::error::{AppError, AppResult};
-use crate::media::transcode::TranscodeOptions;
 use crate::service::transcode_service::{cache, pipeline};
+use hongguo_common::model::MergeTask;
+use hongguo_common::{AppError, AppResult};
+use hongguo_media::transcode::TranscodeOptions;
 
 /// 兼容合并：把每集转成 H.264 后流复制拼接。
 ///
@@ -76,7 +76,7 @@ pub fn compat_merge(
     // 各集各转各的分辨率，最后死在拼接的宽高一致校验上——实测一部 11 集的
     // 剧（10 集 1080p、1 集 720p）在软解上白转十几分钟才失败。把失败提到
     // 转码之前，并告诉用户哪条路能解决。
-    if !odd.is_empty() && !crate::media::capability::scaling_available() {
+    if !odd.is_empty() && !hongguo_media_platform::capability::scaling_available() {
         return Err(AppError::Media(format!(
             "第 {} 集分辨率与首集不一致，当前转码后端（纯 Rust 软解）不支持缩放，无法合并；\
              安装 ffmpeg 或在支持硬件编码的机器上重试",
@@ -109,7 +109,7 @@ pub fn compat_merge(
     // 收敛不影响已完成的集——软解产物同样是能播的 H.264，只是慢，不值得重做。
     let live_cap = AtomicUsize::new(threads);
     let active = AtomicUsize::new(0);
-    let hw_expected = crate::media::capability::selected_backend().is_hardware();
+    let hw_expected = hongguo_media_platform::capability::selected_backend().is_hardware();
 
     std::thread::scope(|scope| {
         // 每个线程循环领下一集：谁先空出来谁接下一集。
@@ -226,12 +226,12 @@ pub fn compat_merge(
         return Err(AppError::Cancelled);
     }
 
-    let (size, count) = crate::media::remux::concat_copy(&transcoded, &output)?;
+    let (size, count) = hongguo_media::remux::concat_copy(&transcoded, &output)?;
 
     // 产物必须自己解得开才叫成功。流复制拼接对输入的一致性要求极高，
     // 漏检一个条件就会得到一份「有 moov、能打开、但只播得动前几秒」的文件——
     // 那种坏法用户看不出来，只会觉得「合并功能有问题」。
-    let verified = crate::media::demux::demux_file(&output).map_err(|e| {
+    let verified = hongguo_media::demux::demux_file(&output).map_err(|e| {
         let _ = std::fs::remove_file(&output);
         AppError::Media(format!("合并产物校验失败，已删除该文件: {e}"))
     })?;
@@ -280,18 +280,18 @@ fn merge_threads(episodes: usize) -> usize {
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
-    let cap = match crate::media::capability::selected_backend() {
-        crate::media::Backend::Platform => {
-            if crate::media::platform::h264_hw_encoder_available() {
+    let cap = match hongguo_media_platform::capability::selected_backend() {
+        hongguo_media::Backend::Platform => {
+            if hongguo_media_platform::platform::h264_hw_encoder_available() {
                 cores.clamp(1, 4)
             } else {
                 // Apple 软编会话：编码吃满 CPU，2 路封顶
                 cores.clamp(1, 2)
             }
         }
-        crate::media::Backend::FfmpegHw => cores.clamp(1, 6),
-        crate::media::Backend::FfmpegSw => (cores / 2).clamp(1, 4),
-        crate::media::Backend::Rust => 4,
+        hongguo_media::Backend::FfmpegHw => cores.clamp(1, 6),
+        hongguo_media::Backend::FfmpegSw => (cores / 2).clamp(1, 4),
+        hongguo_media::Backend::Rust => 4,
     };
     cap.min(episodes.max(1))
 }
@@ -365,7 +365,7 @@ fn episode_progress<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::DownloadTask;
+    use hongguo_common::model::DownloadTask;
 
     #[test]
     fn single_episode_progress_climbs_fractionally() {

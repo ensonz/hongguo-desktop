@@ -13,15 +13,15 @@ pub mod quick;
 use std::path::{Path, PathBuf};
 
 use crate::app_state::AppState;
-use crate::domain::model::MergeCandidate;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::MergeCandidate;
+use hongguo_common::{AppError, AppResult};
 
 /// 某剧可参与合并的分集，按集号升序。
 ///
 /// 「已完成」与「文件存在」必须同时成立：用户在系统里删过文件时任务记录
 /// 仍留着 completed，只看状态就会把一个不存在的路径交给拼接器。
 pub fn done_inputs(state: &AppState, series_id: &str) -> Vec<(u32, PathBuf)> {
-    crate::media::remux::sort_by_index(
+    hongguo_media::remux::sort_by_index(
         &state
             .queue()
             .of_series(series_id)
@@ -88,7 +88,7 @@ pub fn remove_task(state: &AppState, id: &str) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{DownloadTask, MergeMode, MergeTask};
+    use hongguo_common::model::{DownloadTask, MergeMode, MergeTask};
 
     /// 造一个指向真实临时文件、状态为已完成的分集。
     fn done_task(
@@ -179,7 +179,7 @@ mod tests {
         // 档案被软删除（磁盘清理页「移除记录」）：文件和任务都还在，照样合得起来
         state
             .store
-            .upsert_series(&crate::domain::model::Series {
+            .upsert_series(&hongguo_common::model::Series {
                 series_id: "1".into(),
                 title: "下过的剧".into(),
                 dismissed: true,
@@ -189,7 +189,7 @@ mod tests {
         // 档案在但一集没下：不该出现在候选里
         state
             .store
-            .upsert_series(&crate::domain::model::Series {
+            .upsert_series(&hongguo_common::model::Series {
                 series_id: "2".into(),
                 title: "没下过的剧".into(),
                 ..Default::default()

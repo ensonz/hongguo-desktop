@@ -3,7 +3,7 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 本机 WebView2 能否解 HEVC。
 ///
@@ -11,7 +11,7 @@ use crate::error::AppResult;
 /// （无试编），且结果进程级缓存，只有首次调用碰系统。
 #[tauri::command]
 pub fn playback_capability() -> bool {
-    crate::media::capability::playback::hevc_playable()
+    hongguo_media_platform::capability::playback::hevc_playable()
 }
 
 /// 按需下载并安装 HEVC 视频扩展，返回安装后的能力重探结果。

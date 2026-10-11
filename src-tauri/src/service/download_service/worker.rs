@@ -12,9 +12,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::StreamExt;
 
-use crate::domain::model::Settings;
-use crate::error::{AppError, AppResult};
 use crate::service::download_service::events::ProgressThrottle;
+use hongguo_common::model::Settings;
+use hongguo_common::utils::path::temp_path_for;
+use hongguo_common::{AppError, AppResult};
 
 /// 下载与解密的进度回调。
 ///
@@ -67,9 +68,9 @@ pub async fn download_episode(
     }
 
     let temp_path = temp_path_for(&episode.output_path);
-    let client = crate::domain::api::client::build_client(&episode.settings.proxy)?;
+    let client = hongguo_api::client::build_client(&episode.settings.proxy)?;
 
-    let resp = crate::domain::api::client::get_video_stream(&client, &episode.video_url).await?;
+    let resp = hongguo_api::client::get_video_stream(&client, &episode.video_url).await?;
 
     let total = resp.content_length().unwrap_or(0);
     let mut file = std::fs::File::create(&temp_path).map_err(|e| AppError::Io(e.to_string()))?;
@@ -109,10 +110,8 @@ pub async fn download_episode(
 /// - 明流走 `rename`，临时文件已经不在原处，这里的删除是 no-op。
 fn finalize(temp: &Path, output: &Path, episode: &EpisodeDownload) -> AppResult<()> {
     let result: AppResult<()> = if episode.encrypted {
-        match crate::domain::crypto::key_derive::derive_key(&episode.key_material) {
-            Ok(key) => {
-                crate::domain::mp4::decrypt_file::decrypt_mp4_file(temp, output, &key).map(|_| ())
-            }
+        match hongguo_mp4::crypto::key_derive::derive_key(&episode.key_material) {
+            Ok(key) => hongguo_mp4::decrypt_file::decrypt_mp4_file(temp, output, &key).map(|_| ()),
             Err(e) => Err(e),
         }
     } else {
@@ -121,15 +120,6 @@ fn finalize(temp: &Path, output: &Path, episode: &EpisodeDownload) -> AppResult<
 
     let _ = std::fs::remove_file(temp);
     result
-}
-
-/// 临时文件名：`xxx.mp4` → `xxx.enc.tmp`。
-pub fn temp_path_for(output: &Path) -> PathBuf {
-    let stem = output
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "download".to_string());
-    output.with_file_name(format!("{stem}.enc.tmp"))
 }
 
 /// 清理残留的临时文件。
@@ -144,20 +134,8 @@ mod tests {
     /// 测试用的取消标志（构造 EpisodeDownload 需要一个借用）
     static CANCEL_SLOT: AtomicBool = AtomicBool::new(false);
 
-    #[test]
-    fn temp_path_uses_enc_tmp() {
-        let p = temp_path_for(Path::new("D:/dl/剧名 001.mp4"));
-        assert!(p.to_string_lossy().ends_with("剧名 001.enc.tmp"));
-    }
-
-    #[test]
-    fn temp_path_of_extensionless_falls_back() {
-        assert!(
-            temp_path_for(Path::new("weird"))
-                .to_string_lossy()
-                .ends_with("weird.enc.tmp")
-        );
-    }
+    // `temp_path_for` 本身的用例随函数迁到了 `hongguo_common::utils::path`
+    // （同一份断言不留两处）；这里只留 worker 自己的清理语义。
 
     #[test]
     fn cleanup_temp_is_idempotent() {

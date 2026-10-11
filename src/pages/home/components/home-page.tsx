@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/common/error-state';
@@ -33,8 +33,8 @@ import type { StreamSource } from './top-bar-tabs';
  * （hgplayer 的第四个 tab「关注」= 登录后的追更流，由收藏页承载，并且
  * 推荐 tab 头部已种入云端历史+书架，「你的内容」不缺位。）
  *
- * 切换要快：当前剧进入时就预取下一部的分集档案与流（本地缺失自动回落解析），
- * 真正切过去时只剩取流时间。
+ * 切换要快：进入当前剧就预取相邻剧的分集档案；当前剧首帧一出画再预取
+ * 下一部的流（后端瞄准续播集）——真正切过去时只剩取流时间。
  */
 
 /**
@@ -307,23 +307,32 @@ export function HomePage() {
     if (prevItem) prefetchEpisodes(prevItem.seriesId);
   }, [prevItem, prefetchEpisodes]);
 
-  // 预取下一部剧第 1 集的**流**（取流表 + 渐进填充）：滚过去时缓存已就绪，
-  // 首帧只等头部数据。延迟 1.5 秒让当前剧先把首帧吃下来，别抢带宽；
-  // 同一部剧只取一次。
+  // 预取下一部剧续播集的**流**（取流表 + 渐进填充）：滚过去时缓存已就绪，
+  // 首帧只等头部数据。触发时机 = 当前剧首帧一出画（PlayerView 回调）——
+  // 在播那一路站稳了，带宽才让给铺垫；固定延迟会让下一部的就绪时间跟着
+  // 延迟走，快滚时预取干脆来不及。起播被卡住（自动播被 WebView 拦、网络
+  // 慢）时首帧信号不来，兜底定时照发——慢是慢，不能不备。
+  // 同一部剧只取一次；失败不算数，下次再成为「下一部」时允许重试。
   const streamPrefetched = useRef(new Set<string>());
-  useEffect(() => {
-    if (!nextItem) return;
-    const id = nextItem.seriesId;
+  const prefetchStream = useCallback((id: string) => {
     if (streamPrefetched.current.has(id)) return;
     streamPrefetched.current.add(id);
-    const timer = setTimeout(() => {
-      void play.prefetch(id).catch(() => {
-        // 失败不算数：下次这个剧再成为「下一部」时允许重试
-        streamPrefetched.current.delete(id);
-      });
-    }, 1_500);
+    void play.prefetch(id).catch(() => streamPrefetched.current.delete(id));
+  }, []);
+  /** 当前剧是否已出画：PlayerView 首帧回调记下是哪部剧出的画（渲染期
+      对号，切剧瞬间自动回到「未出画」，无需 effect 追着清）。 */
+  const [firstFrameFor, setFirstFrameFor] = useState('');
+  const stageLive = current !== undefined && firstFrameFor === current.seriesId;
+  useEffect(() => {
+    if (!nextItem || !stageLive) return;
+    prefetchStream(nextItem.seriesId);
+  }, [nextItem, stageLive, prefetchStream]);
+  useEffect(() => {
+    if (!nextItem || stageLive) return;
+    const id = nextItem.seriesId;
+    const timer = setTimeout(() => prefetchStream(id), 8_000);
     return () => clearTimeout(timer);
-  }, [nextItem]);
+  }, [nextItem, stageLive, prefetchStream]);
 
   // 快滑到源尾部时预取下一页；游标越界时也靠它链式拉齐
   useEffect(() => {
@@ -434,7 +443,12 @@ export function HomePage() {
       <div className="absolute inset-0">
         {/* 播放器铺满整页；滚轮/↑↓ 在当前 tab 源内切上一部/下一部剧；
             封面给播放器做占位——切剧的取流间隙显示下一部剧的封面而非黑屏 */}
-        <PlayerView onWheelStep={step} coverUrl={coverForPlayer} overlayMeta={overlayMeta} />
+        <PlayerView
+          onWheelStep={step}
+          coverUrl={coverForPlayer}
+          overlayMeta={overlayMeta}
+          onFirstFrame={() => setFirstFrameFor(current?.seriesId ?? '')}
+        />
       </div>
     </div>
   );

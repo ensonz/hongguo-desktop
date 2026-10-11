@@ -3,16 +3,29 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::error::AppResult;
 use crate::service::storage_service::{
+    cache::{self, CacheClearResult, CacheUsage},
     cleanup, usage,
     usage::{StorageSeriesUsage, StorageUsage},
 };
+use hongguo_common::AppResult;
 
 /// 本地占用统计。
 #[tauri::command]
 pub fn get_storage_usage(state: State<'_, AppState>) -> StorageUsage {
     usage::usage(&state)
+}
+
+/// 三处缓存（在线内存流 / 兼容转码 / 封面转码）的占用总览。
+#[tauri::command]
+pub fn get_cache_usage() -> CacheUsage {
+    cache::usage()
+}
+
+/// 一键清空全部缓存。cover-cache 此前没有任何清理入口，别再拆回多个按钮。
+#[tauri::command]
+pub fn clear_cache() -> CacheClearResult {
+    cache::clear()
 }
 
 /// 按剧聚合的本地占用（清理页剧列表，只含磁盘上真有文件的剧）。
@@ -53,5 +66,5 @@ pub fn delete_all_downloaded(state: State<'_, AppState>) -> AppResult<usize> {
 
 /// 清理后同步任务状态并落盘。
 fn after_cleanup(state: &State<'_, AppState>) -> AppResult<()> {
-    crate::store::persist_tasks(state, "Storage")
+    crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Storage")
 }

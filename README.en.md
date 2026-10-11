@@ -216,15 +216,19 @@ make assets         # regenerate icons / macOS name localization (offline)
 
 ```text
 hongguo-desktop/
+├── crates/
+│   ├── hongguo-common/  # Shared foundation: domain models / unified error / pure helpers / cross-surface constants
+│   ├── hongguo-signer/  # ByteDance request signing + device registration primitives (JS 1:1 port, constants black-box locked)
+│   ├── hongguo-mp4/     # MP4 parsing & CENC decryption
+│   ├── hongguo-api/     # Official API clients (14 domains, one directory per endpoint domain)
+│   ├── hongguo-media/   # Pure-Rust codecs (demux / hevc / remux / transcode / HEIF covers)
+│   ├── hongguo-store/   # Turso embedded database (entity/ split by aggregate / migrations / recovery)
+│   └── hongguo-stream/  # Online stream contract (progressive stream / per (vid, definition) cache / Range replies)
 ├── src-tauri/src/
-│   ├── signer/          # ByteDance request signing (constants are black-box locked, don't edit)
-│   ├── domain/          # Official API clients (api/ one directory per endpoint domain), CENC crypto, MP4 parsing
 │   ├── service/         # App services: download scheduler, playback, merge, transcode, storage…
 │   ├── commands/        # Thin Tauri command layer (~80 commands, mirrors service/)
 │   ├── protocol/        # Custom URI schemes (streaming / local files / cover proxy)
 │   ├── media/           # Codecs & transcode pipeline (platform HW → ffmpeg → pure Rust)
-│   ├── store/           # Turso embedded database (entity/ split by aggregate / migrations / recovery)
-│   ├── utils/           # Pure helpers without business semantics (json / time / hex / url)
 │   └── bootstrap/       # Startup wiring (store → device → rescan → queue → transcode probe)
 └── src/
     ├── pages/           # TanStack file routes (thin shells) + page implementations nearby

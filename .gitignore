@@ -7,8 +7,8 @@ dist-ssr/
 !.vscode/extensions.json
 .idea/
 
-# Rust
-src-tauri/target/
+# Rust（workspace 化后 target 落在仓库根）
+target/
 src-tauri/gen/schemas/
 
 # TypeScript 增量编译缓存
@@ -35,3 +35,8 @@ jadx-status.txt
 # ZCode 工作目录
 .zcode/
 .zcodeignore
+
+# Loomy 运行时工作目录（会话附件等，不入库）
+.loomy-attachments/
+avatar-gen
+skills-lock.json

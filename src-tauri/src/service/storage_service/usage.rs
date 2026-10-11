@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::model::DownloadTask;
+use hongguo_common::model::DownloadTask;
 
 /// 占用统计。只出不进。
 #[derive(Debug, Clone, serde::Serialize)]

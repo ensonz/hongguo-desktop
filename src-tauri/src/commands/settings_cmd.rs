@@ -3,8 +3,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::model::{ProxyTestResult, Settings};
-use crate::error::AppResult;
+use hongguo_common::AppResult;
+use hongguo_common::model::{ProxyTestResult, Settings};
 
 /// 读设置。
 #[tauri::command]
@@ -31,7 +31,7 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResul
 #[tauri::command]
 pub async fn test_proxy(
     state: State<'_, AppState>,
-    draft: Option<crate::domain::model::ProxyConfig>,
+    draft: Option<hongguo_common::model::ProxyConfig>,
 ) -> AppResult<ProxyTestResult> {
     let cfg = draft.unwrap_or_else(|| state.settings().proxy);
     crate::service::settings_service::proxy::test_proxy(&cfg).await

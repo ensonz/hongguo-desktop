@@ -4,14 +4,14 @@
 //! 保存设置后立即生效——`build_client` 每次按当前配置构造 client，
 //! API 解析、视频下载、图片加载统一走它，无需重启。
 //!
-//! client 的构造本身归网络层（[`crate::domain::api::client`]），
+//! client 的构造本身归网络层（[`hongguo_api::client`]），
 //! 这里只管「代理配得好不好、连不连得通」。
 
 use std::time::Instant;
 
-use crate::domain::api::client::build_client;
-use crate::domain::model::{ProxyConfig, ProxyTestResult};
-use crate::error::AppResult;
+use hongguo_api::client::build_client;
+use hongguo_common::AppResult;
+use hongguo_common::model::{ProxyConfig, ProxyTestResult};
 
 /// 测试代理连通性，返回耗时。
 pub async fn test_proxy(draft: &ProxyConfig) -> AppResult<ProxyTestResult> {

@@ -24,7 +24,7 @@ use std::sync::{Mutex, OnceLock};
 
 use tauri::http::{Request, Response, StatusCode};
 
-use super::{COVER_SCHEME, LOCAL_SCHEME, STREAM_SCHEME, cover, local, parse_stream_path, stream};
+use super::{COVER_SCHEME, LOCAL_SCHEME, STREAM_SCHEME, cover, local, parse_stream_path};
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
@@ -205,7 +205,7 @@ fn serve_stream(path: &str, range: Option<String>) -> Response<Vec<u8>> {
             &format!("无法解析的流地址: {path}"),
         );
     };
-    match stream::serve(vid, definition, range.as_deref()) {
+    match hongguo_stream::serve(vid, definition, range.as_deref()) {
         Ok((status, headers, data)) => build_response(status, headers, data),
         Err(msg) => text_response(StatusCode::NOT_FOUND, &msg),
     }

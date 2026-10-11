@@ -14,8 +14,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::app_state::AppState;
-use crate::domain::model::{DownloadTask, Series, Settings};
-use crate::error::AppResult;
+use hongguo_common::AppResult;
+use hongguo_common::model::{DownloadTask, Series, Settings};
 
 /// 判定「磁盘上这个文件是一条有效分集」的最小体积。
 ///
@@ -91,7 +91,7 @@ pub fn rescan_from_disk(state: &AppState) -> AppResult<RescanSummary> {
     }
 
     if !summary.added.is_empty() {
-        crate::store::persist_tasks(state, "Rescan")?;
+        crate::service::download_service::persist_tasks(&state.store, &state.queue(), "Rescan")?;
     }
     Ok(summary)
 }
@@ -186,7 +186,7 @@ fn trailing_index(stem: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{Episode, TaskStatus};
+    use hongguo_common::model::{Episode, TaskStatus};
 
     /// 临时目录 + **数据目录重定向守卫**。
     ///
@@ -194,11 +194,11 @@ mod tests {
     /// 跑一次测试就把开发机的下载记录覆盖成测试夹具（剧名「我的剧」会
     /// 出现在真实应用里，真踩过一次）。守卫必须在测试体内存活到结尾，
     /// 所以和目录一起返回，调用方想省都省不掉。
-    fn sandbox(tag: &str) -> (PathBuf, crate::store::paths::ScopedDataDir) {
+    fn sandbox(tag: &str) -> (PathBuf, hongguo_store::paths::ScopedDataDir) {
         let dir = std::env::temp_dir().join(format!("hg-rescan-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let scope = crate::store::paths::ScopedDataDir::new(&dir);
+        let scope = hongguo_store::paths::ScopedDataDir::new(&dir);
         (dir, scope)
     }
 
@@ -344,7 +344,7 @@ mod tests {
         let state = AppState::default();
         series_in(&state, series_with("我的剧", vec![7]));
         let mut settings = settings_with_dir(&root);
-        settings.naming = crate::domain::model::settings::NamingTemplate::TitleIndexEpisode;
+        settings.naming = hongguo_common::model::settings::NamingTemplate::TitleIndexEpisode;
         state.replace_settings(settings);
         let dir = make_series_dir(&root, "我的剧");
 

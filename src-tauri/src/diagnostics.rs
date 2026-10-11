@@ -52,7 +52,7 @@ fn write_report(info: &std::panic::PanicHookInfo<'_>) {
         payload
     );
     log::error!("panic 现场（另存于数据目录 crash.log）:\n{report}");
-    append_line(&crate::store::paths::data_dir().join("crash.log"), &report);
+    append_line(&hongguo_store::paths::data_dir().join("crash.log"), &report);
 }
 
 /// 追加一行到崩溃文件；超限清空重写；一切失败静默放弃。

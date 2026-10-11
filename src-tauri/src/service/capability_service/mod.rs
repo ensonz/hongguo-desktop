@@ -6,14 +6,16 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::model::ProxyConfig;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::ProxyConfig;
+use hongguo_common::{AppError, AppResult};
 
 /// HEVC 视频扩展 appx 的下载直链与期望 SHA-256。
 ///
-/// 链接是维护者的镜像（pixeldrain），换镜像时同步改这两个常量；哈希不一致
-/// 一律拒装——防链接被换、传输损坏，也防第三方文件床的任何意外。
-const HEVC_APPX_URL: &str = "https://pixeldrain.com/api/file/jZmUr1cp?download";
+/// 链接是维护者 Gitee 仓库根目录的仓库内直链（国内直连友好；原 pixeldrain
+/// 镜像直链已被其反盗链策略 403 拒绝），换镜像时同步改这两个常量；哈希
+/// 不一致一律拒装——防链接被换、传输损坏，也防文件床的任何意外。
+const HEVC_APPX_URL: &str =
+    "https://gitee.com/it00021hot/hongguo-desktop/raw/main/HEVC视频扩展-双击安装.appx";
 const HEVC_APPX_SHA256: &str = "46695112aa70a05faf71c69ecf4ff0502a3b82d152168d3ffb67219eafe51b85";
 
 /// 按需下载并安装 HEVC 视频扩展，返回安装后的能力重探结果。
@@ -33,7 +35,7 @@ pub async fn install_hevc_extension(proxy: ProxyConfig) -> AppResult<bool> {
     let _ = std::fs::remove_file(&path);
     installed?;
 
-    Ok(crate::media::capability::playback::redetect())
+    Ok(hongguo_media_platform::capability::playback::redetect())
 }
 
 fn temp_path() -> AppResult<PathBuf> {
@@ -46,7 +48,7 @@ fn temp_path() -> AppResult<PathBuf> {
 
 async fn download(path: &Path, proxy: ProxyConfig) -> AppResult<()> {
     // 复用应用的代理配置：微软源/镜像源在部分网络下同样需要代理
-    let client = crate::domain::api::client::build_client(&proxy)?;
+    let client = hongguo_api::client::build_client(&proxy)?;
     let bytes = client
         .get(HEVC_APPX_URL)
         .timeout(std::time::Duration::from_secs(120))

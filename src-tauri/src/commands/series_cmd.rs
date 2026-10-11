@@ -3,9 +3,9 @@
 use tauri::{Emitter, State};
 
 use crate::app_state::AppState;
-use crate::domain::model::Series;
-use crate::error::AppResult;
 use crate::service::series_service;
+use hongguo_common::AppResult;
+use hongguo_common::model::Series;
 
 /// 取某部剧的完整档案（含分集）。
 ///
@@ -81,9 +81,9 @@ pub async fn resolve_series(state: State<'_, AppState>, input: String) -> AppRes
 pub async fn related_series(
     state: State<'_, AppState>,
     series_id: String,
-) -> AppResult<crate::domain::api::detail::RelatedSeries> {
+) -> AppResult<hongguo_api::detail::RelatedSeries> {
     let env = state.api_env();
-    crate::domain::api::detail::fetch_related_series(&series_id, &env).await
+    hongguo_api::detail::fetch_related_series(&series_id, &env).await
 }
 
 /// 详情页头部元信息（追剧数/播放量/季徽/题材标签/备案号，官方
@@ -93,7 +93,7 @@ pub async fn related_series(
 pub async fn series_meta(
     state: State<'_, AppState>,
     series_id: String,
-) -> AppResult<crate::domain::api::detail::SeriesMeta> {
+) -> AppResult<hongguo_api::detail::SeriesMeta> {
     let env = state.api_env();
-    crate::domain::api::detail::fetch_series_meta(&series_id, &env).await
+    hongguo_api::detail::fetch_series_meta(&series_id, &env).await
 }

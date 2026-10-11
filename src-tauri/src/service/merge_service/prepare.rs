@@ -7,9 +7,9 @@ use std::path::Path;
 
 use super::done_inputs;
 use crate::app_state::AppState;
-use crate::domain::model::MergePreflight;
-use crate::error::AppResult;
-use crate::media::{codec_probe, disk_space};
+use hongguo_common::AppResult;
+use hongguo_common::model::MergePreflight;
+use hongguo_media::{codec_probe, disk_space};
 
 /// 收集某剧已下载的集（按集号升序），并做合并前校验。
 pub fn preflight(state: &AppState, series_id: &str) -> AppResult<MergePreflight> {
@@ -80,8 +80,8 @@ fn warnings_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{DownloadTask, Settings};
-    use crate::domain::mp4::fixtures::{TrackSpec, mp4};
+    use hongguo_common::model::{DownloadTask, Settings};
+    use hongguo_mp4::fixtures::{TrackSpec, mp4};
     use std::path::PathBuf;
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-preflight-{tag}-{}", std::process::id()));

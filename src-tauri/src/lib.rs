@@ -11,14 +11,11 @@ mod app_state;
 mod bootstrap;
 mod commands;
 mod diagnostics;
-mod domain;
-mod error;
-mod media;
 mod protocol;
 mod service;
-mod signer;
-mod store;
-mod utils;
+mod testing;
+
+use hongguo_common::{AppError, AppResult};
 
 /// 运行应用。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -98,8 +95,7 @@ pub fn run() {
                     if let tauri::WindowEvent::Resized(_) = event
                         && let Ok(now) = win.is_minimized()
                     {
-                        let prev = minimized
-                            .swap(now, std::sync::atomic::Ordering::AcqRel);
+                        let prev = minimized.swap(now, std::sync::atomic::Ordering::AcqRel);
                         if prev != now
                             && let Err(e) = win.emit("window-minimize", now)
                         {
@@ -208,11 +204,11 @@ pub fn run() {
             commands::transcode_cmd::decode_capability,
             commands::transcode_cmd::redetect_capability,
             commands::transcode_cmd::transcode_for_playback,
-            commands::transcode_cmd::clear_compat_cache,
-            commands::transcode_cmd::clear_online_cache,
             // 存储
             commands::storage_cmd::get_storage_usage,
             commands::storage_cmd::get_storage_series,
+            commands::storage_cmd::get_cache_usage,
+            commands::storage_cmd::clear_cache,
             commands::storage_cmd::delete_series_files,
             commands::storage_cmd::delete_episode_file,
             commands::storage_cmd::delete_all_downloaded,
@@ -254,7 +250,7 @@ fn bring_back_active_window(app: &tauri::AppHandle) {
 fn build_app_state() -> std::sync::Arc<app_state::AppStateInner> {
     let db = match open_store_with_lock_retry() {
         Ok(db) => db,
-        Err(error::AppError::StoreLocked(e)) => {
+        Err(AppError::StoreLocked(e)) => {
             log::error!(
                 "[Store] 数据库被占用，终止启动: {e}\n\
                  另一个实例可能还在运行（隐身模式会把窗口整个藏掉）。\
@@ -282,13 +278,13 @@ fn build_app_state() -> std::sync::Arc<app_state::AppStateInner> {
 }
 
 /// 开库；被锁时稍等重试一次（覆盖两实例几乎同时启动、败者尚未退出的窗口期）。
-fn open_store_with_lock_retry() -> error::AppResult<store::Store> {
-    match store::Store::open(store::paths::db_file()) {
+fn open_store_with_lock_retry() -> AppResult<hongguo_store::Store> {
+    match hongguo_store::Store::open(hongguo_store::paths::db_file()) {
         Ok(db) => Ok(db),
-        Err(error::AppError::StoreLocked(first)) => {
+        Err(AppError::StoreLocked(first)) => {
             log::warn!("[Store] 数据库暂时被锁（{first}），1s 后重试一次");
             std::thread::sleep(std::time::Duration::from_secs(1));
-            store::Store::open(store::paths::db_file())
+            hongguo_store::Store::open(hongguo_store::paths::db_file())
         }
         Err(e) => Err(e),
     }

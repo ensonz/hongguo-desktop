@@ -4,9 +4,9 @@ use tauri::State;
 
 use super::{online, position};
 use crate::app_state::AppState;
-use crate::domain::model::{PlayRequest, PlayResponse};
-use crate::error::{AppError, AppResult};
-use crate::store::Store;
+use hongguo_common::model::{PlayRequest, PlayResponse};
+use hongguo_common::{AppError, AppResult};
+use hongguo_store::Store;
 
 /// 解析播放请求。
 ///
@@ -102,6 +102,16 @@ pub async fn resolve_play(
                 &request.series_id,
                 request.vid_index + 1,
             );
+            // 连播下一集的**流**预取：集间切换此前完全裸奔，自动连播每集
+            // 都冷走取流表+探针链（实测 1.4s）——切剧预取只救得了「换一部剧」。
+            online::schedule_next_episode_prefetch(
+                app,
+                &state.store,
+                state.settings(),
+                state.api_env(),
+                &request.series_id,
+                request.vid_index + 1,
+            );
             Ok(PlayResponse {
                 url: prepared.url,
                 online: true,
@@ -141,7 +151,7 @@ pub(crate) fn episode_vid(store: &Store, series_id: &str, vid_index: u32) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{Episode, Series};
+    use hongguo_common::model::{Episode, Series};
 
     fn store_with(episodes: Vec<Episode>) -> Store {
         let store = Store::open_memory().expect("测试内存库");

@@ -1,21 +1,21 @@
 //! 自定义 URI 协议：视频流、本地文件与封面转码供给。
 //!
 //! - [`local`]：`hongguo-local://` 本地成品文件（支持 Range 拖动）
-//! - [`stream`]：`hongguo-stream://` 在线播放的内存渐进流
+//! - `hongguo-stream://`：在线播放的内存渐进流——数据面、缓存与 Range 应答
+//!   都搬到了 `hongguo-stream` crate，本模块只做路由与 URL 解析/拼装
 //! - [`cover`]：`hongguo-cover://` HEIC 封面下载转 JPEG（落盘缓存）
 
 pub mod cover;
 pub mod local;
-pub mod range;
 pub mod register;
-pub mod stream;
 
-/// 本地文件协议 scheme。
-pub const LOCAL_SCHEME: &str = "hongguo-local";
-/// 在线流协议 scheme。
-pub const STREAM_SCHEME: &str = "hongguo-stream";
-/// 封面转码协议 scheme。
-pub const COVER_SCHEME: &str = "hongguo-cover";
+/// 自定义协议 scheme 名（前后端契约）。
+///
+/// 定义已上移到 `hongguo-common::consts::scheme`（跨 crate 共用）；此处按本
+/// 模块旧名再导出，`register.rs` 等沿用 `LOCAL_SCHEME` 等命名不改。
+pub use hongguo_common::consts::scheme::{
+    COVER as COVER_SCHEME, LOCAL as LOCAL_SCHEME, STREAM as STREAM_SCHEME,
+};
 
 /// 自定义协议对外的 URL 前缀（按平台选择形态）。
 ///

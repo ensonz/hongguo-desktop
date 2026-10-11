@@ -4,7 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { EpisodePicker } from '@/pages/series/components/episode-picker';
+import { EpisodeRangePicker } from '@/pages/series/components/episode-range-picker';
 import { useDownloadActions } from '@/service/queries';
 import { t, tf } from '@/locales';
 import type { Episode } from '@/service/schema';
@@ -57,7 +57,7 @@ export function DownloadSheet({ seriesId, episodes, defaultSelected, open, onOpe
           <SheetTitle>{t('player.downloadToLocal')}</SheetTitle>
         </SheetHeader>
         <div className="py-3">
-          <EpisodePicker episodes={episodes} selected={selected} onChange={setSelected} />
+          <EpisodeRangePicker episodes={episodes} selected={selected} onChange={setSelected} />
         </div>
         <div className="flex justify-end gap-2 pb-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>

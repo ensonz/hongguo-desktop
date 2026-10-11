@@ -3,8 +3,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::model::{PlayRequest, PlayResponse};
-use crate::error::AppResult;
+use hongguo_common::AppResult;
+use hongguo_common::model::{PlayRequest, PlayResponse};
 
 #[tauri::command]
 pub async fn play_series(
@@ -15,7 +15,12 @@ pub async fn play_series(
     crate::service::play_service::local::resolve_play(&app, &state, &request).await
 }
 
-/// 预取一部剧第 1 集的在线流（沉浸流「一切就下一部」）。
+/// 与首页起点决策同口径（home-page 的起点 effect：看过 >3 秒就续播那一集）。
+/// 预取要瞄准的是切过去**真正会播**的那一集——固定第 1 集在看过几集的剧上
+/// 永远命中不了，「你的内容」种子（历史/书架排头）部部如此。
+const RESUME_THRESHOLD_SECS: f64 = 3.0;
+
+/// 预取一集的在线流（沉浸流「一切就下一部」）。
 ///
 /// 幂等且静默：本地没档案就先解析登记（通常前端已预取过分集，这里秒回），
 /// 流已取/在取直接返回；取流表失败不报错——预取是优化，失败大不了现场取。
@@ -35,7 +40,18 @@ pub async fn play_prefetch(
             s
         }
     };
-    let Some(ep) = series.episodes.iter().find(|e| e.vid_index == 1) else {
+    // 起点对齐首页的续播决策：看过 >3 秒的剧预取上次看到的那一集；
+    // 没看过的（或那一集已不在分集表里）回落第 1 集。
+    let vid_index = match state.store.series_last_position(&series_id)? {
+        Some((idx, p)) if p.current_time > RESUME_THRESHOLD_SECS => idx,
+        _ => 1,
+    };
+    let ep = series
+        .episodes
+        .iter()
+        .find(|e| e.vid_index == vid_index)
+        .or_else(|| series.episodes.iter().find(|e| e.vid_index == 1));
+    let Some(ep) = ep else {
         return Ok(());
     };
     if ep.vid.is_empty() {
@@ -75,7 +91,7 @@ pub async fn save_playback_position(
         )
     })
     .await
-    .map_err(|e| crate::error::AppError::Internal(format!("保存播放进度失败: {e}")))?
+    .map_err(|e| hongguo_common::AppError::Internal(format!("保存播放进度失败: {e}")))?
 }
 
 /// 一部剧最近看到的那一集（详情页「继续看」的数据源）。
@@ -86,13 +102,13 @@ pub async fn save_playback_position(
 pub async fn series_progress(
     state: State<'_, AppState>,
     series_id: String,
-) -> AppResult<Option<crate::domain::model::SeriesProgress>> {
+) -> AppResult<Option<hongguo_common::model::SeriesProgress>> {
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || store.series_last_position(&series_id))
         .await
-        .map_err(|e| crate::error::AppError::Internal(format!("读取播放进度失败: {e}")))?
+        .map_err(|e| hongguo_common::AppError::Internal(format!("读取播放进度失败: {e}")))?
         .map(|hit| {
-            hit.map(|(vid_index, p)| crate::domain::model::SeriesProgress {
+            hit.map(|(vid_index, p)| hongguo_common::model::SeriesProgress {
                 vid_index,
                 current_time: p.current_time,
                 duration: p.duration,

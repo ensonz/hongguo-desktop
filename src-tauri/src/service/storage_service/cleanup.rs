@@ -3,7 +3,7 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 删除某部剧的全部本地文件（含合并产物与残留临时文件，空目录一并删除）。
 pub fn delete_series(state: &State<'_, AppState>, series_id: &str) -> AppResult<usize> {

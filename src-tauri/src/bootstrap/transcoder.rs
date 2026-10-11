@@ -2,6 +2,6 @@
 
 /// 启动时探测一次并缓存结果。
 pub fn init() -> tauri::Result<()> {
-    crate::media::capability::probe::warm_up();
+    hongguo_media_platform::capability::probe::warm_up();
     Ok(())
 }

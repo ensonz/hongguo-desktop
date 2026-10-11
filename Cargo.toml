@@ -1,0 +1,101 @@
+# 红果桌面版 —— Rust workspace 根（阶段 0：src-tauri 原地成为唯一 member）。
+#
+# 本文件承载三件事，每件都「必须在根」：
+#   1. [workspace] members —— 自底向上拆分后逐个加入（见 docs/architecture-refactor.md §8）；
+#   2. [patch.crates-io] —— patch 仅在根 manifest 生效，留在 member 里会被忽略；
+#   3. [profile.*] —— 同上，Cargo 只认根 manifest 的 profile 定义。
+#
+# 随之而动的还有 Cargo.lock 与 target/：workspace 化后都落在仓库根。
+
+[workspace]
+# 虚拟 manifest 必须显式声明 resolver，否则默认退回 "1"——edition 2024 的
+# feature 解析语义会静默变化。
+resolver = "3"
+members = [
+    "crates/hongguo-api",
+    "crates/hongguo-common",
+    "crates/hongguo-media",
+    "crates/hongguo-media-platform",
+    "crates/hongguo-mp4",
+    "crates/hongguo-signer",
+    "crates/hongguo-store",
+    "crates/hongguo-stream",
+    "src-tauri",
+]
+# vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被
+# path/patch 引用的包会被 Cargo 自动收成 member；若不排除，门禁会去 lint
+# 上游代码（clippy -D warnings 必挂），cargo test 也会跑它们的用例。
+exclude = ["vendor/*"]
+
+# 各 crate 共享的 package 字段：发版只改这里一处（另需改 package.json 与
+# tauri.conf.json），成员用 `xxx.workspace = true` 继承。
+[workspace.package]
+version = "0.4.4"
+edition = "2024"
+# MSRV 跟随当前 stable 工具链（1.99）。应用不是库，MSRV 只影响依赖解析。
+rust-version = "1.99"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = ["hongguo-desktop contributors"]
+
+# 根治「测试高并发间歇崩」：rusty_h264-common 默认给整个进程强装第三方分配器
+# rusty_alloc 1.1.6（`rusty_alloc-api = "=1.1.6"` 锁死版本；rusty_h264 default 转发
+# global-alloc，feature unification 关不掉）。1.1.6 有并发 bug——多线程分配下整个
+# 进程间歇 abort（"memory allocation of 22906492240 bytes failed"），全量 cargo
+# test 默认并发 6 次崩 2 次，生产跑转码/在线播放同样暴露。
+#
+# 两层处理：
+# 1. vendor/rusty_h264_common —— patch rusty_h264-common 0.16.0，摘掉它的
+#    #[global_allocator]（进程回到 Rust 标准分配器，根治；上游如果哪天改用
+#    修好的 alloc 再整体撤掉）。
+# 2. vendor/rusty_alloc* —— rusty_alloc 2.2.2（2026-10-01，修了 9 月一连串
+#    并发问题）以 1.1.6 的版本号顶替。global-alloc feature 虽已不生效，
+#    但保留：将来谁把分配器装回去时用的也是修过的版本。
+[patch.crates-io]
+# muxide 0.2.5 的 B 帧流封装有设计缺陷：interleave schedule 按 PTS 排序
+# 写 mdat，而 stco 按写入序、stsz/stts/ctts 按输入序构建——B 帧流表与
+# 数据互相矛盾，产物不可解（vendor 补丁把视频排序键改为 dts=解码序，
+# 无 B 帧的流 dts==pts 行为不变）。上游 0.2.5 为最新版，待修复后回收。
+muxide = { path = "vendor/muxide" }
+rusty_alloc = { path = "vendor/rusty_alloc" }
+rusty_alloc-api = { path = "vendor/rusty_alloc_api" }
+rusty_h264-common = { path = "vendor/rusty_h264_common" }
+# tauri-plugin-webdriver 0.2.3 在 Windows 上声明 webview2-com 0.38 / windows
+# 0.61，而 tauri 2.12 已把 webview2-com 抬到 0.39（windows 0.62）——同一依赖图
+# 里两套 windows-core 类型不互通，插件 platform/windows.rs 拿 tauri 侧的
+# ICoreWebView2 配自家旧版 handler 直接编译失败（macOS 不受影响，webview2-com
+# 只进 Windows 目标）。vendor 补丁把三件套抬到 0.39/0.62 并适配 API 改动。
+# 上游 0.2.3 为最新版，待兼容版发布后回收。
+tauri-plugin-webdriver = { path = "vendor/tauri_plugin_webdriver" }
+
+# CI 实测（Windows，2026-10）：fat LTO + 单 codegen 单元让 rustc 段 17-18 分钟，
+# 是发版流水线的大头。换 thin LTO + 默认并行单元后编译时间砍半以上；本项目的
+# 热点（编解码 SIMD、运行期指令集分发）都在独立 crate 里自带优化，自身代码是
+# 胶水层，跨 crate 全量优化收益本来就小。体积略涨（<5%），换发版速度值得。
+#
+# ⚠️ 绝不能加 panic = "abort"（2026-10-09 小窗闪退实录）。abort 策略让两类
+# catch 机制在 release 里静默失效，而 dev 默认 unwind——线上和开发行为分裂：
+# 1. wry 的 WKURLSchemeHandler 回包用 objc2::exception::catch 兜 NSException；
+#    abort 下 catch 的着陆垫被替换成 panic_cannot_unwind，ObjC 异常直接
+#    abort——进小窗 resize 时 WebKit 取消 in-flight 流请求，worker 回包撞上
+#    已停止的 task 即抛异常，v0.1.0 装机版小窗必闪退（crash.log: "panic in a
+#    function that cannot unwind"，线程 hongguo-proto-stream-1）。
+# 2. protocol/register.rs 的 catch_unwind 三层防线整体变 no-op——协议路径上
+#    任何一个 panic 都从「一条请求回 500」升级成全进程 abort，2026-10-07
+#    那次「回调 panic → abort → 僵尸进程锁库」的教训在 release 里等于没修。
+# 代价是二进制略大（unwind 表）与微弱性能差，换正确性，值。
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+# 只对这一个依赖关掉 debug 断言，别把自己的代码也一起降级。
+#
+# `rusty_h265-accel` 的去块滤波在帧边界有个过严的 `debug_assert`
+# （deblock.rs:331，水平边要求 x >= 4）。1080p 真实码流第一帧就踩到，
+# 结果 dev 下整个软解必然 panic，转码兜底这条路等于不存在。
+#
+# 它确实只是一条断言：release 不编译它，该段 SIMD 路径又由 `if ok` 守住
+# 会整段跳过，实测 release 下 1080p 解码正常、帧数与样本数一致。
+# 不这么配就只能全局降级或强制 release，那会把真实断言一起埋掉。
+[profile.dev.package.rusty_h265-accel]
+debug-assertions = false

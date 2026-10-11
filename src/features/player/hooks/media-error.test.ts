@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { classifyMediaError } from './media-error';
 
 describe('classifyMediaError', () => {
-  it('解码类（3 DECODE / 4 SRC_NOT_SUPPORTED）判 decode——确定性失败重试无意义', () => {
+  it('解码类（3 DECODE / 4 SRC_NOT_SUPPORTED）判 decode——瞬时/确定两种人群都落此类', () => {
     expect(classifyMediaError(3)).toBe('decode');
     expect(classifyMediaError(4)).toBe('decode');
   });

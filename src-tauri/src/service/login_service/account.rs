@@ -1,9 +1,9 @@
 //! 账号会话落库与资料刷新。
 
 use crate::app_state::AppState;
-use crate::domain::api::login::{self, PassportUser};
-use crate::domain::model::AccountState;
-use crate::error::{AppError, AppResult};
+use hongguo_api::login::{self, PassportUser};
+use hongguo_common::model::AccountState;
+use hongguo_common::{AppError, AppResult};
 
 /// 登录成功产物 → 账号快照（`login_at` 用 UTC 毫秒时间戳，与全库其它
 /// 时间字段一致；曾用秒级导致前端展示口径不同）。

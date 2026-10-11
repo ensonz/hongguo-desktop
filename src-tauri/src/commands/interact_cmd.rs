@@ -7,12 +7,12 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::interact::{
+use hongguo_api::interact::{
     BookshelfEntry, CommentItem, InteractionState, ReplyItem, collect_series, collect_series_batch,
     delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
     fetch_interaction_state, send_comment, send_danmaku, send_reply, send_review_reply,
 };
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 批量收藏/取消收藏的单条引用。
 #[derive(Debug, Deserialize)]
@@ -35,7 +35,7 @@ pub async fn danmaku_send(
     let env = state.api_env();
     let text = text.trim().to_string();
     if text.is_empty() {
-        return Err(crate::error::AppError::Media("弹幕内容为空".into()));
+        return Err(hongguo_common::AppError::Media("弹幕内容为空".into()));
     }
     let cid = send_danmaku(&group_id, &book_id, &text, offset_ms, &env).await?;
     log::info!("[Interact] danmaku sent group={group_id} offset={offset_ms}ms cid={cid}");
@@ -54,7 +54,7 @@ pub async fn comment_send(
     let env = state.api_env();
     let text = text.trim().to_string();
     if text.is_empty() {
-        return Err(crate::error::AppError::Media("评论内容为空".into()));
+        return Err(hongguo_common::AppError::Media("评论内容为空".into()));
     }
     send_comment(&group_id, &book_id, &text, &env).await
 }
@@ -74,7 +74,7 @@ pub async fn comment_reply(
     let env = state.api_env();
     let text = text.trim().to_string();
     if text.is_empty() {
-        return Err(crate::error::AppError::Media("回复内容为空".into()));
+        return Err(hongguo_common::AppError::Media("回复内容为空".into()));
     }
     send_reply(
         &group_id,
@@ -94,7 +94,7 @@ pub async fn bookshelf_list(state: State<'_, AppState>) -> AppResult<Vec<Bookshe
         .settings()
         .account
         .filter(|a| !a.user_id.is_empty())
-        .ok_or_else(|| crate::error::AppError::Auth("未登录".into()))?;
+        .ok_or_else(|| hongguo_common::AppError::Auth("未登录".into()))?;
     let env = state.api_env();
     fetch_bookshelf(&account.user_id, &env).await
 }
@@ -148,7 +148,7 @@ pub async fn review_reply_send(
     let env = state.api_env();
     let text = text.trim().to_string();
     if text.is_empty() {
-        return Err(crate::error::AppError::Media("回复内容为空".into()));
+        return Err(hongguo_common::AppError::Media("回复内容为空".into()));
     }
     send_review_reply(
         &series_id,

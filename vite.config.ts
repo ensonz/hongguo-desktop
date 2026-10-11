@@ -35,7 +35,9 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      // target/ 在 workspace 化后位于仓库根，不排除的话 chokidar 会去盯
+      // target/debug/deps 下的 exe/pdb——被运行中的进程锁住，Windows 上报 EBUSY。
+      ignored: ['**/src-tauri/**', '**/target/**', '**/vendor/**'],
     },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],

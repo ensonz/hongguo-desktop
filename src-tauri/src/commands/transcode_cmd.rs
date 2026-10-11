@@ -1,23 +1,23 @@
-//! 转码能力查询、播放兼容兜底与转码缓存清理。
+//! 转码能力查询与播放兼容兜底。
 //!
-//! 真正的转码实现在 [`crate::media::transcode`]，由合并功能
+//! 真正的转码实现在 [`hongguo_media::transcode`]，由合并功能
 //! （`merge_service::compat`）与播放兼容兜底（`play_service::compat_play`）驱动。
+//! 缓存清理已并入 storage_cmd（`get_cache_usage` / `clear_cache`）。
 
 use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::Emitter;
 
-use crate::error::{AppError, AppResult};
-use crate::media::capability::probe::DecodeCapability;
 use crate::service::download_service::events::names::COMPAT_PROGRESS;
 use crate::service::play_service::compat_play::{self, CompatSource};
-use crate::service::transcode_service::cache;
+use hongguo_common::{AppError, AppResult};
+use hongguo_media_platform::capability::probe::DecodeCapability;
 
 /// 硬解/软解能力。
 #[tauri::command]
 pub fn decode_capability() -> DecodeCapability {
-    crate::media::capability::probe::detect()
+    hongguo_media_platform::capability::probe::detect()
 }
 
 /// 丢弃缓存重新探测一次 ffmpeg 与编码器。
@@ -27,7 +27,7 @@ pub fn decode_capability() -> DecodeCapability {
 /// 应用才生效。给出这条路后设置页就能点一下解决。
 #[tauri::command]
 pub fn redetect_capability() -> DecodeCapability {
-    crate::media::capability::probe::redetect()
+    hongguo_media_platform::capability::probe::redetect()
 }
 
 /// 兜底转码的结果（前端直接消费）。
@@ -102,10 +102,10 @@ pub async fn transcode_for_playback(
         };
         let settings = state.settings();
         // 转码源必须保持全量候选：HEVC-only 的剧集兜底转码还要拿 HEVC 源
-        let play = crate::domain::api::play_url::fetch_play_url(
+        let play = hongguo_api::play_url::fetch_play_url(
             &vid,
             None,
-            crate::domain::api::stream_pick::DecoderCapability::Full,
+            hongguo_api::stream_pick::DecoderCapability::Full,
             &state.api_env(),
         )
         .await?;
@@ -129,16 +129,4 @@ pub async fn transcode_for_playback(
         backend: r.backend,
         elapsed_ms: r.elapsed_ms,
     })
-}
-
-/// 清空转码缓存。
-#[tauri::command]
-pub fn clear_compat_cache() -> usize {
-    cache::clear()
-}
-
-/// 清空在线流缓存。
-#[tauri::command]
-pub fn clear_online_cache() -> usize {
-    crate::service::play_service::online::clear()
 }

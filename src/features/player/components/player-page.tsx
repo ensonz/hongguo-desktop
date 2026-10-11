@@ -33,6 +33,9 @@ import { cn } from '@/lib/utils';
 import { useIncognitoMode } from './incognito';
 import { useMinimizeAutoPause } from '../hooks/use-minimize-pause';
 import { classifyMediaError } from '../hooks/media-error';
+import type { MediaErrorKind } from '../hooks/media-error';
+import { emptyFailureCounts, recoveryAction } from '../hooks/recovery-policy';
+import type { FailureCounts } from '../hooks/recovery-policy';
 import { hevcSession } from '../hooks/hevc-session';
 import { usePlaybackSource } from '../hooks/use-playback-source';
 import { useTranscodeFallback } from '../hooks/use-transcode-fallback';
@@ -107,6 +110,7 @@ export function PlayerView({
   onWheelStep,
   coverUrl,
   overlayMeta,
+  onFirstFrame,
 }: {
   /**
    * 滚轮/↑↓ 的语义由宿主页给：首页（沉浸流）是切**上一部/下一部剧**，
@@ -125,6 +129,12 @@ export function PlayerView({
    * 热度在剧名上方，角标在剧名前。
    */
   overlayMeta?: { heatText?: string; seasonTag?: string; badge?: string };
+  /**
+   * 首帧真正出画的回调：沉浸流宿主用它给「预取下一部」发令——在播的
+   * 一路站稳了，带宽才让给下一部的铺垫。onPlaying 在个别 WebView 起播
+   * 路径上不触发，timeupdate 的出画兜底同样会调用；重复调用无副作用。
+   */
+  onFirstFrame?: () => void;
 }) {
   const navigate = useNavigate();
   const seriesPanelOpen = usePlayerStore((s) => s.seriesPanelOpen);
@@ -280,6 +290,17 @@ export function PlayerView({
   useEffect(() => {
     onDecodeFailureRef.current = requestDecodeFallback;
   }, [requestDecodeFallback]);
+
+  // 失败账本：本集各类错误已发生几次，recovery-policy 据此裁决「首次重试/
+  // 复发升级」。ref 而非 state——只在错误事件回调里读写，不驱动渲染；
+  // 带集 key 读时校验，换集自然归零。
+  const failuresRef = useRef<{ key: string; counts: FailureCounts } | null>(null);
+  const failuresOf = () =>
+    failuresRef.current?.key === episodeKey ? failuresRef.current.counts : emptyFailureCounts();
+  const recordFailure = (kind: MediaErrorKind) => {
+    const counts = failuresOf();
+    failuresRef.current = { key: episodeKey, counts: { ...counts, [kind]: counts[kind] + 1 } };
+  };
 
   // 剧终三级接力（下一季→宿主推荐/猜你喜欢）与连播锁定抽在
   // use-binge-relay；setSlideDir 是「内容从哪边滑入」的方向信号，
@@ -447,21 +468,22 @@ export function PlayerView({
     // 带上浏览器给的 MediaError 编号：解码错(3)和网络错(2)的修法完全不同
     const me = videoRef.current?.error;
     const detail = me ? `（MediaError ${me.code}${me.message ? `: ${me.message}` : ''}）` : '';
-    // 在线渐进流断供可自愈（重新 prepare 换新流接着播，位置不丢）：
-    // 每集只自动兜一次，兜底转码进行中不抢跑；本地文件/转码产物坏了
-    // 重试也是白搭，直接报错。在线的失败把 <video> 撤下来，换成封面 +
-    // 明确错误 + 重试按钮，不再是一根小小的报错条挂在冻结画面上。
+    // 在线渐进流断供可自愈（重新 prepare 换新流接着播，位置不丢）：每类
+    // 错误各有一次重试预算，用完才升级——decode 升转码兜底、其余落错误页
+    // （裁决矩阵见 recovery-policy）。本地文件/转码产物坏了重试也是白搭，
+    // 直接报错。在线的失败把 <video> 撤下来，换成封面 + 明确错误 + 重试
+    // 按钮，不再是一根小小的报错条挂在冻结画面上。
     const online = playSrc?.includes('hongguo-stream') ?? false;
     if (online && !compatSrc && !compat) {
-      // 解码类（3/4）是确定性失败：重试同一 URL 必然复现，直接触发兜底转码。
-      // 无扩展机器的 HEVC 系黑屏原先会先空转一次重试再死在错误页，恰好
-      // 绕过 videoWidth 轮询兜底——这条通道把它接住。
-      if (classifyMediaError(me?.code) === 'decode') {
-        requestDecodeFallback();
+      const kind = classifyMediaError(me?.code);
+      const action = recoveryAction(kind, failuresOf());
+      recordFailure(kind);
+      if (action === 'retry') {
+        retryOnline();
         return;
       }
-      if (retryTick < 1) {
-        retryOnline();
+      if (action === 'fallback') {
+        requestDecodeFallback();
         return;
       }
     }
@@ -561,6 +583,7 @@ export function PlayerView({
                     // 真正出画/恢复出画：封面占位退场、卡顿态收掉
                     setLive({ key: streamKey, on: true });
                     setStalled({ key: streamKey, on: false });
+                    onFirstFrame?.();
                   }}
                   onPause={(e) => {
                     // 首播之前的 pause 是新元素的装载噪声（自动起播落定前
@@ -580,7 +603,10 @@ export function PlayerView({
                   onTimeUpdate={(e) => {
                     // playing 事件在个别 WebView 起播路径上不触发：封面退场
                     // 不能只靠它一路信号，时间轴真的走起来了也算出画
-                    if (e.currentTarget.currentTime > 0.1) setLive({ key: streamKey, on: true });
+                    if (e.currentTarget.currentTime > 0.1) {
+                      setLive({ key: streamKey, on: true });
+                      onFirstFrame?.();
+                    }
                     // 时间轴在推进本身就是「没卡住」的证据，waiting 的卡顿态在这里收掉
                     setStalled({ key: streamKey, on: false });
                     persist(e.currentTarget.currentTime);

@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-use crate::domain::model::settings::Settings;
 use crate::service::download_service::queue::DownloadQueue;
 use crate::service::download_service::scheduler::DownloadScheduler;
-use crate::store::Store;
+use hongguo_common::model::settings::Settings;
+use hongguo_store::Store;
 
 /// 全局状态，由 Tauri 的 `manage` 注入。
 ///
@@ -23,13 +23,13 @@ pub struct AppStateInner {
     /// 当前设置（改后立即生效，无需重启）
     pub settings: RwLock<Settings>,
     /// 当前设备档案（设备注册成功后被整体替换）
-    device: RwLock<crate::signer::device::DeviceProfile>,
+    device: RwLock<hongguo_signer::device::DeviceProfile>,
     /// 登录流程的 csrf 凭据（send_code 下发，sms_login 消费后清除）。
     /// 不落库：发码会话本身分钟级有效，重启即重新发码。
     pub login_csrf: RwLock<Option<String>>,
     /// MFA 上行短信验证的进行中流程（上下文 + 原始登录要素）。
     /// 轮询到 registered 后用它自动重登；不落库。
-    pub login_mfa: RwLock<Option<crate::domain::api::login::MfaFlow>>,
+    pub login_mfa: RwLock<Option<hongguo_api::login::MfaFlow>>,
     /// 下载队列
     pub queue: RwLock<Arc<DownloadQueue>>,
     scheduler: RwLock<Arc<DownloadScheduler>>,
@@ -42,12 +42,12 @@ impl AppStateInner {
     /// 用真实文件库构造（应用启动用）。打开失败（建不了库/迁移失败）
     /// 直接终止启动：带病运行等于让用户在新库上改设置，回头又换回旧库。
     pub fn with_db(store: Store) -> Self {
-        Self::with_device(store, crate::signer::video_device())
+        Self::with_device(store, hongguo_signer::video_device())
     }
 
     /// [`AppStateInner::with_db`] 的带设备版本（启动装配时传入库里
     /// 装载好的档案；测试与默认路径用静态兜底档案）。
-    pub fn with_device(store: Store, device: crate::signer::device::DeviceProfile) -> Self {
+    pub fn with_device(store: Store, device: hongguo_signer::device::DeviceProfile) -> Self {
         Self {
             store,
             settings: RwLock::new(Settings::default()),
@@ -96,13 +96,13 @@ impl AppStateInner {
     }
 
     /// 当前设备档案快照。
-    pub fn device(&self) -> crate::signer::device::DeviceProfile {
+    pub fn device(&self) -> hongguo_signer::device::DeviceProfile {
         self.device.read().clone()
     }
 
     /// 整体替换设备档案（bootstrap 健康探针判定死设备后的轮换、
     /// 手动重注册成功）。下一次 `api_env()` 起全部请求即用新档。
-    pub fn replace_device(&self, device: crate::signer::device::DeviceProfile) {
+    pub fn replace_device(&self, device: hongguo_signer::device::DeviceProfile) {
         *self.device.write() = device;
     }
 
@@ -113,7 +113,7 @@ impl AppStateInner {
     ///
     /// Cookie 的组成是「账号字段优先、匿名兜底补缺」：reading 系接口按
     /// `install_id` 风控，未登录也不能裸奔（2026-10-04 实测 0 字节拒）。
-    pub fn api_env(&self) -> crate::domain::api::client::ApiEnv {
+    pub fn api_env(&self) -> hongguo_api::client::ApiEnv {
         let settings = self.settings();
         let device = self.device();
         let account_cookie = settings
@@ -121,7 +121,7 @@ impl AppStateInner {
             .as_ref()
             .map(|a| a.cookies.as_str())
             .filter(|c| !c.is_empty());
-        crate::domain::api::client::ApiEnv {
+        hongguo_api::client::ApiEnv {
             proxy: settings.proxy,
             cookie: Some(merge_session_cookie(account_cookie, &device)),
             // x-tt-token（登录响应头凭据）：在账号里就带上，send_once 统一
@@ -143,9 +143,9 @@ impl AppStateInner {
 /// 兜底字段在前、账号新增字段追加在后——与 hgplayer 抓包的 Cookie 顺序一致。
 fn merge_session_cookie(
     account: Option<&str>,
-    device: &crate::signer::device::DeviceProfile,
+    device: &hongguo_signer::device::DeviceProfile,
 ) -> String {
-    let mut fields: Vec<(String, String)> = crate::signer::device::anonymous_cookie(device)
+    let mut fields: Vec<(String, String)> = hongguo_signer::device::anonymous_cookie(device)
         .split("; ")
         .filter_map(|p| {
             p.split_once('=')
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn merge_cookie_anonymous_only_when_no_account() {
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let cookie = merge_session_cookie(None, &device);
         assert!(cookie.contains(&format!("install_id={}", device.get("iid"))));
         assert!(cookie.contains("store-region=cn-gd"));
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn merge_cookie_account_overrides_and_extends() {
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let cookie = merge_session_cookie(Some("sessionid=abc; store-region=cn-sh"), &device);
         // 账号字段覆盖同名、追加新增，兜底字段保留
         assert!(
@@ -222,7 +222,7 @@ mod tests {
         let state = AppState::default();
         let a = state.queue();
         let b = state.queue();
-        a.enqueue(crate::domain::model::DownloadTask::new(
+        a.enqueue(hongguo_common::model::DownloadTask::new(
             "1", "t", 1, "v", "",
         ));
         assert_eq!(b.all().len(), 1, "多次获取应指向同一队列");
@@ -244,7 +244,7 @@ mod tests {
             .save_playback_position(
                 "A",
                 1,
-                &crate::domain::model::PlaybackPosition::new(1.0, 2.0),
+                &hongguo_common::model::PlaybackPosition::new(1.0, 2.0),
             )
             .expect("内存库写入");
         assert_eq!(

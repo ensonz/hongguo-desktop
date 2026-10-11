@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use base64::Engine;
 
-use super::range::{ProtocolResponse, RangeSpec, parse_range, partial_headers};
+use hongguo_stream::range::{ProtocolResponse, RangeSpec, parse_range, partial_headers};
 
 /// 协议里允许播放的扩展名（小写）。
 const ALLOWED: &[&str] = &["mp4", "mkv", "webm", "mov", "m4v"];
