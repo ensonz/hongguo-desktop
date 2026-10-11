@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { ErrorState } from '@/components/common/error-state';
 import { Spinner } from '@/components/ui/spinner';
-import { RefreshShade } from '@/components/refresh-shade';
-import { SkeletonCardGrid } from '@/components/skeletons';
+import { RefreshShade } from '@/components/common/refresh-shade';
+import { SkeletonCardGrid } from '@/components/ui/skeletons';
 import { useDownloadTasks, useNewDrama } from '@/service/queries';
 import { useScrollRestore } from '@/hooks/use-scroll-restore';
 import { t } from '@/locales';

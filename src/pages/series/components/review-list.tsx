@@ -10,7 +10,7 @@
  *   自动翻页（游标 = 响应 cursor 原样回传）
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Heart, Loader2, Star } from 'lucide-react';
+import { Heart, Loader2, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData } from '@tanstack/react-query';
@@ -27,9 +27,9 @@ import { interact } from '@/service/commands';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import { formatCountPrecise } from '@/utils/format';
-import { relativeTime } from '@/utils/relative-time';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmojiText } from '@/components/common/emoji/emoji-text';
+import { ReplyThread } from '@/components/common/reply-thread';
 import { EmojiSendBox } from '@/components/common/emoji/emoji-send-box';
 import type { CommentPage, ReplyItem, ReplyPage } from '@/service/schema';
 import { ReviewComposer } from './review-composer';
@@ -58,82 +58,10 @@ function ScoreStars({ score }: { score: string }) {
   );
 }
 
-/** 一条剧评回复行（回复点赞**不是**剧评形态——与评论点赞同端点，
- *  object_id 传 reply_id，2026-10-10 CDP 实测即时生效；显示直读回复
- *  缓存，点赞乐观写缓存）。自己的回复（userId 对上登录 uid）带删除入口。 */
-function ReviewReplyRow({
-  reply,
-  myUserId,
-  onDigg,
-  onReplyTo,
-  onDelete,
-}: {
-  reply: ReplyItem;
-  myUserId: string;
-  onDigg: (id: string, digg: boolean) => void;
-  onReplyTo: (reply: ReplyItem) => void;
-  onDelete: (reply: ReplyItem) => void;
-}) {
-  const isLiked = reply.userDigg;
-  const isMine = !!myUserId && reply.userId === myUserId;
-  return (
-    <div className="flex gap-2">
-      <div className="bg-muted grid size-8 shrink-0 place-items-center overflow-hidden rounded-full text-xs">
-        {reply.avatar ? (
-          <img src={reply.avatar} alt="" loading="lazy" className="size-full object-cover" />
-        ) : (
-          (reply.userName[0] ?? '?')
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-muted-foreground text-[11px]">
-          {reply.userName || t('player.comments.anon')}
-        </p>
-        <p className="mt-0.5 text-xs leading-snug break-words whitespace-pre-wrap">
-          {reply.replyToName && (
-            <span className="text-muted-foreground">
-              {t('detail.replyToPrefix')} @{reply.replyToName}：
-            </span>
-          )}
-          <EmojiText text={reply.text} />
-        </p>
-        <div className="text-muted-foreground mt-0.5 flex items-center gap-3 text-[10px]">
-          <span>{relativeTime(reply.createTime)}</span>
-          <button
-            type="button"
-            onClick={() => onReplyTo(reply)}
-            className="hover:text-foreground cursor-pointer"
-          >
-            {t('detail.reply')}
-          </button>
-          {isMine && (
-            <button
-              type="button"
-              onClick={() => onDelete(reply)}
-              className="cursor-pointer hover:text-red-500"
-            >
-              {t('common.delete')}
-            </button>
-          )}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => onDigg(reply.replyId, !isLiked)}
-        className={cn(
-          'text-muted-foreground hover:text-foreground flex shrink-0 cursor-pointer flex-col items-center gap-0.5 self-start',
-          isLiked && 'text-red-500',
-        )}
-        title={t('detail.like')}
-      >
-        <Heart className={cn('size-3', isLiked && 'fill-red-500 text-red-500')} />
-        {reply.diggCount > 0 && <span className="text-[9px] tabular-nums">{reply.diggCount}</span>}
-      </button>
-    </div>
-  );
-}
-
-/** 「展开 N 条回复」区（剧评维度 src=501/ch=34，展开才拉首页）。 */
+/** 剧评皮肤的回复线程：解包剧评回复查询，交给共享 ReplyThread
+ *  （皮肤与 i18n 键位差异收敛在 `components/common/reply-thread`；player
+ *  侧评论同源）。回复点赞**不是**剧评形态——与评论点赞同端点，object_id
+ *  传 reply_id，2026-10-10 CDP 实测即时生效。 */
 function ReviewReplySection({
   seriesId,
   commentId,
@@ -155,69 +83,26 @@ function ReviewReplySection({
   onReplyTo: (reply: ReplyItem) => void;
   onDeleteReply: (reply: ReplyItem) => void;
 }) {
-  const { data, isPending, error, refetch, isFetchingNextPage, hasNextPage, fetchNextPage } =
-    useReviewReplies(seriesId, commentId, open);
-  const replies = dedupBy(data?.pages.flatMap((p) => p.items) ?? [], (r) => r.replyId);
-  if (replyCount <= 0) return null;
+  const q = useReviewReplies(seriesId, commentId, open);
+  const replies = dedupBy(q.data?.pages.flatMap((p) => p.items) ?? [], (r) => r.replyId);
   return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1 text-xs"
-      >
-        {open ? (
-          <>
-            {t('detail.collapseReplies')}
-            <ChevronDown className="size-3 rotate-180" />
-          </>
-        ) : (
-          <>
-            {tf('detail.expandReplies', { n: replyCount })}
-            <ChevronDown className="size-3" />
-          </>
-        )}
-      </button>
-      {open && (
-        <div className="border-border mt-2 flex flex-col gap-2.5 border-l-2 pl-3">
-          {isPending && (
-            <div className="text-muted-foreground grid place-items-center py-2">
-              <Loader2 className="size-3.5 animate-spin" />
-            </div>
-          )}
-          {error && (
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              className="text-muted-foreground hover:text-foreground cursor-pointer text-left text-xs"
-            >
-              {t('detail.repliesLoadFailed')}
-            </button>
-          )}
-          {replies.map((r) => (
-            <ReviewReplyRow
-              key={r.replyId}
-              reply={r}
-              myUserId={myUserId}
-              onDigg={onDigg}
-              onReplyTo={onReplyTo}
-              onDelete={onDeleteReply}
-            />
-          ))}
-          {hasNextPage && (
-            <button
-              type="button"
-              disabled={isFetchingNextPage}
-              onClick={() => void fetchNextPage()}
-              className="text-muted-foreground hover:text-foreground flex w-fit cursor-pointer items-center gap-1 text-xs disabled:opacity-60"
-            >
-              {isFetchingNextPage && <Loader2 className="size-3 animate-spin" aria-hidden />}
-              {t('detail.moreReplies')}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <ReplyThread
+      variant="page"
+      replyCount={replyCount}
+      myUserId={myUserId}
+      open={open}
+      onToggle={onToggle}
+      replies={replies}
+      isPending={q.isPending}
+      error={q.error}
+      refetch={() => void q.refetch()}
+      hasNextPage={q.hasNextPage}
+      isFetchingNextPage={q.isFetchingNextPage}
+      fetchNextPage={() => void q.fetchNextPage()}
+      onDigg={onDigg}
+      onReplyTo={onReplyTo}
+      onDeleteReply={onDeleteReply}
+    />
   );
 }
 

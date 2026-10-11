@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { SeriesRowCard } from '@/components/series-row-card';
+import { SeriesRowCard } from '@/components/common/series-row-card';
 import { rank as rankApi } from '@/service/commands';
 import { keys } from '@/service/queries';
 import { usePlaySeries } from '@/hooks/use-play-series';

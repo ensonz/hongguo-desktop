@@ -8,7 +8,7 @@ import { ErrorState } from '@/components/common/error-state';
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SeriesCover } from '@/components/series-cover';
+import { SeriesCover } from '@/components/common/series-cover';
 import { GuessYouLike } from './guess-you-like';
 import { RelatedWorks } from './related-works';
 import { ReserveButton } from './reserve-button';
