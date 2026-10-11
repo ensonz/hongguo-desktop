@@ -10,17 +10,28 @@ import { PendingFallback, RendererCrashed, RouteError } from './components/commo
 import { applyTheme, useThemeStore } from './stores/theme';
 import './styles/index.css';
 
+/** 全局错误 toast 的文案：kind 译文 + 后端原文（若两者不同）。
+ * 「视频处理失败（接口返回 7001: 无权限）」比一句孤立译文可定位得多。 */
+function toastText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error && error.cause != null ? error.cause : null;
+  const cause = typeof raw === 'string' ? raw : raw instanceof Error ? raw.message : '';
+  return cause && cause !== message ? `${message}（${cause}）` : message;
+}
+
 const queryClient = new QueryClient({
   // 全局错误面：查询/变更失败统一 toast（消息走 call() 归一的 i18n 文案，
   // 事件/客户端异常也顺带覆盖）。组件层就地展示了错误（如批量操作的部分
   // 失败明细）时，用 mutation.meta.silentOnError 声明跳过，不重复弹。
+  // kind 译文只有一句话（如「视频处理失败」可能是任何接口错误），把后端
+  // 原文（error.cause，invoke.ts 归一时挂的）括在后面，出问题一眼定位。
   queryCache: new QueryCache({
-    onError: (error) => toast.error(error instanceof Error ? error.message : String(error)),
+    onError: (error) => toast.error(toastText(error)),
   }),
   mutationCache: new MutationCache({
     onError: (error, _vars, _ctx, mutation) => {
       if (mutation.meta?.silentOnError === true) return;
-      toast.error(error instanceof Error ? error.message : String(error));
+      toast.error(toastText(error));
     },
   }),
   defaultOptions: {

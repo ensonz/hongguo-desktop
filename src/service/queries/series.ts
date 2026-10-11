@@ -48,7 +48,9 @@ export function useSeriesEpisodes(seriesId: string | null) {
   return useQuery({
     queryKey: keys.seriesEpisodes(seriesId ?? ''),
     queryFn: () => seriesArchive(seriesId!),
-    enabled: seriesId !== null,
+    // 空串也要挡：恢复目标就位前的启动窗口期传 '' 会打到 resolver 的
+    // 「请输入剧集 ID」上，全局错误面弹一个莫名的 InvalidArgs
+    enabled: seriesId !== null && seriesId !== '',
     staleTime: 10 * 60_000,
   });
 }
@@ -83,6 +85,9 @@ export function useRelatedSeries(seriesId: string) {
   return useQuery({
     queryKey: keys.relatedSeries(seriesId),
     queryFn: () => series.related(seriesId),
+    // 空串也要挡：恢复目标就位前的启动窗口期 related('') 会拿空 book_id
+    // 打满 4 次重试再报 Media——「视频处理失败」的误导 toast 之源
+    enabled: seriesId !== '',
     staleTime: 10 * 60_000,
     retry: false,
   });
