@@ -25,7 +25,6 @@ export const relatedSeriesSchema = z.object({
 });
 
 export type RelatedItem = z.infer<typeof relatedItemSchema>;
-export type RelatedSeries = z.infer<typeof relatedSeriesSchema>;
 
 /** 详情页头部元信息（Rust `detail::SeriesMeta`，video_detail 接口）。 */
 export const seriesMetaSchema = z.object({
@@ -55,4 +54,3 @@ export const seriesMetaSchema = z.object({
   episodeTotalCnt: z.number().optional(),
   latestConsumedVid: z.string().optional(),
 });
-export type SeriesMeta = z.infer<typeof seriesMetaSchema>;

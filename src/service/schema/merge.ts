@@ -31,8 +31,6 @@ export const mergeCandidateSchema = z.object({
   totalSize: z.number().nonnegative(),
 });
 
-export type MergeCandidate = z.infer<typeof mergeCandidateSchema>;
-
 export const mergePreflightSchema = z.object({
   ok: z.boolean(),
   episodeCount: z.number().int().nonnegative(),
@@ -44,5 +42,3 @@ export const mergePreflightSchema = z.object({
   codecMismatchEpisode: z.number().int().positive().nullable(),
   warnings: z.array(z.string()),
 });
-
-export type MergePreflight = z.infer<typeof mergePreflightSchema>;

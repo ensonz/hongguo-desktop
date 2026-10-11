@@ -23,8 +23,6 @@ export const playResponseSchema = z.object({
   definitions: z.array(videoDefinitionSchema),
 });
 
-export type PlayResponse = z.infer<typeof playResponseSchema>;
-
 /** 转码能力：探测「这台机器会走哪条路」。 */
 export const decodeCapabilitySchema = z.object({
   hasFfmpeg: z.boolean(),
@@ -76,5 +74,3 @@ export const transcodePlaybackSchema = z.object({
   backend: z.string(),
   elapsedMs: z.number(),
 });
-
-export type TranscodePlayback = z.infer<typeof transcodePlaybackSchema>;

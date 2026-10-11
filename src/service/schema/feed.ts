@@ -43,8 +43,6 @@ export const selectorRowSchema = z.object({
   items: z.array(z.object({ id: z.string(), name: z.string() })),
 });
 
-export type SelectorRow = z.infer<typeof selectorRowSchema>;
-
 /** 找剧的八维筛选条件（空串 = 全部）。 */
 export const browseFiltersSchema = z.object({
   genre: z.string().default(''),

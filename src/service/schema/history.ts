@@ -26,14 +26,11 @@ export const watchHistoryPageSchema = z.object({
   nextOffset: z.number(),
   total: z.number(),
 });
-export type WatchHistoryPage = z.infer<typeof watchHistoryPageSchema>;
 
 export const storageUsageSchema = z.object({
   bytes: z.number().nonnegative(),
   files: z.number().int().nonnegative(),
 });
-
-export type StorageUsage = z.infer<typeof storageUsageSchema>;
 
 /** 按剧聚合的磁盘占用（只含磁盘上真有文件的剧，来自下载任务记录）。 */
 export const storageSeriesUsageSchema = z.object({
@@ -43,4 +40,3 @@ export const storageSeriesUsageSchema = z.object({
   files: z.number().int().nonnegative(),
 });
 
-export type StorageSeriesUsage = z.infer<typeof storageSeriesUsageSchema>;
