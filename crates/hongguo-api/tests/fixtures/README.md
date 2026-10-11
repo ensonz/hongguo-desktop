@@ -8,4 +8,3 @@
 ## 相关
 
 - 这两个样本保护的算法（TTEncrypt V5）与 `hongguo-signer` 的 `tt_hash.rs` 同源，见 `crates/hongguo-signer/tests/fixtures/README.md`。
-- `interact` 的运行时探测用例要读 `.hg-runtime-settings.json`，约定放本 crate 根（`crates/hongguo-api/`）——见 `src/interact/mod.rs` 的 `runtime_env` 注释。

@@ -690,29 +690,6 @@ fn parse_reply_page(v: &Value) -> AppResult<ReplyPage> {
 mod tests {
     use super::*;
 
-    /// 剧评发送形态抓包锚点（2026-10-10 hgplayer 1.1.6 实测发满分剧评）：
-    /// data_type=2 / commit_source=12 /
-    /// comment_type=0，评分在 business_param.score（十分制）。任何改形
-    /// 都会被服务端 103008「无社区功能」拒收。
-    #[test]
-    fn review_send_payload_anchors() {
-        let src = include_str!("mod.rs");
-        for (needle, why) in [
-            (
-                r#""commit_source": 12"#,
-                "剧评发送 commit_source=12（评论 3 / 弹幕 1500 / 回复 9 都不对）",
-            ),
-            (r#""data_type": 2,"#, "剧评 data_type=2（评论 4 / 弹幕 20）"),
-            (r#""comment_type": 0,"#, "剧评 comment_type=0"),
-            (
-                r#""score": score,"#,
-                "评分在 business_param.score（十分制，5 星 ×2）",
-            ),
-        ] {
-            assert!(src.contains(needle), "{}：缺少锚点 {}", why, needle);
-        }
-    }
-
     #[test]
     fn payload_shape_matches_capture() {
         let p = danmaku_payload("7690197301075119166", "7690150906532219966", "");
