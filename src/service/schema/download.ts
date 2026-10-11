@@ -35,8 +35,6 @@ export const queueStatusSchema = z.object({
   active: z.number().int().nonnegative(),
 });
 
-export type QueueStatus = z.infer<typeof queueStatusSchema>;
-
 /**
  * 下载进度事件负载（Rust scheduler 按任务节流上报）。
  */

@@ -19,7 +19,7 @@ import type { EventName } from './types';
  * 不匹配时 console.error 并丢弃，绝不把形状不对的数据放进订阅方
  * （不报错说明契约没漂，漂了当场就在控制台）。
  */
-export const EVENT_PAYLOADS = {
+const EVENT_PAYLOADS = {
   'download-progress': downloadProgressSchema,
   'download-task-added': downloadTaskSchema,
   'download-completed': z.object({ id: z.string() }),

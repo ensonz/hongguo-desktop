@@ -29,8 +29,6 @@ export const loginMfaStateSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('waiting'), message: z.string() }),
 ]);
 
-export type LoginMfaState = z.infer<typeof loginMfaStateSchema>;
-
 /** 登录命令返回：成功 / 需要 MFA 上行短信验证 / MFA 等待中 */
 export const loginResultSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('success'), user: passportUserSchema }),
