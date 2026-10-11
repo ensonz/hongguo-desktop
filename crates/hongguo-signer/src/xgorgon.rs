@@ -3,8 +3,8 @@
 //! 历史最久的一代签名，对 query + body 做摘要后用 RC4 变种混淆。
 //! 现在仍然必带，但服务端实际校验强度弱于 X-Argus / Medusa。
 
-use crate::signer::constants::{GORGON_PREFIX, GORGON_SDK_VERSION};
-use crate::signer::primitives::{be32, md5_raw, reverse_bits, u32};
+use crate::constants::{GORGON_PREFIX, GORGON_SDK_VERSION};
+use crate::primitives::{be32, md5_raw, reverse_bits, u32};
 
 /// RC4 变种混淆。
 ///

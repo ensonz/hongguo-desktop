@@ -3,7 +3,7 @@
 //! Medusa 签名把设备指纹包成 protobuf message 再加密。只需要 wire format 的
 //! 编码侧（不解析、不支持 packed repeated / map），因此这里不做完整实现。
 
-use crate::signer::primitives::zigzag;
+use crate::primitives::zigzag;
 
 /// 字段值类型。
 #[derive(Debug, Clone, PartialEq)]

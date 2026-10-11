@@ -1,0 +1,19 @@
+[package]
+name = "hongguo-signer"
+description = "红果桌面版请求签名：字节系五头签名（x-gorgon/x-argus/x-ladon/x-helios/x-medusa）+ 设备注册原语"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 算法本体是 JS 1:1 移植（禁改写法），依赖只服务于原语与序列化。
+base64 = "0.23"
+hex = "0.4"
+md-5 = "0.11"
+sm3 = "0.5"
+rand = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"

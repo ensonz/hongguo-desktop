@@ -12,7 +12,7 @@
 pub mod branch0;
 pub mod branch2;
 
-use crate::signer::primitives::{get_iv, le32, sum_md5};
+use crate::primitives::{get_iv, le32, sum_md5};
 
 pub use branch0::compute as branch0_f13;
 pub use branch2::compute as branch2_f13;
@@ -62,12 +62,12 @@ pub fn hash_f13(query_sm3: &[u8], body_md5: &[u8], ts_bytes: &[u8], khronos: u32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signer::primitives::{md5_raw, sm3};
+    use crate::primitives::{md5_raw, sm3};
 
     fn fixture() -> (Vec<u8>, [u8; 16], [u8; 4], u32) {
         let query = b"aid=8662&device_id=1905892595378490";
         let query_sm3 = sm3(query).to_vec();
-        let body_md5 = crate::signer::primitives::md5_raw(b"{\"series_id\":123}");
+        let body_md5 = crate::primitives::md5_raw(b"{\"series_id\":123}");
         let ts = le32(1_700_000_000);
         (query_sm3, body_md5, ts, 1_700_000_000)
     }
@@ -98,7 +98,7 @@ mod tests {
             let ts = le32(1_700_000_000 + i);
             let branch = branch_of(
                 query.as_bytes(),
-                &crate::signer::primitives::md5_raw(body.as_bytes()),
+                &crate::primitives::md5_raw(body.as_bytes()),
                 &ts,
             );
             assert!(branch <= 2, "branch={branch} i={i}");
@@ -178,9 +178,9 @@ mod tests {
             let hex: String = got.iter().take(8).map(|b| format!("{b:02x}")).collect();
             assert_eq!(&hex, *want, "第 {i} 个向量内容不符（分支判定错误？）");
 
-            let low = crate::signer::primitives::get_iv(
-                crate::signer::primitives::get_iv(
-                    crate::signer::primitives::get_iv(0x2023_0928, &qs),
+            let low = crate::primitives::get_iv(
+                crate::primitives::get_iv(
+                    crate::primitives::get_iv(0x2023_0928, &qs),
                     &body_md5,
                 ),
                 &ts,

@@ -15,7 +15,6 @@ mod domain;
 mod media;
 mod protocol;
 mod service;
-mod signer;
 mod store;
 mod testing;
 

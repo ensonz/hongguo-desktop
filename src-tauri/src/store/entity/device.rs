@@ -14,7 +14,7 @@ const DEVICE_ROW_BACKUP: i64 = 2;
 const DEVICE_ROW_META: i64 = 10;
 
 /// 读设备档案。从未注册过（表空）返回 None，调用方用静态兜底档案。
-pub async fn device_profile(db: &Db) -> AppResult<Option<crate::signer::device::DeviceProfile>> {
+pub async fn device_profile(db: &Db) -> AppResult<Option<hongguo_signer::device::DeviceProfile>> {
     let mut rows = db
         .conn()
         .query(
@@ -35,7 +35,7 @@ pub async fn device_profile(db: &Db) -> AppResult<Option<crate::signer::device::
 /// 写设备档案（单行表）。
 pub async fn save_device_profile(
     db: &Db,
-    profile: &crate::signer::device::DeviceProfile,
+    profile: &hongguo_signer::device::DeviceProfile,
 ) -> AppResult<()> {
     let json = serde_json::to_string(profile)
         .map_err(|e| AppError::StoreCorrupt(format!("设备档案序列化失败: {e}")))?;
@@ -68,7 +68,7 @@ pub async fn backup_device_profile(db: &Db) -> AppResult<bool> {
 /// 读上一代备份档案（回查用；从没换过档返回 None）。
 pub async fn device_profile_backup(
     db: &Db,
-) -> AppResult<Option<crate::signer::device::DeviceProfile>> {
+) -> AppResult<Option<hongguo_signer::device::DeviceProfile>> {
     let mut rows = db
         .conn()
         .query(

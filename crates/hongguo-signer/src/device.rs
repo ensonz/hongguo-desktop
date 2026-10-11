@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::signer::protobuf::{FieldType, FieldValue, proto};
+use crate::protobuf::{FieldType, FieldValue, proto};
 
 /// 应用 id 与渠道号，Medusa 密文里硬编码。
 pub const APP_ID: &str = "8662";
@@ -91,7 +91,9 @@ impl DeviceProfile {
     /// 设备注册用的全新档案：73932 / Xiaomi 14 指纹，**不带** device_id/iid
     ///（首次注册 query 里不能有空值形态的字段），cdid/openudid 由调用方
     /// 生成后填入，与注册 body 的 JSON 指纹保持同一套。
-    #[cfg(test)]
+    ///
+    /// 不 `#[cfg(test)]` 门控：下游 crate（domain/api/register）的测试要用，
+    /// 而依赖 crate 对下游以非 test 方式编译，门控项会消失。
     pub fn fresh_register_profile(cdid: &str, openudid: &str) -> Self {
         let ua = "com.phoenix.read/73932 (Linux; U; Android 14; zh_CN; Xiaomi 14; Build/UKQ1.230804.001; Cronet/TTNetVersion:8d40f833 QuicVersion:462f352c 2026-08-31)";
         let mut dev = Self::from_pairs(
@@ -130,7 +132,6 @@ impl DeviceProfile {
 
     /// 移除字段（设备注册用：首次注册的 query 里不能带 `device_id=`/
     /// `iid=` 空值形态，字段必须**不存在**而不是空值）。
-    #[cfg(test)]
     pub fn remove(&mut self, key: &str) {
         self.fields.retain(|(k, _)| k != key);
     }

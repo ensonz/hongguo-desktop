@@ -3,7 +3,7 @@
 //! 112 轮消息扩展 + 变体轮函数。轮数与槽位下标来自固定的「指令表」
 //! `BRANCH0_ROUNDS`，**不要改成顺序取用**——那是签名匹配的关键。
 
-use crate::signer::primitives::{bxor, le32, rol32, ror32, sum_md5, u32};
+use crate::primitives::{bxor, le32, rol32, ror32, sum_md5, u32};
 
 /// 分支 0 的 6 组轮常量与轮数/索引表，按 iv_v0 选择。
 const BRANCH0_IV: [u32; 6] = [

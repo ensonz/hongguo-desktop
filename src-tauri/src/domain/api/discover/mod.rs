@@ -21,7 +21,7 @@ use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_full};
 use hongguo_common::{AppError, AppResult};
-use crate::signer::API_ORIGIN;
+use hongguo_signer::API_ORIGIN;
 
 pub use model::{BrowseFilters, FeedItem, FeedPage, SelectorRow};
 // 保持既有公共路径 `discover::SelectorItem` 不变（crate 内暂无直接引用者）
@@ -204,7 +204,7 @@ mod probe {
             ("version_code", r#"73932"#),
             ("version_name", r#"7.3.9.32"#),
         ];
-        let mut v = serde_json::to_value(crate::signer::video_device()).unwrap();
+        let mut v = serde_json::to_value(hongguo_signer::video_device()).unwrap();
         v["fields"] = serde_json::Value::Array(
             pairs
                 .into_iter()
@@ -223,7 +223,7 @@ mod probe {
             x_tt_token: None,
         };
         // 对照：我们自己的静态档案，仅版本号升到 73932（UA 保留我们的机型）
-        let mut own = crate::signer::video_device();
+        let mut own = hongguo_signer::video_device();
         for key in [
             "version_code",
             "manifest_version_code",
@@ -237,7 +237,7 @@ mod probe {
         ov["user_agent"] = serde_json::Value::String(
             "com.phoenix.read/73932 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)".into(),
         );
-        let own_dev: crate::signer::device::DeviceProfile = serde_json::from_value(ov).unwrap();
+        let own_dev: hongguo_signer::device::DeviceProfile = serde_json::from_value(ov).unwrap();
         let env = crate::domain::api::client::ApiEnv {
             proxy: env.proxy.clone(),
             device: own_dev,

@@ -23,7 +23,7 @@ pub struct AppStateInner {
     /// 当前设置（改后立即生效，无需重启）
     pub settings: RwLock<Settings>,
     /// 当前设备档案（设备注册成功后被整体替换）
-    device: RwLock<crate::signer::device::DeviceProfile>,
+    device: RwLock<hongguo_signer::device::DeviceProfile>,
     /// 登录流程的 csrf 凭据（send_code 下发，sms_login 消费后清除）。
     /// 不落库：发码会话本身分钟级有效，重启即重新发码。
     pub login_csrf: RwLock<Option<String>>,
@@ -42,12 +42,12 @@ impl AppStateInner {
     /// 用真实文件库构造（应用启动用）。打开失败（建不了库/迁移失败）
     /// 直接终止启动：带病运行等于让用户在新库上改设置，回头又换回旧库。
     pub fn with_db(store: Store) -> Self {
-        Self::with_device(store, crate::signer::video_device())
+        Self::with_device(store, hongguo_signer::video_device())
     }
 
     /// [`AppStateInner::with_db`] 的带设备版本（启动装配时传入库里
     /// 装载好的档案；测试与默认路径用静态兜底档案）。
-    pub fn with_device(store: Store, device: crate::signer::device::DeviceProfile) -> Self {
+    pub fn with_device(store: Store, device: hongguo_signer::device::DeviceProfile) -> Self {
         Self {
             store,
             settings: RwLock::new(Settings::default()),
@@ -96,13 +96,13 @@ impl AppStateInner {
     }
 
     /// 当前设备档案快照。
-    pub fn device(&self) -> crate::signer::device::DeviceProfile {
+    pub fn device(&self) -> hongguo_signer::device::DeviceProfile {
         self.device.read().clone()
     }
 
     /// 整体替换设备档案（bootstrap 健康探针判定死设备后的轮换、
     /// 手动重注册成功）。下一次 `api_env()` 起全部请求即用新档。
-    pub fn replace_device(&self, device: crate::signer::device::DeviceProfile) {
+    pub fn replace_device(&self, device: hongguo_signer::device::DeviceProfile) {
         *self.device.write() = device;
     }
 
@@ -143,9 +143,9 @@ impl AppStateInner {
 /// 兜底字段在前、账号新增字段追加在后——与 hgplayer 抓包的 Cookie 顺序一致。
 fn merge_session_cookie(
     account: Option<&str>,
-    device: &crate::signer::device::DeviceProfile,
+    device: &hongguo_signer::device::DeviceProfile,
 ) -> String {
-    let mut fields: Vec<(String, String)> = crate::signer::device::anonymous_cookie(device)
+    let mut fields: Vec<(String, String)> = hongguo_signer::device::anonymous_cookie(device)
         .split("; ")
         .filter_map(|p| {
             p.split_once('=')
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn merge_cookie_anonymous_only_when_no_account() {
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let cookie = merge_session_cookie(None, &device);
         assert!(cookie.contains(&format!("install_id={}", device.get("iid"))));
         assert!(cookie.contains("store-region=cn-gd"));
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn merge_cookie_account_overrides_and_extends() {
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let cookie = merge_session_cookie(Some("sessionid=abc; store-region=cn-sh"), &device);
         // 账号字段覆盖同名、追加新增，兜底字段保留
         assert!(

@@ -334,10 +334,10 @@ pub(crate) mod probe {
             .filter(|c| !c.is_empty());
         let hg_token = std::env::var("PROBE_TOKEN").ok().filter(|t| !t.is_empty());
 
-        let device: crate::signer::device::DeviceProfile =
+        let device: hongguo_signer::device::DeviceProfile =
             serde_json::from_str(&device_json).expect("device json");
         let mut device = device;
-        crate::signer::device::align_app_version(&mut device);
+        hongguo_signer::device::align_app_version(&mut device);
         // 官方会话对照：抓包里 cookie 是逗号分隔（addon 形态），转分号
         let cookie_raw = hg_cookie.unwrap_or(account_cookie);
         let cookie = cookie_raw.replace(", ", "; ");

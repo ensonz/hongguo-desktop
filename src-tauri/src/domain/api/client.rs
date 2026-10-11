@@ -28,7 +28,7 @@ const RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
 /// API 解析、视频下载、在线播放都走它，所以它待在网络层而不是某个业务里。
 pub fn build_client(config: &hongguo_common::model::ProxyConfig) -> AppResult<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
-        .user_agent(crate::signer::VIDEO_UA)
+        .user_agent(hongguo_signer::VIDEO_UA)
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10));
 
@@ -56,7 +56,7 @@ pub fn build_client(config: &hongguo_common::model::ProxyConfig) -> AppResult<re
 #[derive(Debug, Clone)]
 pub struct ApiEnv {
     pub proxy: hongguo_common::model::ProxyConfig,
-    pub device: crate::signer::device::DeviceProfile,
+    pub device: hongguo_signer::device::DeviceProfile,
     /// 会话 Cookie（`k=v; k=v` 形态）。未登录为 None。
     /// Cookie 不参与签名，走 `extra_headers` 注入。
     pub cookie: Option<String>,
@@ -72,7 +72,7 @@ impl ApiEnv {
     pub fn anonymous(proxy: hongguo_common::model::ProxyConfig) -> Self {
         Self {
             proxy,
-            device: crate::signer::video_device(),
+            device: hongguo_signer::video_device(),
             cookie: None,
             x_tt_token: None,
         }
@@ -86,7 +86,7 @@ impl ApiEnv {
 /// - `body`：请求体字节。`Some` 走 POST，`None` 走 GET
 /// - `env`：代理 / 设备 / 会话
 pub async fn api_call(pathname: &str, body: Option<Vec<u8>>, env: &ApiEnv) -> AppResult<Vec<u8>> {
-    api_call_at(crate::signer::API_ORIGIN, pathname, body, env).await
+    api_call_at(hongguo_signer::API_ORIGIN, pathname, body, env).await
 }
 
 /// 同 [`api_call`]，但 origin 可指定（passport / 设备注册走别的域名）。
@@ -234,12 +234,12 @@ pub async fn get_video_stream(client: &reqwest::Client, url: &str) -> AppResult<
     let send = |referer: bool| {
         let mut req = client
             .get(url)
-            .header("User-Agent", crate::signer::VIDEO_UA)
+            .header("User-Agent", hongguo_signer::VIDEO_UA)
             // MP4 已经压缩，HTTP gzip 会破坏 Range 偏移并可能让 reqwest
             // 在读响应体时解压失败。视频必须按原始字节收取。
             .header(reqwest::header::ACCEPT_ENCODING, "identity");
         if referer {
-            req = req.header("Referer", crate::signer::VIDEO_REFERER);
+            req = req.header("Referer", hongguo_signer::VIDEO_REFERER);
         }
         req
     };
@@ -291,7 +291,7 @@ fn host_of(url: &str) -> &str {
 pub async fn probe_video_len(client: &reqwest::Client, url: &str) -> AppResult<u64> {
     let resp = client
         .get(url)
-        .header("User-Agent", crate::signer::VIDEO_UA)
+        .header("User-Agent", hongguo_signer::VIDEO_UA)
         .header(reqwest::header::ACCEPT_ENCODING, "identity")
         .header("Range", "bytes=0-0")
         .send()
@@ -359,11 +359,11 @@ async fn get_video_range_once(
     let send = |referer: bool| {
         let mut req = client
             .get(url)
-            .header("User-Agent", crate::signer::VIDEO_UA)
+            .header("User-Agent", hongguo_signer::VIDEO_UA)
             .header(reqwest::header::ACCEPT_ENCODING, "identity")
             .header("Range", format!("bytes={start}-{end}"));
         if referer {
-            req = req.header("Referer", crate::signer::VIDEO_REFERER);
+            req = req.header("Referer", hongguo_signer::VIDEO_REFERER);
         }
         req
     };
@@ -481,7 +481,7 @@ async fn send_once(
         extra.push(("x-tt-token".into(), short));
     }
     let signed = match body {
-        Some(bytes) => crate::signer::sign_request_with(
+        Some(bytes) => hongguo_signer::sign_request_with(
             origin,
             pathname,
             Some(bytes.to_vec()),
@@ -490,7 +490,7 @@ async fn send_once(
             &extra,
         ),
         None => {
-            crate::signer::sign_request_with(origin, pathname, None, &env.device, biz_query, &extra)
+            hongguo_signer::sign_request_with(origin, pathname, None, &env.device, biz_query, &extra)
         }
     };
 
@@ -540,8 +540,8 @@ mod tests {
     use super::*;
     use hongguo_common::model::ProxyConfig;
     use hongguo_common::model::settings::ProxyMode;
-    use crate::signer::ticket::{sign_get, sign_post};
-    use crate::signer::video_device;
+    use hongguo_signer::ticket::{sign_get, sign_post};
+    use hongguo_signer::video_device;
 
     #[test]
     fn range_cutter_slices_target_from_full_body() {
@@ -759,7 +759,7 @@ mod tests {
             "403 后的重试必须带 Referer"
         );
         assert!(
-            seen[1].contains(crate::signer::VIDEO_REFERER),
+            seen[1].contains(hongguo_signer::VIDEO_REFERER),
             "Referer 应是官网地址: {}",
             seen[1]
         );

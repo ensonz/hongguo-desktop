@@ -396,10 +396,10 @@ pub(crate) mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_calendar_target_date() {
-        let device = crate::signer::video_device();
+        let device = hongguo_signer::video_device();
         let env = ApiEnv {
             proxy: hongguo_common::model::ProxyConfig::default(),
-            cookie: Some(crate::signer::device::anonymous_cookie(&device)),
+            cookie: Some(hongguo_signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,
         };
