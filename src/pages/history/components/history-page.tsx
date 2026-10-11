@@ -157,6 +157,7 @@ export function HistoryPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <ToggleGroup
           type="single"
+          spacing={1}
           value={tab}
           onValueChange={(v) => v !== '' && setTab(v as HistoryTab)}
           className="flex items-center gap-2"
@@ -165,7 +166,7 @@ export function HistoryPage() {
             <ToggleGroupItem
               key={key}
               value={key}
-              className="bg-muted text-muted-foreground hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground rounded-full px-4 py-1.5 text-sm transition-colors data-[state=on]:font-medium"
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-auto min-w-0 rounded-full px-3 py-1 text-xs transition-colors data-[state=on]:font-medium"
             >
               {t(labelKey)}
             </ToggleGroupItem>

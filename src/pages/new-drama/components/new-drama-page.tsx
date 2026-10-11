@@ -72,20 +72,22 @@ export function NewDramaPage() {
         </TopBarTab>
       </TopBarTabsPortal>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {/* 顶栏 tab 在 AppShell 上，内容区自己留出与下方一致的四周呼吸 */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-3">
         {/* 频道胶囊只属于新剧推荐（cell_gender 是推荐流参数，日历不分频道） */}
         {view === 'recommend' && (
           <ToggleGroup
             type="single"
+            spacing={1}
             value={String(gender)}
             onValueChange={(v) => v !== '' && setGender(Number(v))}
-            className="mt-3 flex flex-wrap items-center justify-end gap-2"
+            className="flex flex-wrap items-center justify-end gap-2"
           >
             {GENDERS.map(({ value, labelKey }) => (
               <ToggleGroupItem
                 key={value}
                 value={String(value)}
-                className="text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-8 rounded-full border px-4 text-sm shadow-xs transition-colors data-[state=on]:border-transparent"
+                className="text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-auto min-w-0 rounded-full px-3 py-1 text-xs transition-colors data-[state=on]:font-medium"
               >
                 {t(labelKey)}
               </ToggleGroupItem>

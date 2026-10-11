@@ -109,6 +109,7 @@ export function RankPage() {
         >
           <ToggleGroup
             type="single"
+            spacing={1}
             value={sub}
             onValueChange={(v) => {
               if (v === '') return;

@@ -77,6 +77,7 @@ export function FilterPanel({
   ) => (
     <ToggleGroup
       type="single"
+      spacing={1}
       value={current === '' ? '__all__' : current}
       onValueChange={(v) => onPick(key, v === '__all__' ? '' : v)}
       className="flex flex-wrap gap-x-1 gap-y-1.5"

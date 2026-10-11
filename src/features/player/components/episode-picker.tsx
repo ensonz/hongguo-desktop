@@ -274,6 +274,8 @@ export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose 
                     )}
                     <span className="truncate">
                       {item.tag}
+                      {item.episodeCnt > 0 &&
+                        ` · ${tf('detail.episodesCount', { count: item.episodeCnt })}`}
                       {item.playCnt > 0 &&
                         ` · ${formatPlayCount(item.playCnt)}${t('detail.plays')}`}
                     </span>
