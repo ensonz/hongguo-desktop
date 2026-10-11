@@ -6,16 +6,26 @@ type Dict = typeof zhCN;
 
 const resources: Record<string, Dict> = {
   'zh-CN': zhCN,
-  'en-US': enUS as Dict,
+  'en-US': enUS,
 };
 
 export type Locale = keyof typeof resources;
+
+/**
+ * 词条路径类型：由中文资源结构递归推导的 `a.b.c` 字面量联合。
+ * 513 处 `t()` 调用点全部获得编译期检查——key 拼错/词条改名漏改，tsc 当场报。
+ */
+export type MessageKey = Paths<typeof zhCN>;
+
+type Paths<T> = {
+  [K in keyof T & string]: T[K] extends Record<string, unknown> ? K | `${K}.${Paths<T[K]>}` : K;
+}[keyof T & string];
 
 const STORAGE_KEY = 'hongguo-locale';
 
 function detect(): Locale {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved && saved in resources) return saved as Locale;
+  if (saved && saved in resources) return saved;
   return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
 }
 
@@ -34,7 +44,7 @@ export function setLocale(next: Locale): void {
 }
 
 /** 取词条；`a.b.c` 形式查嵌套对象。 */
-export function t(path: string): string {
+export function t(path: MessageKey): string {
   const value = path.split('.').reduce<unknown>((acc, key) => {
     if (acc && typeof acc === 'object' && key in acc) {
       return (acc as Record<string, unknown>)[key];
@@ -43,12 +53,16 @@ export function t(path: string): string {
   }, resources[current]);
 
   if (typeof value === 'string') return value;
-  // 缺词条时回落到 key 本身，比显示 undefined 更容易定位问题
+  // 缺词条回落到 key 本身，比显示 undefined 更容易定位问题；dev 下额外
+  // 告警——用户看到 `feed.loadFailed` 原文属于事故，不能只靠回落静默
+  if (import.meta.env.DEV) {
+    console.warn(`[i18n] 缺词条: ${path}（当前语言 ${current}）`);
+  }
   return path;
 }
 
 /** 取词条并做变量插值：`{count}` 会被替换。 */
-export function tf(path: string, vars: Record<string, string | number>): string {
+export function tf(path: MessageKey, vars: Record<string, string | number>): string {
   return t(path).replace(/\{(\w+)\}/g, (_, key: string) =>
     key in vars ? String(vars[key]) : `{${key}}`,
   );

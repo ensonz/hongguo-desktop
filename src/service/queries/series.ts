@@ -2,33 +2,58 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { play, series } from '../commands';
+import type { Series } from '../schema';
 import { useEvent } from '../tauri/events';
 import { EVENTS } from '../tauri/types';
 import { keys } from './common';
 
 // ---------------------------------------------------------------- 剧集档案
 
+/**
+ * Rust 热重载重启会丢掉在途 invoke 的应答（promise 永不 settle）——dev 下
+ * 30s 强制超时转成错误，让上层给出重试入口；生产链路让错误正常暴露。
+ */
+function withDevTimeout<T>(p: Promise<T>): Promise<T> {
+  if (!import.meta.env.DEV) return p;
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('分集档案解析超时')), 30_000);
+    }),
+  ]);
+}
+
+/**
+ * 档案查询函数：详情页（分集）与列表页（元信息）两个入口**同 key 同 fn**
+ * ——此前同 key 两个 queryFn，先挂载者定形态。本地命中秒回；未收录的
+ * （如书架里从没看过的剧）回落 resolve 解析进同一份缓存，两侧都拿得到。
+ */
+async function seriesArchive(seriesId: string): Promise<Series> {
+  try {
+    return await withDevTimeout(series.episodes(seriesId));
+  } catch {
+    return series.resolve(seriesId);
+  }
+}
+
 export function useSeriesEpisodes(seriesId: string | null) {
   const queryClient = useQueryClient();
   // 旧格式档案在 Rust 侧后台补计数，补完发事件——这里失效自己的缓存，
   // 让计数无感浮现（档案本身早已秒回，不等这次刷新）
-  useEvent<string>(EVENTS.seriesArchiveUpdated, (id) => {
+  useEvent(EVENTS.seriesArchiveUpdated, (id) => {
     if (id && id === seriesId) {
       void queryClient.invalidateQueries({ queryKey: keys.seriesEpisodes(id) });
     }
   });
   return useQuery({
     queryKey: keys.seriesEpisodes(seriesId ?? ''),
-    // 挂起兜底：Rust 热重载重启会丢掉在途 invoke 的应答（promise 永不
-    // settle），30s 强制超时转成错误，让上层给出重试入口而不是永远空态
-    queryFn: () =>
-      Promise.race([
-        series.episodes(seriesId!),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('分集档案解析超时')), 30_000);
-        }),
-      ]),
-    enabled: seriesId !== null,
+    queryFn: () => seriesArchive(seriesId!),
+    // 空串也要挡：恢复目标就位前的启动窗口期传 '' 会打到 resolver 的
+    // 「请输入剧集 ID」上，全局错误面弹一个莫名的 InvalidArgs
+    enabled: seriesId !== null && seriesId !== '',
+    // 失败 home-page/选集面板就地给 ErrorState + 重试，全局不再弹
+    meta: { silentOnError: true },
+    staleTime: 10 * 60_000,
   });
 }
 
@@ -43,24 +68,17 @@ export function useSeriesProgress(seriesId: string) {
     queryKey: keys.seriesProgress(seriesId),
     queryFn: () => play.progress(seriesId),
     enabled: seriesId !== '',
+    // 本地 playback 表读取，失败退化成从头播即可，不值得打扰
+    meta: { silentOnError: true },
     gcTime: 60_000,
   });
 }
 
-/**
- * 剧集元信息（收藏/点赞等列表页用）：本地档案命中秒回，未收录的
- * （如书架里从没看过的剧）回落 resolve_series 解析并进同一份缓存。
- */
+/** 列表页用剧集元信息：与 useSeriesEpisodes 同 key 同 fn 同一份缓存。 */
 export function useSeriesMeta(seriesId: string) {
   return useQuery({
     queryKey: keys.seriesEpisodes(seriesId),
-    queryFn: async () => {
-      try {
-        return await series.episodes(seriesId);
-      } catch {
-        return series.resolve(seriesId);
-      }
-    },
+    queryFn: () => seriesArchive(seriesId),
     enabled: seriesId !== '',
     staleTime: 10 * 60_000,
   });
@@ -71,6 +89,11 @@ export function useRelatedSeries(seriesId: string) {
   return useQuery({
     queryKey: keys.relatedSeries(seriesId),
     queryFn: () => series.related(seriesId),
+    // 空串也要挡：恢复目标就位前的启动窗口期 related('') 会拿空 book_id
+    // 打满 4 次重试再报 Media——「视频处理失败」的误导 toast 之源
+    enabled: seriesId !== '',
+    // 文档口径即静默降级：失败只是切季面板/接力不可用，不弹全局
+    meta: { silentOnError: true },
     staleTime: 10 * 60_000,
     retry: false,
   });
@@ -85,6 +108,8 @@ export function useSeriesDetailMeta(seriesId: string) {
   return useQuery({
     queryKey: keys.seriesMeta(seriesId),
     queryFn: () => series.meta(seriesId),
+    // 头部装饰性信息，失败静默降级（doc 口径），不弹全局
+    meta: { silentOnError: true },
     staleTime: 10 * 60_000,
     retry: false,
   });

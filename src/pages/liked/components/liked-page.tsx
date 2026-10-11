@@ -8,9 +8,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Heart, HeartOff, Loader2, Play } from 'lucide-react';
+import { Heart, HeartOff, Play } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,8 +27,8 @@ import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { interact as interactCmd } from '@/service/commands';
 import { keys } from '@/service/queries/common';
-import { useInteractionState, useSeriesMeta, useVideoDigg, useWebCover } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { useInteractionState, useSeriesMeta, useVideoDigg } from '@/service/queries';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { t, tf } from '@/locales';
 import type { InteractionItem } from '@/service/schema';
@@ -87,23 +94,26 @@ export function LikedPage() {
   }
   if (error) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-        <p>{t('liked.loadFailed')}</p>
-        <p className="text-destructive text-xs">{error.message}</p>
-        <Button variant="outline" size="sm" onClick={() => void refetch()}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('liked.loadFailed')}
+        detail={error.message}
+        onRetry={() => void refetch()}
+      />
     );
   }
   if (liked.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 p-4 py-16">
-        <Heart className="size-8 opacity-40" aria-hidden />
-        <p className="text-sm">{t('liked.empty')}</p>
-        <p className="text-xs opacity-70">{t('liked.emptyHint')}</p>
-      </div>
+      <Empty className="p-4 py-16">
+        <EmptyHeader>
+          <EmptyMedia>
+            <Heart className="size-8 opacity-40" aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('liked.empty')}
+          </EmptyTitle>
+          <EmptyDescription className="text-xs opacity-70">{t('liked.emptyHint')}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -128,7 +138,6 @@ export function LikedPage() {
                 { vid: item.vid, seriesId: item.seriesId, digg: false },
                 {
                   onSuccess: () => toast.success(t('player.interact.undone')),
-                  onError: (e) => toast.error(String(e)),
                 },
               )
             }
@@ -171,7 +180,7 @@ function LikedCard({
 }) {
   const { data: meta } = useSeriesMeta(item.seriesId);
   const rawCover = meta?.cover ?? '';
-  const { data: webCover } = useWebCover(rawCover);
+  const webCover = enhancedCover(rawCover);
   const cover = webCover ?? (isRenderableCover(rawCover) ? rawCover : '');
   const [brokenFor, setBrokenFor] = useState('');
   const imgBroken = brokenFor !== '' && brokenFor === cover;
@@ -234,7 +243,7 @@ function LikedCard({
             {title !== '' ? title : tf('collections.unresolved', { id: item.seriesId.slice(-6) })}
           </p>
           <div className="text-muted-foreground flex items-center gap-1 text-xs">
-            <Heart className="size-3.5 fill-red-400 text-red-400" aria-hidden />
+            <Heart className="fill-hot text-hot size-3.5" aria-hidden />
             <span className="tabular-nums">{item.diggedCount > 0 ? item.diggedCount : ''}</span>
           </div>
         </div>

@@ -1,8 +1,11 @@
 /** 榜单行卡片：进详情为主动作，右侧按上线状态给播放/预约。 */
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Bell, Check, Flame, Loader2, Play } from 'lucide-react';
+import { Bell, Check, Flame, Play } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { SeriesRowCard } from '@/components/series-row-card';
 import { useReserveSeries } from '@/service/queries';
@@ -42,7 +45,6 @@ export function RankRow({ item }: { item: RankItem }) {
           setReserved(next);
           toast.success(t(next ? 'player.interact.reserved' : 'player.interact.unreserved'));
         },
-        onError: (err) => toast.error(String(err)),
       },
     );
   };
@@ -64,9 +66,10 @@ export function RankRow({ item }: { item: RankItem }) {
       leading={
         rankNo !== undefined ? (
           <span
-            className={`w-8 shrink-0 text-center text-2xl font-black tabular-nums ${
-              rankNo <= 3 ? 'text-amber-500' : 'text-muted-foreground/50'
-            }`}
+            className={cn(
+              'w-8 shrink-0 text-center text-2xl font-black tabular-nums',
+              rankNo <= 3 ? 'text-star' : 'text-muted-foreground/50',
+            )}
             aria-hidden
           >
             {rankNo}
@@ -75,9 +78,12 @@ export function RankRow({ item }: { item: RankItem }) {
       }
       titleExtra={
         item.season !== '' ? (
-          <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-4">
+          <Badge
+            variant="outline"
+            className="text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4"
+          >
             {item.season}
-          </span>
+          </Badge>
         ) : undefined
       }
       metaLine={
@@ -88,7 +94,7 @@ export function RankRow({ item }: { item: RankItem }) {
         rec !== '' || secondary.length > 0 ? (
           <p className="flex items-center gap-2 text-xs">
             {rec !== '' && (
-              <span className="flex shrink-0 items-center gap-0.5 text-orange-400">
+              <span className="text-warm flex shrink-0 items-center gap-0.5">
                 <Flame className="size-3" aria-hidden />
                 {rec}
               </span>
@@ -114,7 +120,7 @@ export function RankRow({ item }: { item: RankItem }) {
             }}
           >
             {reserve.isPending ? (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              <Spinner className="size-3.5" aria-hidden />
             ) : reserved ? (
               <Check className="size-3.5" aria-hidden />
             ) : (

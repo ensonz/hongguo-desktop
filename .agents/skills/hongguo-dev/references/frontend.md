@@ -2,7 +2,7 @@
 
 ## 目录归属判定
 
-重构已于 2026-10 完成并定型（依据 `docs/refactor-plan.md`）：`pages/ + features/{player,update} + service/ + stores/locales/utils/hooks` 就是当前且唯一的结构。新代码按顺序自问，命中即止：
+重构已于 2026-10 完成并定型：`pages/ + features/{player,update} + service/ + stores/locales/utils/hooks` 就是当前且唯一的结构。新代码按顺序自问，命中即止：
 
 1. 只服务一个路由页面 → `pages/<域>/` 就近（复杂页面才有 components/hooks 子目录）
 2. 复杂、跨页面复用的能力 → `features/`（player/update 这类体量才配进）
@@ -25,6 +25,7 @@
 - 注释风格：解释「为什么」而不是「做什么」——本仓库的注释是决策记录（如 ui store 里「miniScreen/pinned 不持久化：窗口几何的存/恢复在后端」），照这个密度写。
 - 错误展示用 sonner toast；文案一律走 i18n，不硬编码中文字符串。
 - 乐观更新型交互（点赞/收藏）用 react-query 的 `onMutate` 模式（范例在 `service/queries/interact.ts`）。
+- 类型纪律：禁 `any`/`as any`/`@ts-ignore`/无理由 `eslint-disable`——类型没把握就 `unknown` + 收窄；确实绕不开的第三方无类型面，局部声明类型或收窄后 cast 并注释原因（ESLint recommendedTypeChecked 的 `no-explicit-any`/`no-unsafe-*` 钉死）。
 
 ## TanStack Query（服务端状态唯一去处）
 
@@ -77,7 +78,7 @@ export const useUiStore = create<UiState>()(
 ## i18n
 
 - `t('path.to.key')` 取词条、`tf(path, { vars })` 插值；**资源结构由 zh-CN.json 决定，en-US.json 必须与之完全一致**（type Dict = typeof zhCN 编译期约束）——加词条两个文件都要加。
-- 后端错误 kind 就是 i18n key（`error.network`…），新 AppError 变体要补 `error.*` 词条（`error.auth` 例外，故意无译文）。
+- 后端错误 kind 就是 i18n key（`error.network`…），新 AppError 变体要补 `error.*` 词条——**每个 kind 都必须有译文**，两份 locale 同一 commit 补齐，不透传后端原文当文案。
 - 缺词条回落显示 key 本身——比 undefined 好定位。
 
 ## 路由与搜索参数（有真坑）

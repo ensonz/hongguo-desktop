@@ -75,7 +75,7 @@ pub async fn save_playback_position(
         )
     })
     .await
-    .map_err(|e| crate::error::AppError::Network(format!("保存播放进度失败: {e}")))?
+    .map_err(|e| crate::error::AppError::Internal(format!("保存播放进度失败: {e}")))?
 }
 
 /// 一部剧最近看到的那一集（详情页「继续看」的数据源）。
@@ -90,7 +90,7 @@ pub async fn series_progress(
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || store.series_last_position(&series_id))
         .await
-        .map_err(|e| crate::error::AppError::Network(format!("读取播放进度失败: {e}")))?
+        .map_err(|e| crate::error::AppError::Internal(format!("读取播放进度失败: {e}")))?
         .map(|hit| {
             hit.map(|(vid_index, p)| crate::domain::model::SeriesProgress {
                 vid_index,

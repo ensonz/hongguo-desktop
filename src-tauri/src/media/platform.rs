@@ -102,6 +102,23 @@ pub fn encoder_available() -> bool {
     }
 }
 
+/// HEVC 解码 MFT 是否在位（Windows；macOS 的 WKWebView 原生可解 HEVC，恒真）。
+///
+/// 回答的是「在线播放能否把 HEVC 系流直接喂给 WebView」，与转码侧探测
+/// （[`h264_hw_encoder_available`] 等，回答「转码走哪条路」）是两个问题；
+/// 判据同源（同一个 HEVC 解码 MFT 枚举），但不吃 `HONGGUO_NO_PLATFORM`——
+/// 那个开关关的是转码平台层，与播放解码无关。
+pub fn hevc_decode_available() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        mf::hevc_decoder_present()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true
+    }
+}
+
 /// 丢弃平台侧的探测缓存，下次读取时重新探测（设置页「重新检测」用）。
 pub fn clear_probe_cache() {
     #[cfg(target_os = "macos")]

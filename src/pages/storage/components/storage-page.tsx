@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import {
   AlertDialog,
@@ -36,7 +37,6 @@ export function StoragePage() {
   const handleDelete = (seriesId: string, title: string) => {
     deleteSeries.mutate(seriesId, {
       onSuccess: (n) => toast.success(`${title} · ${tf('storage.freedFiles', { count: n })}`),
-      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -84,7 +84,13 @@ export function StoragePage() {
           />
 
           {visible.length === 0 ? (
-            <p className="text-muted-foreground py-8 text-center text-sm">{t('common.empty')}</p>
+            <Empty className="py-8">
+              <EmptyHeader>
+                <EmptyTitle className="text-muted-foreground text-sm font-normal">
+                  {t('common.empty')}
+                </EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <div className="flex flex-col gap-2">
               {visible.map((s) => (
@@ -127,7 +133,6 @@ export function StoragePage() {
               onClick={() =>
                 deleteAll.mutate(undefined, {
                   onSuccess: (n) => toast.success(tf('storage.freedFiles', { count: n })),
-                  onError: (e) => toast.error(e.message),
                 })
               }
             >

@@ -5,7 +5,8 @@ import { persist } from 'zustand/middleware';
  *  快进快退默认 ← →） */
 export type ShortcutAction = 'playPause' | 'seekBack' | 'seekForward' | 'stepPrev' | 'stepNext';
 
-export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
+/** 默认键位（仅本 store 内部使用；设置面板展示走 shortcutKeyLabel）。 */
+const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   playPause: ' ',
   seekBack: 'ArrowLeft',
   seekForward: 'ArrowRight',

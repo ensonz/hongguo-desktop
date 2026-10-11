@@ -62,7 +62,7 @@ export function AppSidebar() {
     >
       {/* 顶栏（红绿灯/logo/应用名）横贯全宽，长在 AppShell 上——侧边栏
           从顶栏下方开始，折叠不再影响顶部区域。 */}
-      <nav className="flex-1 space-y-1 p-2">
+      <nav className="flex flex-1 flex-col gap-1 p-2">
         {NAV_ITEMS.map((item) => {
           const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
           const Icon = item.icon;

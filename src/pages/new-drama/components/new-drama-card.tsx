@@ -2,8 +2,7 @@
 import { useState } from 'react';
 import { Flame, Star, Tv } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { useWebCover } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { t, tf } from '@/locales';
 import type { RankItem } from '@/service/schema';
 
@@ -16,7 +15,7 @@ export function NewDramaCard({
   downloaded: number;
   onSelect: (item: RankItem) => void;
 }) {
-  const { data: webCover } = useWebCover(item.cover);
+  const webCover = enhancedCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
   const [brokenFor, setBrokenFor] = useState('');
@@ -52,7 +51,7 @@ export function NewDramaCard({
         )}
         {/* 官方同款封面角标：左下热度（黄）、右下总集数 */}
         {item.recText !== '' && (
-          <span className="absolute bottom-1 left-1 flex items-center gap-0.5 text-[10px] font-semibold text-amber-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+          <span className="text-star absolute bottom-1 left-1 flex items-center gap-0.5 text-[10px] font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
             <Flame className="size-3" aria-hidden />
             {item.recText}
           </span>
@@ -85,7 +84,7 @@ export function NewDramaCard({
         </p>
         {item.score > 0 && (
           <p className="flex items-center gap-1 text-xs font-semibold">
-            <Star className="size-3.5 text-amber-400" aria-hidden />
+            <Star className="text-star size-3.5" aria-hidden />
             {item.score.toFixed(1)}
             {t('newDrama.scoreSuffix')}
           </p>

@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
 import { TableRow, TableCell } from '@/components/ui/table';
 import { formatBytes } from '@/utils/format';
-import { t } from '@/locales';
+import { t, type MessageKey } from '@/locales';
 import type { DownloadTask, TaskStatus } from '@/service/schema';
 
 const STATUS_VARIANT: Record<
@@ -51,10 +51,14 @@ export function TaskRow({
           {task.seriesTitle}
         </span>
         {task.error && (
-          // task.error 存的是 i18n key。老数据里存的是历史错误原文，
-          // t() 查不到会回落显示原串，正好当降级用，不做数据迁移
-          <span className="text-destructive block truncate text-xs" title={t(task.error)}>
-            {t(task.error)}
+          // task.error 存的是 i18n key。老数据里存的是历史错误原文——持久化
+          // 读出的存量无法静态枚举，这里 cast 换类型检查；t() 查不到会回落
+          // 显示原串，正好当降级用，不做数据迁移
+          <span
+            className="text-destructive block truncate text-xs"
+            title={t(task.error as MessageKey)}
+          >
+            {t(task.error as MessageKey)}
           </span>
         )}
       </TableCell>

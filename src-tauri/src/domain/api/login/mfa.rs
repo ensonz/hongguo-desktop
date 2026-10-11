@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(real_upsms_channel(""), "");
     }
 
-    /// 回归（known-issues T2）：upsms 响应解读打真实判据函数——
+    /// 回归：upsms 响应解读打真实判据函数——
     /// 1045 等待 / registered+新 token 成功 / 其他码报错。
     #[test]
     fn interprets_upsms_response_states() {

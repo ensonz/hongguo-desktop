@@ -100,10 +100,11 @@ export const calendarPageSchema = z.object({
   defaultDate: z.string(),
   hasMore: z.boolean(),
   nextOffset: z.number(),
+  /** 浏览会话标识：懒翻页回传（首页请求不能自带，见 Rust fetch_reservations） */
+  sessionId: z.string(),
   /** 预约列表两个 tab 的计数（日历形态恒 0） */
   onlineTotal: z.number(),
   offlineTotal: z.number(),
   /** 官方模型对照新增：已上线未读文案（"3部上新"服务端直发，缺席为空） */
   onlineUnreadCountText: z.string().default(''),
 });
-export type CalendarPage = z.infer<typeof calendarPageSchema>;

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Loader2, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonCardGrid } from '@/components/skeletons';
 import { SeriesCardGrid } from './series-card-grid';
@@ -258,44 +261,54 @@ export function BrowsePage() {
             handleSubmit();
           }}
         >
-          <div className="relative min-w-48 flex-1">
-            <Input
-              value={keyword}
-              onChange={(e) => {
-                setKeyword(e.target.value);
-                setSuggestOpen(true);
-              }}
-              onFocus={() => setSuggestOpen(true)}
-              onBlur={() => setSuggestOpen(false)}
-              onKeyDown={(e) => {
-                // 输入法组合中（拼音未上屏）：Enter 是字母上屏、方向键归
-                // 输入法——不碰联想/提交
-                if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
-                if (!showSuggest) return;
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  setSuggestIndex((i) => (i + 1) % suggestions.length);
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  setSuggestIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
-                } else if (e.key === 'Enter') {
-                  // 联想开着时 Enter 选中高亮条目，不再走提交搜索
-                  e.preventDefault();
-                  const picked = suggestions[suggestIndex] ?? suggestions[0];
-                  if (picked) pickSuggest(picked);
-                } else if (e.key === 'Escape') {
-                  setSuggestOpen(false);
-                }
-              }}
-              placeholder={t('search.placeholder')}
-              aria-label={t('search.placeholder')}
-              className="min-w-48 flex-1"
-              autoComplete="off"
-            />
-            {/* 联想下拉：条目用 onMouseDown(preventDefault) 选中——
-                比 blur 早一拍，点条目不会先把下拉收掉 */}
+          <Popover open={showSuggest} onOpenChange={(o) => !o && setSuggestOpen(false)}>
+            <PopoverAnchor asChild>
+              <Input
+                value={keyword}
+                onChange={(e) => {
+                  setKeyword(e.target.value);
+                  setSuggestOpen(true);
+                }}
+                onFocus={() => setSuggestOpen(true)}
+                onBlur={() => setSuggestOpen(false)}
+                onKeyDown={(e) => {
+                  // 输入法组合中（拼音未上屏）：Enter 是字母上屏、方向键归
+                  // 输入法——不碰联想/提交
+                  if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+                  if (!showSuggest) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSuggestIndex((i) => (i + 1) % suggestions.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSuggestIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+                  } else if (e.key === 'Enter') {
+                    // 联想开着时 Enter 选中高亮条目，不再走提交搜索
+                    e.preventDefault();
+                    const picked = suggestions[suggestIndex] ?? suggestions[0];
+                    if (picked) pickSuggest(picked);
+                  } else if (e.key === 'Escape') {
+                    setSuggestOpen(false);
+                  }
+                }}
+                placeholder={t('search.placeholder')}
+                aria-label={t('search.placeholder')}
+                className="min-w-48 flex-1"
+                autoComplete="off"
+              />
+            </PopoverAnchor>
+            {/* 联想下拉：锚定/碰撞规避交给 Popover；条目用
+                onMouseDown(preventDefault) 选中——比 blur 早一拍，
+                点条目不会先把下拉收掉 */}
             {showSuggest && (
-              <div className="bg-popover text-popover-foreground absolute inset-x-0 top-full z-30 mt-1.5 max-h-80 scrollbar-thin overflow-y-auto rounded-xl border p-1.5 shadow-lg">
+              <PopoverContent
+                side="bottom"
+                align="start"
+                sideOffset={6}
+                // 焦点留在输入框：方向键导航与继续输入都不许浮层抢焦
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                className="max-h-80 w-[var(--radix-popover-anchor-width)] scrollbar-thin overflow-y-auto rounded-xl p-1.5"
+              >
                 {suggestions.slice(0, 8).map((item, i) => (
                   <SuggestRow
                     key={`${item.word}:${i}`}
@@ -305,15 +318,11 @@ export function BrowsePage() {
                     onPick={pickSuggest}
                   />
                 ))}
-              </div>
+              </PopoverContent>
             )}
-          </div>
+          </Popover>
           <Button type="submit" disabled={!keyword.trim() || resubmitting}>
-            {resubmitting ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Search className="size-4" />
-            )}
+            {resubmitting ? <Spinner /> : <Search className="size-4" />}
             {t('search.submit')}
           </Button>
           {searching && (
@@ -372,9 +381,13 @@ export function BrowsePage() {
       {pending ? (
         <SkeletonCardGrid />
       ) : cards.length === 0 ? (
-        <p className="text-muted-foreground py-16 text-center text-sm">
-          {searching ? t('search.empty') : t('browse.empty')}
-        </p>
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyTitle className="text-muted-foreground text-sm font-normal">
+              {searching ? t('search.empty') : t('browse.empty')}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <RefreshShade refreshing={refreshing}>
           {/* 无限滚动：不再翻页补位，条目持续累积填满网格，
@@ -392,7 +405,7 @@ export function BrowsePage() {
         <>
           {browse.isFetchingMore && (
             <p className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-sm">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <Spinner aria-hidden />
               {t('feed.loadingMore')}
             </p>
           )}

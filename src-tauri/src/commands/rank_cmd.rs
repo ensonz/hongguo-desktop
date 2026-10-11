@@ -175,14 +175,18 @@ pub async fn reservations_delete(
     Ok(())
 }
 
-/// 上新日历（date 传返回值 dates 里的日期可切换，不传取默认日）。
+/// 上新日历（date 传返回值 dates 里的日期可切换，不传取默认日；
+/// offset/session_id 是上一页响应的游标——单页返回，前端滚动到底懒翻页）。
 #[tauri::command]
 pub async fn new_drama_calendar(
     state: State<'_, AppState>,
     date: Option<String>,
+    offset: Option<i64>,
+    session_id: Option<String>,
 ) -> AppResult<CalendarPage> {
     let env = state.api_env();
-    fetch_new_calendar(date.as_deref(), &env).await
+    let cursor = offset.map(|o| (o, session_id.as_deref().unwrap_or_default()));
+    fetch_new_calendar(date.as_deref(), cursor, &env).await
 }
 
 #[cfg(test)]

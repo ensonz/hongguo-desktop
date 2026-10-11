@@ -1,7 +1,7 @@
 /** 新剧推荐视图：封面网格 + 滚动翻页（频道筛选留在页面层）。 */
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import { Spinner } from '@/components/ui/spinner';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonCardGrid } from '@/components/skeletons';
 import { useDownloadTasks, useNewDrama } from '@/service/queries';
@@ -73,14 +73,11 @@ export function NewDramaRecommends({
         {feed.isLoading ? (
           <SkeletonCardGrid count={9} />
         ) : feed.error ? (
-          <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-            <p>{t('newDrama.loadFailed')}</p>
-            <p className="text-destructive text-xs">{feed.error}</p>
-            <Button variant="outline" size="sm" onClick={() => void feed.refresh()}>
-              <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-              {t('feed.retry')}
-            </Button>
-          </div>
+          <ErrorState
+            message={t('newDrama.loadFailed')}
+            detail={feed.error}
+            onRetry={() => void feed.refresh()}
+          />
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 2xl:grid-cols-8">
             {feed.items.map((item) => (
@@ -98,7 +95,7 @@ export function NewDramaRecommends({
       <div ref={sentinelRef} className="h-px" aria-hidden />
       {feed.isFetchingMore && (
         <p className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-sm">
-          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <Spinner aria-hidden />
           {t('feed.loadingMore')}
         </p>
       )}

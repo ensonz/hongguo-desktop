@@ -45,14 +45,16 @@ export const storage = {
 
 后端单一 `AppError` enum，序列化成 `{ kind, message }`：
 
-- `kind` 是前端 i18n key（`error.network`、`error.storeCorrupt`…共 13 个变体），**Rust 侧不硬编码面向用户的文案**；`message` 是后端中文原文，前端 `invoke.ts` 展示译文、原文挂 `error.cause`。
-- 变体语义是设计过的，别合并：`StoreLocked`（另一实例在跑）≠ `StoreCorrupt`（真损坏，报错了会让人删库）；`Busy`（现在不行等一下）≠ `InvalidArgs`（参数写错）；`EmptyResponse` 独立存在因为签名失效返回 HTTP 200 + 0 字节；`Cancelled` 供调度器区分取消与磁盘错误；`Auth` 是 transparent（消息已含完整语义如「登录失败 1202: 验证码错误」，i18n 无译文时前端透传原文）。
+- `kind` 是前端 i18n key（`error.network`、`error.storeCorrupt`…共 13 个变体），**Rust 侧不硬编码面向用户的文案**；`message` 是后端中文原文，前端 `invoke.ts` 展示译文、原文挂 `error.cause`。**每个 kind 都必须有 zh-CN/en-US 译文**（新增变体同一 commit 两份 locale 同步补），后端原文只进 `error.cause` 供排查，不作为用户可见文案依赖。
+- 变体语义是设计过的，别合并：`StoreLocked`（另一实例在跑）≠ `StoreCorrupt`（真损坏，报错了会让人删库）；`Busy`（现在不行等一下）≠ `InvalidArgs`（参数写错）；`EmptyResponse` 独立存在因为签名失效返回 HTTP 200 + 0 字节；`Cancelled` 供调度器区分取消与磁盘错误；`Auth` 是 transparent（消息已含完整语义如「登录失败 1202: 验证码错误」，原文挂 `error.cause`，展示走 `error.auth` 词条）。
 - 抛错惯用形态：`AppError::InvalidArgs("并发数必须在 1–10 之间".into())`；`AppError::NotFound(format!("剧集 {series_id}"))` 配 `.ok_or_else`；IO 用 `?`（有 From）。
 - **存进任务/队列的错误只存 i18n key 不存人话**（`queue.mark_failed(&id, e.i18n_key())`）——`DownloadTask.error` 会被前端直接渲染，底层细节只该进日志。
 
 ## 三、事件推送
 
-**Rust 侧**：直接 `app.emit(name, payload)`（`tauri::Emitter`），`let _ =` 忽略失败（前端不在场发不出去无害）；payload 用 `serde_json::json!({...})`。
+**Rust 侧**：直接 `app.emit(name, payload)`（`tauri::Emitter`），`let _ =` 忽略失败（前端不在场发不出去无害）。
+
+**payload 必须是强类型 struct**（`#[derive(Serialize)]` + `#[serde(rename_all = "camelCase")]`），**禁用 `serde_json::json!` 裸拼**——裸拼的字段名拼错、结构增删编译器抓不到，两端契约静默失效。事件 payload struct 与前端 zod schema 是同一契约的两份副本，改一端同一 commit 改另一端（同 IPC 命令纪律）。
 
 ```rust
 // 事件名常量集中在 service/download_service/events.rs 的 names 模块
@@ -60,7 +62,17 @@ pub mod names {
     pub const DOWNLOAD_PROGRESS: &str = "download-progress";
     // ...
 }
+
+// 事件 payload：强类型，与前端 useEvent 泛型/zod schema 对齐
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginMfaStateEvent {
+    pub state: MfaState, // 枚举序列化为 string 字面量，禁裸字符串
+}
 ```
+
+- **用户可见文案不进 payload**：只传状态/错误 kind（i18n key），文字由前端渲染；Rust 侧不硬编码面向用户的文案。
+- 消费端：`useEvent<LoginMfaStateEvent>(EVENTS.loginMfaState, handler)`。
 
 **前端**：`service/tauri/types.ts` 的 `EVENTS` 常量逐条对齐（两端必须同步改），消费用 `useEvent`（自动退订，handler 要 `useCallback`）：
 

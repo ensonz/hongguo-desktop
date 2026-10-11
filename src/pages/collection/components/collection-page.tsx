@@ -7,13 +7,21 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Loader2, Play, Star, StarOff } from 'lucide-react';
+import { Play, Star, StarOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
@@ -23,18 +31,17 @@ import {
   useSeriesCollect,
   useSeriesCollectBatch,
   useSeriesMeta,
-  useWebCover,
 } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
-import { t, tf } from '@/locales';
+import { t, tf, type MessageKey } from '@/locales';
 import type { BookshelfEntry } from '@/service/schema';
 
 /** 内容类型筛选（对齐 hgplayer v1.1.7 收藏筛选；依据 bookshelf 条目的
  *  content_type：1=真人 1004=漫剧，0=未知不归入任何一类）。 */
 type TypeTab = 'all' | 'real' | 'comic';
 
-const TYPE_TABS: { key: TypeTab; labelKey: string }[] = [
+const TYPE_TABS: { key: TypeTab; labelKey: MessageKey }[] = [
   { key: 'all', labelKey: 'collections.filterAll' },
   { key: 'real', labelKey: 'collections.filterReal' },
   { key: 'comic', labelKey: 'collections.filterComic' },
@@ -95,57 +102,60 @@ export function CollectionPage() {
     const notLoggedIn = error.message.includes('未登录');
     if (notLoggedIn) {
       return (
-        <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-          <Star className="size-8 opacity-40" aria-hidden />
-          <p className="text-sm">{t('collections.loginRequired')}</p>
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-            {t('feed.retry')}
-          </Button>
-        </div>
+        <ErrorState
+          message={t('collections.loginRequired')}
+          icon={<Star className="size-8 opacity-40" aria-hidden />}
+          onRetry={() => void refetch()}
+        />
       );
     }
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 p-4 py-16">
-        <p>{t('collections.loadFailed')}</p>
-        <p className="text-destructive text-xs">{error.message}</p>
-        <Button variant="outline" size="sm" onClick={() => void refetch()}>
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('collections.loadFailed')}
+        detail={error.message}
+        onRetry={() => void refetch()}
+      />
     );
   }
 
   if (items.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 p-4 py-16">
-        <Star className="size-8 opacity-40" aria-hidden />
-        <p className="text-sm">{t('collections.empty')}</p>
-        <p className="text-xs opacity-70">{t('collections.emptyHint')}</p>
-      </div>
+      <Empty className="p-4 py-16">
+        <EmptyHeader>
+          <EmptyMedia>
+            <Star className="size-8 opacity-40" aria-hidden />
+          </EmptyMedia>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('collections.empty')}
+          </EmptyTitle>
+          <EmptyDescription className="text-xs opacity-70">
+            {t('collections.emptyHint')}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <ToggleGroup
+          type="single"
+          spacing={1}
+          value={typeTab}
+          onValueChange={(v) => v !== '' && setTypeTab(v as TypeTab)}
+          className="flex items-center gap-2"
+        >
           {TYPE_TABS.map(({ key, labelKey }) => (
-            <button
+            <ToggleGroupItem
               key={key}
-              type="button"
-              onClick={() => setTypeTab(key)}
-              className={cn(
-                'rounded-full px-4 py-1.5 text-sm transition-colors',
-                typeTab === key
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
+              value={key}
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-auto min-w-0 rounded-full px-3 py-1 text-xs transition-colors data-[state=on]:font-medium"
             >
               {t(labelKey)}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         <ListSearch
           value={query}
           onChange={setQuery}
@@ -171,7 +181,6 @@ export function CollectionPage() {
                     toast.success(t('collections.removed'));
                     refreshAuth();
                   },
-                  onError: (e) => toast.error(String(e)),
                 },
               );
             }}
@@ -229,7 +238,7 @@ function CollectionCard({
 }) {
   const { data: meta } = useSeriesMeta(entry.seriesId);
   const rawCover = meta?.cover ?? '';
-  const { data: webCover } = useWebCover(rawCover);
+  const webCover = enhancedCover(rawCover);
   const cover = webCover ?? (isRenderableCover(rawCover) ? rawCover : '');
   const [brokenFor, setBrokenFor] = useState('');
   const imgBroken = brokenFor !== '' && brokenFor === cover;

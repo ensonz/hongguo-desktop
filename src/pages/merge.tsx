@@ -1,6 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { MergePage } from '@/pages/merge/components/merge-page';
+import { createFileRoute, lazyRouteComponent } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/merge')({
-  component: MergePage,
+  component: lazyRouteComponent(() => import('@/pages/merge/components/merge-page'), 'MergePage'),
 });

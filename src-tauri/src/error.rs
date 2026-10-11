@@ -62,6 +62,13 @@ pub enum AppError {
     #[error("{0}")]
     Busy(String),
 
+    /// 内部错误（后台任务 join 失败等不应发生的状态）。
+    ///
+    /// 与 [`AppError::Network`] 分开：这不是网络问题，而是进程内部任务
+    /// 未能完成（如 `spawn_blocking` 的 join 失败）。
+    #[error("内部错误: {0}")]
+    Internal(String),
+
     #[error(transparent)]
     Tauri(#[from] tauri::Error),
 }
@@ -83,6 +90,7 @@ impl AppError {
             AppError::NotFound(_) => "error.notFound",
             AppError::Cancelled => "error.cancelled",
             AppError::Busy(_) => "error.busy",
+            AppError::Internal(_) => "error.internal",
             AppError::Tauri(_) => "error.internal",
         }
     }

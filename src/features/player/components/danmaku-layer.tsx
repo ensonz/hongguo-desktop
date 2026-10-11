@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { cn } from '@/lib/utils';
 import { parseEmojiSegments } from '@/utils/danmaku-emoji';
 import type { DanmakuDisplaySettings } from '@/utils/playback-prefs';
 import type { Danmaku } from '@/service/schema';
@@ -94,7 +95,7 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
       fontPx = Math.max(10, Math.round(base * settings.fontScale));
       // 泳道只分布在显示区域内（area = 占画面高度的比例）
       lanes = Math.max(MIN_LANES, Math.floor((height * settings.area) / (fontPx + LANE_GAP)));
-      laneFreeAt = new Array(lanes).fill(0);
+      laneFreeAt = new Array<number>(lanes).fill(0);
     };
 
     const clearFlights = () => {
@@ -114,7 +115,7 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
         else hi = mid;
       }
       spawned = lo;
-      laneFreeAt = new Array(lanes).fill(0);
+      laneFreeAt = new Array<number>(lanes).fill(0);
       clearFlights();
     };
 
@@ -236,7 +237,10 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
   return (
     <div
       ref={layerRef}
-      className={`pointer-events-none absolute inset-0 z-10 overflow-hidden ${enabled ? '' : 'invisible'}`}
+      className={cn(
+        'pointer-events-none absolute inset-0 z-10 overflow-hidden',
+        !enabled && 'invisible',
+      )}
       style={{ opacity: display.opacity }}
       aria-hidden
     />

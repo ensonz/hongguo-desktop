@@ -25,7 +25,6 @@ export const relatedSeriesSchema = z.object({
 });
 
 export type RelatedItem = z.infer<typeof relatedItemSchema>;
-export type RelatedSeries = z.infer<typeof relatedSeriesSchema>;
 
 /** 详情页头部元信息（Rust `detail::SeriesMeta`，video_detail 接口）。 */
 export const seriesMetaSchema = z.object({
@@ -47,7 +46,7 @@ export const seriesMetaSchema = z.object({
   /** 剧情简介（series_intro，详情页与播放器简介面板共用） */
   intro: z.string().default(''),
   /** 官方模型对照新增（防御性读取，缺席为 undefined）：payInfo=付费信息
-   *  原样 / onlineTime=上线秒级时间戳 / updateTag=官方更新角标 /
+   *  原样 / onlineTime=上线毫秒时间戳 / updateTag=官方更新角标 /
    *  episodeTotalCnt=全剧总集数 / latestConsumedVid=服务端续播锚点 vid */
   payInfo: z.unknown().optional(),
   onlineTime: z.number().optional(),
@@ -55,4 +54,3 @@ export const seriesMetaSchema = z.object({
   episodeTotalCnt: z.number().optional(),
   latestConsumedVid: z.string().optional(),
 });
-export type SeriesMeta = z.infer<typeof seriesMetaSchema>;

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { ErrorState } from '@/components/common/error-state';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RefreshShade } from '@/components/refresh-shade';
 import { SkeletonRows } from '@/components/skeletons';
@@ -106,25 +107,27 @@ export function RankPage() {
           className="flex w-36 shrink-0 scrollbar-thin flex-col gap-1 overflow-y-auto"
           aria-label={t('rank.subLists')}
         >
-          {(currentTab?.subs ?? []).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => {
-                if (s.id === sub) return;
-                setSub(s.id);
-                setPanel('');
-              }}
-              className={cn(
-                'rounded-md px-3 py-2 text-left text-sm transition-colors',
-                s.id === sub
-                  ? 'bg-primary text-primary-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-              )}
-            >
-              {s.name}
-            </button>
-          ))}
+          <ToggleGroup
+            type="single"
+            spacing={1}
+            value={sub}
+            onValueChange={(v) => {
+              if (v === '') return;
+              setSub(v);
+              setPanel('');
+            }}
+            className="flex flex-col gap-1"
+          >
+            {(currentTab?.subs ?? []).map((s) => (
+              <ToggleGroupItem
+                key={s.id}
+                value={s.id}
+                className="text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-auto w-full justify-start rounded-md px-3 py-2 text-left text-sm transition-colors data-[state=on]:font-medium"
+              >
+                {s.name}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
           {(currentTab?.subs.length ?? 0) === 0 &&
             isLoading &&
             Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-9 rounded-md" />)}
@@ -157,14 +160,11 @@ export function RankPage() {
             {isLoading ? (
               <SkeletonRows count={8} height="h-24 rounded-xl" />
             ) : error ? (
-              <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-                <p>{t('rank.loadFailed')}</p>
-                <p className="text-destructive text-xs">{error.message}</p>
-                <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                  <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-                  {t('feed.retry')}
-                </Button>
-              </div>
+              <ErrorState
+                message={t('rank.loadFailed')}
+                detail={error.message}
+                onRetry={() => void refetch()}
+              />
             ) : (
               /* 切子榜/筛选时 keepPreviousData 保住旧列表：降透明度禁点，
                  而不是闪骨架屏——旧内容可看但不可点 */
@@ -178,14 +178,18 @@ export function RankPage() {
                   <div ref={sentinelRef} className="h-px" aria-hidden />
                   {rank.isFetchingMore && (
                     <p className="text-muted-foreground flex items-center justify-center gap-2 py-2 text-sm">
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      <Spinner aria-hidden />
                       {t('feed.loadingMore')}
                     </p>
                   )}
                   {listItems.length === 0 && (
-                    <p className="text-muted-foreground py-16 text-center text-sm">
-                      {t('rank.empty')}
-                    </p>
+                    <Empty className="py-16">
+                      <EmptyHeader>
+                        <EmptyTitle className="text-muted-foreground text-sm font-normal">
+                          {t('rank.empty')}
+                        </EmptyTitle>
+                      </EmptyHeader>
+                    </Empty>
                   )}
                 </div>
               </RefreshShade>

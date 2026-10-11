@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Tv } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useWebCover } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 
 interface SeriesCoverProps {
   /** 接口给的原始封面 URL，红果系条目多为 HEIC（WebView2 直挂必裂） */
@@ -24,7 +23,7 @@ interface SeriesCoverProps {
  * src 换掉后对不上号即视为未失败。
  */
 export function SeriesCover({ cover, alt, className }: SeriesCoverProps) {
-  const { data: enhanced } = useWebCover(cover);
+  const enhanced = enhancedCover(cover);
   const src = enhanced ?? (isRenderableCover(cover) ? cover : '');
   const [brokenFor, setBrokenFor] = useState('');
   const imgBroken = brokenFor !== '' && brokenFor === src;

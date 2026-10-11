@@ -33,7 +33,15 @@ pub const SUBSCRIBE_LIST_PATH: &str = "/reading/user/subscribe/list/v1/";
 /// 切日期的真实参数是 **`target_date=YYYYMMDD`**（2026-10-04 抓 hgplayer
 /// 切日期锁定；他家翻页时也始终在参）。响应条目有两种 schema（嵌套
 /// `subscribe_data.*` / 扁平 `item_id/name...`），[`parse_calendar_item`] 都吃。
-pub async fn fetch_new_calendar(date: Option<&str>, env: &ApiEnv) -> AppResult<CalendarPage> {
+///
+/// **单页返回 + 游标**：响应带 `has_more/next_offset/session_id`，前端滚动
+/// 到底再翻下一页（hgplayer 同款懒翻页）——此前这里一次性串行吃满 16 页
+/// 才返回，切换日期等于把整天的请求全打完再画，肉眼可见地卡。
+pub async fn fetch_new_calendar(
+    date: Option<&str>,
+    cursor: Option<(i64, &str)>,
+    env: &ApiEnv,
+) -> AppResult<CalendarPage> {
     let base: Vec<(String, String)> = [
         ("active_panel", "6"),
         ("gender_type", "2"),
@@ -47,65 +55,52 @@ pub async fn fetch_new_calendar(date: Option<&str>, env: &ApiEnv) -> AppResult<C
     .collect();
 
     // 首页（默认日）不带 target_date（hgplayer 首页实测无此键）；切日期才带
-    let target = match date {
-        Some(d) if !d.is_empty() => Some(d.to_string()),
-        _ => None,
-    };
+    let active_day_input = date.filter(|d| !d.is_empty()).map(str::to_string);
     let mut q = base.clone();
-    if let Some(d) = &target {
-        q.push(("target_date".to_string(), d.clone()));
+    if let Some(day) = &active_day_input {
+        q.push(("target_date".to_string(), day.clone()));
     }
-    let first = fetch_calendar_page(&q, env).await?;
-    let schema_dates = first.dates.clone();
-    // 展示日：显式选择的日期，或首页 schema 的 default_date（混排按它过滤）
-    let active_day = target.clone().unwrap_or_else(|| first.default_date.clone());
-    let default_date = first.default_date.clone();
+    // 翻页三键齐传 offset + subscribe_offset（同值）+ session_id（响应回传；
+    // 只传 offset 服务端无视，永远回同一页——死循环同页实测）；首页请求绝
+    // 不能自带 session_id（命中服务端会话缓存，见 fetch_reservations）
+    if let Some((offset, session_id)) = &cursor {
+        q.push(("offset".to_string(), offset.to_string()));
+        q.push(("subscribe_offset".to_string(), offset.to_string()));
+        if !session_id.is_empty() {
+            q.push(("session_id".to_string(), (*session_id).to_string()));
+        }
+    }
+    let page = fetch_calendar_page(&q, env).await?;
 
-    // 翻页吃满（offset + subscribe_offset 同值 + session_id 回传；上限 16 页
-    // 防服务端游标异常打穿）；翻页时 target_date 始终在参（hgplayer 同款）
-    let mut all = first.items.clone();
-    let mut page = first;
-    for _ in 0..16 {
-        if !page.has_more || page.next_offset <= 0 {
-            break;
-        }
-        let mut q = base.clone();
-        q.push(("target_date".to_string(), active_day.clone()));
-        q.push(("offset".to_string(), page.next_offset.to_string()));
-        q.push(("subscribe_offset".to_string(), page.next_offset.to_string()));
-        if !page.session_id.is_empty() {
-            q.push(("session_id".to_string(), page.session_id.clone()));
-        }
-        page = fetch_calendar_page(&q, env).await?;
-        all.extend(page.items.clone());
-    }
+    // 展示日：显式选择的日期，或首页 schema 的 default_date（混排按它过滤）
+    let active_day = active_day_input
+        .clone()
+        .unwrap_or_else(|| page.default_date.clone());
 
     // 混排按展示日过滤（他家 UI 同款口径）；服务端已按日返回时过滤是空操作
-    let mut items: Vec<CalendarItem> = all
+    let mut items: Vec<CalendarItem> = page
+        .items
         .iter()
         .filter(|i| beijing_date(i.publish_time) == active_day)
         .cloned()
         .collect();
-    // 过滤后为空但原始非空：beijing_date 解析不了 publish_time（未定档条目）
-    // 会全被滤掉——保留原始顺序兜底，避免某天误显示为空
-    if items.is_empty() && !all.is_empty() && target.is_none() {
-        items = all;
+    // 过滤后为空但原始非空（首页、未显式选日）：beijing_date 解析不了
+    // publish_time（未定档条目）会全被滤掉——保留原始顺序兜底，避免某天
+    // 误显示为空；显式选日的空页交给前端自动续拉下一页
+    if items.is_empty() && !page.items.is_empty() && active_day_input.is_none() {
+        items = page.items.clone();
     }
-    let dates = if schema_dates.is_empty() {
-        page.dates.clone()
-    } else {
-        schema_dates
-    };
+
     Ok(CalendarPage {
-        dates,
-        default_date,
+        dates: page.dates.clone(),
+        default_date: page.default_date.clone(),
         items,
-        has_more: false,
-        next_offset: 0,
-        online_total: 0,
-        offline_total: 0,
-        session_id: String::new(),
-        online_unread_count_text: String::new(),
+        has_more: page.has_more,
+        next_offset: page.next_offset,
+        session_id: page.session_id.clone(),
+        online_total: page.online_total,
+        offline_total: page.offline_total,
+        online_unread_count_text: page.online_unread_count_text.clone(),
     })
 }
 
@@ -210,7 +205,7 @@ fn parse_calendar_item(raw: &Value) -> Option<CalendarItem> {
             description: str_field(sd, "video_desc"),
             category: str_field(raw, "category"),
             rec_tags: string_array(raw, "rec_tags"),
-            publish_time: int_field(raw, "schedule_publish_time"),
+            publish_time: int_field(raw, "schedule_publish_time") * 1000,
             is_online: raw
                 .get("is_online")
                 .and_then(Value::as_bool)
@@ -236,7 +231,7 @@ fn parse_calendar_item(raw: &Value) -> Option<CalendarItem> {
         description: str_field(raw, "item_desc"),
         category: str_field(raw, "category"),
         rec_tags: string_array(raw, "sub_title_list"),
-        publish_time: int_field(raw, "schedule_publish_time"),
+        publish_time: int_field(raw, "schedule_publish_time") * 1000,
         is_online: raw
             .get("is_online")
             .and_then(Value::as_bool)
@@ -300,7 +295,7 @@ mod tests {
         assert_eq!(it.title, "穿越古代搞军工");
         assert_eq!(it.category, "逆袭");
         assert_eq!(it.rec_tags, vec!["374万热度"]);
-        assert_eq!(it.publish_time, 1790957041);
+        assert_eq!(it.publish_time, 1_790_957_041_000);
         assert!(it.is_online);
         assert_eq!(it.score, 8.4);
         assert_eq!(page.dates, vec!["20260926", "20261003", "20261010"]);
@@ -354,7 +349,7 @@ mod tests {
         assert_eq!(it.title, "聚宝仙盆之杂灵根才是真BOSS第十三季");
         assert_eq!(it.description, "杂灵根弟子贺平生……");
         assert_eq!(it.rec_tags, vec!["328.7万人预约", "逆袭"]);
-        assert_eq!(it.publish_time, 1791216360);
+        assert_eq!(it.publish_time, 1_791_216_360_000);
         assert!(!it.is_online);
         assert!(it.vid.is_empty(), "扁平形态没有 vid，留空而非报错");
         assert!(page.has_more);
@@ -367,24 +362,25 @@ pub(crate) mod probe {
     use super::*;
     use crate::domain::api::rank::probe::anon_env;
 
-    /// 上新日历直连：应返回日期列表 + 当日条目。
+    /// 上新日历直连：应返回日期列表 + 当日条目（首页单页，带游标）。
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_new_calendar() {
         let env = anon_env();
-        let page = fetch_new_calendar(None, &env).await.expect("上新日历");
+        let page = fetch_new_calendar(None, None, &env).await.expect("上新日历");
         println!(
-            "[calendar] dates={:?} default={:?} items={} #1={:?}",
+            "[calendar] dates={:?} default={:?} items={} has_more={} #1={:?}",
             page.dates.first().zip(page.dates.last()),
             page.default_date,
             page.items.len(),
+            page.has_more,
             page.items.first().map(|i| &i.title)
         );
         assert!(!page.dates.is_empty(), "日历应带日期列表");
         assert!(!page.items.is_empty(), "当日应有上新条目");
-        // 对照：显式传一个非默认日期——修复后应翻页收集到该日条目
+        // 对照：显式传一个非默认日期——混排按该日过滤后单页返回
         let other = page.dates.last().map(String::as_str).expect("至少一个日期");
-        let page2 = fetch_new_calendar(Some(other), &env)
+        let page2 = fetch_new_calendar(Some(other), None, &env)
             .await
             .expect("指定日期日历");
         println!(

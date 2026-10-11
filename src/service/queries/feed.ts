@@ -3,22 +3,16 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 
 import { discover } from '../commands';
 import type { FeedItem, FeedPage } from '../schema';
-import { keys, useInfiniteStream } from './common';
+import { dedupBy, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 首页推荐流
 
 /** pages → 按拉取顺序、seriesId 去重的条目（推荐位轮换会跨页重复）。 */
 export function feedItems(pages: FeedPage[]): FeedItem[] {
-  const seen = new Set<string>();
-  const items: FeedItem[] = [];
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (seen.has(item.seriesId)) continue;
-      seen.add(item.seriesId);
-      items.push(item);
-    }
-  }
-  return items;
+  return dedupBy(
+    pages.flatMap((p) => p.items),
+    (i) => i.seriesId,
+  );
 }
 
 /**
@@ -44,6 +38,8 @@ export function useFeed(tab: string) {
       const seen = Array.from(new Set(allPages.flatMap((p) => p.items.map((i) => i.seriesId))));
       return { offset: last.nextOffset, sessionId: last.sessionId, filterIds: seen };
     },
+    // 失败 home-page 就地给 ErrorState + 重试，全局不再弹
+    meta: { silentOnError: true },
     staleTime: 5 * 60_000,
   });
   const stream = useInfiniteStream(query, feedItems);

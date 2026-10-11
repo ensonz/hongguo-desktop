@@ -35,16 +35,14 @@ export const queueStatusSchema = z.object({
   active: z.number().int().nonnegative(),
 });
 
-export type QueueStatus = z.infer<typeof queueStatusSchema>;
-
 /**
- * 下载进度事件负载。
- *
- * 事件不走 zod 校验（`useEvent` 只做类型标注），所以这里只保留类型本身。
+ * 下载进度事件负载（Rust scheduler 按任务节流上报）。
  */
-export type DownloadProgress = {
-  id: string;
-  downloaded: number;
-  total: number;
-  percent: number;
-};
+export const downloadProgressSchema = z.object({
+  id: z.string(),
+  downloaded: z.number(),
+  total: z.number(),
+  percent: z.number(),
+});
+
+export type DownloadProgress = z.infer<typeof downloadProgressSchema>;

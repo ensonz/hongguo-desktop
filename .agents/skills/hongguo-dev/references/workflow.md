@@ -4,7 +4,7 @@
 
 - Node ≥ 22（pnpm）+ Rust toolchain（MSRV 1.99，edition 2024）。依赖：`pnpm install`。
 - 数据目录 `%APPDATA%/hongguo-downloader/hongguo.db`（SQLite，沿 Electron 版路径便于旧档迁移）；`HONGGUO_DATA_DIR` 环境变量可重定向（测试用）。
-- 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户自己开着 dev 会话时，要么请他关掉，要么走 computer-use 路线调试。
+- 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户自己开着 dev 会话时**一律不可调试——CDP、computer-use 都不行**，自动化调试只针对自己启动的实例。
 
 ## 日常命令
 
@@ -47,6 +47,7 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 ```
 
 - **回归惯例**：主要路由各跑一遍 probe：`for r in . browse rank new history collections; do node scripts/cdp.mjs probe "$r"; done`
+- **probe 判死规则**：裂图（`img.complete && naturalWidth === 0`，即请求成功但解码失败）与图片请求 `Network.loadingFailed` → FAIL；懒加载未触发的图（`complete=false`）不算失败。退出码可直接接 CI。
 - 直接调后端命令排查：`eval "window.__TAURI_INTERNALS__.invoke('related_series',{seriesId:'...'})"`。
 - macOS 无 CDP（WKWebView），用 `node scripts/webdriver.mjs`（debug 构建内嵌 WebDriver，127.0.0.1:4445）。
 - CDP 与 computer-use 分工：CDP 够用就 CDP（DOM/网络/求值可断言）；原生窗口装饰、系统对话框、无 CDP 的已运行实例才走 computer-use。

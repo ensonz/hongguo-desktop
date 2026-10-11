@@ -1,10 +1,19 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BellRing, CalendarClock, Loader2, LogIn, Play, Star, Tv } from 'lucide-react';
+import { BellRing, CalendarClock, LogIn, Play, Star, Tv } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { ListSearch } from '@/components/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { cn } from '@/lib/utils';
@@ -14,14 +23,8 @@ import { rank as rankApi } from '@/service/commands';
 import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
-import {
-  RESERVATIONS_KEY_ROOT,
-  useAccount,
-  useReservations,
-  useReservationsDelete,
-  useWebCover,
-} from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { keys, useAccount, useReservations, useReservationsDelete } from '@/service/queries';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { t, tf, locale } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import type { CalendarItem } from '@/service/schema';
@@ -120,20 +123,25 @@ export function ReservationPage() {
           ))}
         </div>
       ) : current.error ? (
-        <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-          <p>{t('reservation.loadFailed')}</p>
-          <p className="text-destructive text-xs">{current.error.message}</p>
-          <Button variant="outline" size="sm" onClick={() => void current.refetch()}>
-            <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-            {t('feed.retry')}
-          </Button>
-        </div>
+        <ErrorState
+          message={t('reservation.loadFailed')}
+          detail={current.error.message}
+          onRetry={() => void current.refetch()}
+        />
       ) : (current.data?.items.length ?? 0) === 0 ? (
-        <div className="text-muted-foreground flex flex-col items-center gap-2 py-16">
-          <BellRing className="size-8 opacity-40" aria-hidden />
-          <p className="text-sm">{t('reservation.empty')}</p>
-          <p className="text-xs opacity-70">{t('reservation.emptyHint')}</p>
-        </div>
+        <Empty className="py-16">
+          <EmptyHeader>
+            <EmptyMedia>
+              <BellRing className="size-8 opacity-40" aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle className="text-muted-foreground text-sm font-normal">
+              {t('reservation.empty')}
+            </EmptyTitle>
+            <EmptyDescription className="text-xs opacity-70">
+              {t('reservation.emptyHint')}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <>
           <div className="flex flex-col gap-2">
@@ -201,7 +209,7 @@ function NotLoggedIn() {
         onSuccess={() => {
           // 登录成功：刷登录态并重拉两个 tab 的预约列表
           void refetchAccount();
-          void qc.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
+          void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
         }}
       />
     </div>
@@ -225,7 +233,7 @@ function ReservationCard({
   const navigate = useNavigate();
   const playSeries = usePlaySeries();
   const qc = useQueryClient();
-  const { data: webCover } = useWebCover(item.cover);
+  const webCover = enhancedCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
   const [brokenFor, setBrokenFor] = useState('');
@@ -236,9 +244,8 @@ function ReservationCard({
     mutationFn: () => rankApi.reserve(item.seriesId, false),
     onSuccess: () => {
       toast.success(t('reservation.cancelled'));
-      void qc.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
+      void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   // 详情带上行内档案快照：未上线剧详情解析分集必然失败，prefill 支撑
@@ -308,7 +315,7 @@ function ReservationCard({
           </button>
           {item.score > 0 && (
             <span className="text-muted-foreground flex shrink-0 items-center gap-0.5 text-xs">
-              <Star className="size-3 text-amber-400" aria-hidden />
+              <Star className="text-star size-3" aria-hidden />
               {item.score.toFixed(1)}
             </span>
           )}
@@ -367,7 +374,7 @@ function ReservationCard({
               onClick={() => cancel.mutate()}
             >
               {cancel.isPending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
+                <Spinner aria-hidden />
               ) : (
                 <BellRing className="size-4" aria-hidden />
               )}
@@ -380,9 +387,9 @@ function ReservationCard({
   );
 }
 
-/** unix 秒 → "9月27日" / "Sep 27"（角标用，随界面语言）。 */
-function formatOnlineDate(sec: number): string {
-  const dt = new Date(sec * 1000);
+/** UTC 毫秒时间戳 → "9月27日" / "Sep 27"（角标用，随界面语言）。 */
+function formatOnlineDate(ms: number): string {
+  const dt = new Date(ms);
   if (Number.isNaN(dt.getTime())) return '';
   return new Intl.DateTimeFormat(locale() === 'zh-CN' ? 'zh-CN' : 'en-US', {
     month: 'short',
@@ -390,9 +397,9 @@ function formatOnlineDate(sec: number): string {
   }).format(dt);
 }
 
-/** unix 秒 → "10-07 12:00"（待上线精确时间）。 */
-function formatPublishDateTime(sec: number): string {
-  const dt = new Date(sec * 1000);
+/** UTC 毫秒时间戳 → "10-07 12:00"（待上线精确时间）。 */
+function formatPublishDateTime(ms: number): string {
+  const dt = new Date(ms);
   if (Number.isNaN(dt.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;

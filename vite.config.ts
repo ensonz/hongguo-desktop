@@ -13,7 +13,7 @@ export default defineConfig({
       target: 'react',
       routesDirectory: './src/pages',
       generatedRouteTree: './src/pages/routeTree.gen.ts',
-      // 页面实现与展示组件放在域目录的 components/ 下（known-issues E2），
+      // 页面实现与展示组件放在域目录的 components/ 下，
       // 生成物 routeTree.gen.ts 也不是路由——排除后插件不再逐个告警。
       // 插件按「相对 routesDirectory 的路径片段」做 regex test，
       // `components` 子串即可同时盖住两级嵌套与 routeTree（文件名含 Route 但
@@ -45,7 +45,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Vite 8 / Rolldown 要求 manualChunks 传函数而非对象。
-        // 大头各自成 chunk（known-issues E1）：radix-ui 组件族与 lucide
+        // 大头各自成 chunk：radix-ui 组件族与 lucide
         // 图标表都在 700kB 主包里，拆出去后主包只剩业务代码。
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;

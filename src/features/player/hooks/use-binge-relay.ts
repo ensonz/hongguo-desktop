@@ -5,6 +5,7 @@ import { useRelatedSeries } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
 import { tf } from '@/locales';
 import type { Series } from '@/service/schema';
+import { pickNextSeason } from '../season';
 
 /**
  * 剧终接力与连播锁定（hgplayer series-end 同款）。
@@ -53,8 +54,15 @@ export function useBingeRelay(params: {
     if (!seriesId || !vidIndex || seriesEndBusy.current) return;
     seriesEndBusy.current = true;
     const works = related?.works ?? [];
-    const idx = works.findIndex((w) => w.seriesId === seriesId);
-    const nextSeason = idx >= 0 ? works[idx + 1] : undefined;
+    // 下一季按季数挑（大于当前季的最小已上线季）：服务端顺序不可信
+    // （实测《逆江湖》各季乱序，works[idx+1] 会跳季/倒退）。判不出季数
+    // 才退回 hgplayer 同款「列表下一条」，并加未上线护栏（episodeCnt 0
+    // = 预约季，接过去必然播不了）。
+    const selfIdx = works.findIndex((w) => w.seriesId === seriesId);
+    const legacyNext = selfIdx >= 0 ? works[selfIdx + 1] : undefined;
+    const nextSeason =
+      pickNextSeason(works, seriesId, currentSeries?.title ?? '') ??
+      (legacyNext && legacyNext.episodeCnt > 0 ? legacyNext : undefined);
     if (nextSeason) {
       // hgplayer 同款：toast「即将播放下一季」+ 直接开播第 1 集。信息流
       // 上下文顺势进纯播放页（第三方 push play 路由同款）——信息流宿主的

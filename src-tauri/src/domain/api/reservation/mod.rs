@@ -232,7 +232,7 @@ mod tests {
         assert_eq!(it.series_id, "7692797468404091929");
         assert!(it.has_subscribed, "登录态预约列表应带 has_subscribed");
         assert!(!it.is_online);
-        assert_eq!(it.publish_time, 1791334800);
+        assert_eq!(it.publish_time, 1_791_334_800_000);
         assert!(page.dates.is_empty(), "预约列表无日历 schema");
         assert_eq!(page.online_total, 0);
         assert_eq!(page.offline_total, 1, "待上线计数供 tab 徽标用");

@@ -48,8 +48,6 @@ export const seriesProgressSchema = z.object({
   updatedAt: z.number(),
 });
 
-export type SeriesProgress = z.infer<typeof seriesProgressSchema>;
-
 /** 找剧网格的卡片（App 搜索 / 筛选流条目统一转成这个形态喂网格；纯前端形态，不走 IPC 校验）。 */
 export type SeriesCard = {
   seriesId: string;

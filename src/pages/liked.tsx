@@ -1,6 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { LikedPage } from '@/pages/liked/components/liked-page';
+import { createFileRoute, lazyRouteComponent } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/liked')({
-  component: LikedPage,
+  component: lazyRouteComponent(() => import('@/pages/liked/components/liked-page'), 'LikedPage'),
 });

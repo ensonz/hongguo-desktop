@@ -5,7 +5,29 @@ import { t, tf } from '@/locales';
 import type { RelatedItem } from '@/service/schema';
 import { ReserveButton } from './reserve-button';
 
-export function RelatedCard({ item, onOpen }: { item: RelatedItem; onOpen: (id: string) => void }) {
+/**
+ * 相关推荐卡片 → 详情页 search。
+ *
+ * 必带档案快照 prefill：未上线剧解析分集必然失败（平台无分集可给），
+ * 详情页靠 prefill 渲染「即将上线」降级视图，缺了会整页报错（榜单行同款做法）。
+ */
+export function relatedDetailSearch(item: RelatedItem) {
+  return {
+    seriesId: item.seriesId,
+    title: item.title,
+    cover: item.cover,
+    tags: item.tag,
+    desc: item.videoDesc,
+  };
+}
+
+export function RelatedCard({
+  item,
+  onOpen,
+}: {
+  item: RelatedItem;
+  onOpen: (item: RelatedItem) => void;
+}) {
   const isUpcoming = item.episodeCnt === 0 || item.tag === '即将上线';
   return (
     // 整张卡可点。不用 <button> 包：一是内容模型只允许 phrasing content
@@ -17,12 +39,12 @@ export function RelatedCard({ item, onOpen }: { item: RelatedItem; onOpen: (id: 
       role="button"
       tabIndex={0}
       aria-label={item.title}
-      onClick={() => onOpen(item.seriesId)}
+      onClick={() => onOpen(item)}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         // 空格默认会滚动页面，按钮不该有滚动副作用
         e.preventDefault();
-        onOpen(item.seriesId);
+        onOpen(item);
       }}
       className="group flex w-full cursor-pointer flex-col text-left"
       title={item.videoDesc || item.title}
@@ -39,7 +61,7 @@ export function RelatedCard({ item, onOpen }: { item: RelatedItem; onOpen: (id: 
           </span>
         )}
         {item.score > 0 && (
-          <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none text-amber-300">
+          <span className="text-star absolute right-1 bottom-1 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none">
             {item.score.toFixed(1)}分
           </span>
         )}

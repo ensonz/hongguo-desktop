@@ -81,7 +81,6 @@ export function MergePage() {
         // 后端派发到后台线程后立刻返回 running 任务，真正的进度与成败
         // 走合并事件流。所以这里只确认「已启动」，别去判断最终状态。
         onSuccess: () => toast.success(t('merge.started')),
-        onError: (e) => toast.error(e.message),
       },
     );
   };
@@ -90,7 +89,6 @@ export function MergePage() {
     if (!pendingDelete) return;
     remove.mutate(pendingDelete, {
       onSuccess: () => setPendingDelete(null),
-      onError: (e) => toast.error(e.message),
     });
   };
 

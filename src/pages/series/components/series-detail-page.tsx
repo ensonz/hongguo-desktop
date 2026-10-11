@@ -4,6 +4,8 @@ import { ArrowLeft, Flame, Heart, Hourglass, Play, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ErrorState } from '@/components/common/error-state';
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SeriesCover } from '@/components/series-cover';
@@ -49,7 +51,8 @@ export function SeriesDetailPage({
   prefill?: { title: string; cover: string; tags: string; desc: string };
 }) {
   const navigate = useNavigate();
-  const router = useRouter();
+  // routeTree.gen 的 as any 污染 useRouter 返回值；这里只用 history.back
+  const router = useRouter() as { history: { back: () => void } };
   const setTarget = usePlayerStore((s) => s.setTarget);
 
   const { data: series, isPending, isError, error } = useSeriesEpisodes(seriesId || null);
@@ -131,7 +134,6 @@ export function SeriesDetailPage({
       {
         onSuccess: () =>
           toast.success(t(collected ? 'player.interact.uncollected' : 'player.interact.collected')),
-        onError: (e) => toast.error(String(e)),
       },
     );
   };
@@ -144,7 +146,6 @@ export function SeriesDetailPage({
       {
         onSuccess: () =>
           toast.success(t(digged ? 'player.interact.undone' : 'player.interact.liked')),
-        onError: (e) => toast.error(String(e)),
       },
     );
   };
@@ -187,7 +188,7 @@ export function SeriesDetailPage({
       {isPending && (
         <div className="mt-6 flex gap-8">
           <Skeleton className="aspect-[3/4] w-44 shrink-0 rounded-xl" />
-          <div className="flex-1 space-y-4">
+          <div className="flex flex-1 flex-col gap-4">
             <Skeleton className="h-7 w-2/3" />
             <Skeleton className="h-4 w-1/3" />
             <Skeleton className="h-20 w-full" />
@@ -196,13 +197,12 @@ export function SeriesDetailPage({
       )}
 
       {isError && !upcomingSeries && (
-        <div className="grid gap-3 py-16 text-center">
-          <p className="text-destructive text-sm">
-            {t('series.loadFailed')}
-            {error instanceof Error && `: ${error.message}`}
-          </p>
+        <ErrorState
+          message={t('series.loadFailed')}
+          detail={error instanceof Error ? error.message : undefined}
+        >
           <ResolveButton seriesId={seriesId} />
-        </div>
+        </ErrorState>
       )}
 
       {activeSeries && (
@@ -221,7 +221,7 @@ export function SeriesDetailPage({
               <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 {reviewScore && (
                   <span className="flex items-baseline gap-1.5">
-                    <span className="text-xl leading-none font-bold text-amber-400">
+                    <span className="text-star text-xl leading-none font-bold">
                       {Number(reviewScore).toFixed(1)}
                     </span>
                     <span>
@@ -232,7 +232,7 @@ export function SeriesDetailPage({
                 )}
                 {meta && meta.hotScore > 0 && (
                   <span className="flex items-center gap-1">
-                    <Flame className="size-4 text-red-500" aria-hidden />
+                    <Flame className="text-hot size-4" aria-hidden />
                     <span>
                       {tf('detail.heatValue', { count: formatCountPrecise(meta.hotScore) })}
                     </span>
@@ -258,14 +258,14 @@ export function SeriesDetailPage({
               upcoming ? (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {meta?.season && (
-                    <Badge variant="default" className="text-primary-foreground bg-red-500">
+                    <Badge variant="default" className="bg-hot text-primary-foreground">
                       {meta.season}
                     </Badge>
                   )}
                   {(upcoming || activeSeries.episodes.length > 0) && (
                     <Badge
                       variant={upcoming ? 'default' : 'secondary'}
-                      className={upcoming ? 'text-primary-foreground bg-red-500' : ''}
+                      className={upcoming ? 'bg-hot text-primary-foreground' : ''}
                     >
                       {tf('detail.allEpisodesBadge', { count: activeSeries.episodes.length })}
                     </Badge>
@@ -288,7 +288,7 @@ export function SeriesDetailPage({
                   /* 未上线：动作行换「⏳ 即将上线 + 预约」（hgplayer 同款），
                      播放/收藏/点赞无从谈起 */
                   <>
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-red-500">
+                    <span className="text-hot flex items-center gap-1.5 text-sm font-medium">
                       <Hourglass className="size-4" aria-hidden />
                       {t('player.comingSoon')}
                     </span>
@@ -306,10 +306,10 @@ export function SeriesDetailPage({
                       size="sm"
                       variant="outline"
                       onClick={onCollect}
-                      className={cn(collected && 'text-amber-500')}
+                      className={cn(collected && 'text-star')}
                     >
                       <Star
-                        className={cn('size-4', collected && 'fill-amber-400 text-amber-400')}
+                        className={cn('size-4', collected && 'fill-star text-star')}
                         aria-hidden
                       />
                       {t(collected ? 'detail.collected' : 'detail.collect')}
@@ -318,12 +318,9 @@ export function SeriesDetailPage({
                       size="sm"
                       variant="outline"
                       onClick={onDigg}
-                      className={cn(digged && 'text-red-500')}
+                      className={cn(digged && 'text-hot')}
                     >
-                      <Heart
-                        className={cn('size-4', digged && 'fill-red-500 text-red-500')}
-                        aria-hidden
-                      />
+                      <Heart className={cn('size-4', digged && 'fill-hot text-hot')} aria-hidden />
                       {t('player.interact.like')}
                     </Button>
                   </>
@@ -359,11 +356,19 @@ export function SeriesDetailPage({
 
             <TabsContent value="episodes">
               {activeSeries.episodes.length === 0 ? (
-                <div className="grid gap-3 py-10 text-center">
-                  <p className="text-muted-foreground text-sm">{t('series.noEpisodes')}</p>
+                <Empty className="py-10">
+                  <EmptyHeader>
+                    <EmptyTitle className="text-muted-foreground text-sm font-normal">
+                      {t('series.noEpisodes')}
+                    </EmptyTitle>
+                  </EmptyHeader>
                   {/* 未上线剧没有可解析的分集，重试无意义，只给文案 */}
-                  {!upcoming && <ResolveButton seriesId={seriesId} />}
-                </div>
+                  {!upcoming && (
+                    <EmptyContent>
+                      <ResolveButton seriesId={seriesId} />
+                    </EmptyContent>
+                  )}
+                </Empty>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
                   {/* 选集格对齐第三方：序号 + 第 N 集 + 右侧时长角标。

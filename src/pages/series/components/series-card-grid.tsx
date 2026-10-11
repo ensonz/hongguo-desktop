@@ -76,7 +76,7 @@ export function SeriesCardGrid({ cards, downloadedMap, onSelect, trailing }: Pro
               </p>
               {(card.heatText ?? '') !== '' && (
                 // 热度行（搜索结果卡；榜单行同款橙色 Flame 语言）
-                <p className="text-xs font-medium text-orange-500">
+                <p className="text-warm text-xs font-medium">
                   <Flame className="mr-0.5 inline size-3.5 align-[-2px]" aria-hidden />
                   {card.heatText}
                 </p>

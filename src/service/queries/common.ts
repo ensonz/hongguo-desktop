@@ -7,6 +7,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { BrowseFilters } from '../schema';
 
+/** 整组失效用根 key 的域段（与下方同名工厂同源，杜绝双轨字面量）。 */
+const RANK = ['rank'] as const;
+const RESERVATIONS = ['reservations'] as const;
+
 export const keys = {
   settings: ['settings'] as const,
   feed: (tab: string) => ['feed', tab] as const,
@@ -22,6 +26,7 @@ export const keys = {
   storageUsage: ['storage-usage'] as const,
   storageSeries: ['storage-series'] as const,
   capability: ['decode-capability'] as const,
+  playbackCapability: ['playback-capability'] as const,
   browsePanel: ['browse-panel'] as const,
   browseFeed: (filters: BrowseFilters) => ['browse-feed', filters] as const,
   relatedSeries: (seriesId: string) => ['related-series', seriesId] as const,
@@ -36,11 +41,16 @@ export const keys = {
   comments: (vid: string) => ['comments', vid] as const,
   interactState: ['interact-state'] as const,
   bookshelf: ['bookshelf'] as const,
-  rank: (selected: string, sub: string, panel: string) => ['rank', selected, sub, panel] as const,
+  /** 榜单整组失效用根 key（如预约态就地翻新时 findAll 前缀匹配） */
+  rankRoot: RANK,
+  rank: (selected: string, sub: string, panel: string) => [...RANK, selected, sub, panel] as const,
   newCalendar: (date: string) => ['new-calendar', date] as const,
-  reservations: (isOnline: boolean) => ['reservations', isOnline] as const,
+  /** 预约整组失效用根 key（登录/预约变更后两个 tab 一起翻面） */
+  reservationsRoot: RESERVATIONS,
+  reservations: (isOnline: boolean) => [...RESERVATIONS, isOnline] as const,
   account: ['account'] as const,
   appSeriesSearch: (query: string) => ['app-series-search', query] as const,
+  searchSuggest: (kw: string) => ['search-suggest', kw] as const,
 } satisfies Record<string, unknown>;
 
 /** 无限滚动查询的最小结构面（只取页面消费的字段，避免深泛型签名）。 */

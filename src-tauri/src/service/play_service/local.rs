@@ -92,14 +92,25 @@ pub async fn resolve_play(
     )
     .await
     {
-        Ok(prepared) => Ok(PlayResponse {
-            url: prepared.url,
-            online: true,
-            resume_at,
-            error: String::new(),
-            definition: prepared.definition,
-            definitions: prepared.definitions,
-        }),
+        Ok(prepared) => {
+            // 无 HEVC 机器的连播预转：下一集若是 HEVC-only，后台先转好，
+            // 连播到它时兜底直接命中缓存（门控/去重在 compat_prefetch 内）。
+            crate::service::play_service::compat_prefetch::schedule_next_episode(
+                state.store.clone(),
+                state.settings(),
+                state.api_env(),
+                &request.series_id,
+                request.vid_index + 1,
+            );
+            Ok(PlayResponse {
+                url: prepared.url,
+                online: true,
+                resume_at,
+                error: String::new(),
+                definition: prepared.definition,
+                definitions: prepared.definitions,
+            })
+        }
         Err(e) => Ok(PlayResponse {
             url: String::new(),
             online: true,
@@ -115,7 +126,7 @@ pub async fn resolve_play(
 ///
 /// 剧集档案是分集目录的唯一权威来源：`resolve_series` 拉到的分集（含 vid）
 /// 会写进数据库。下载任务表只记进度，未下载的集在那里根本没有记录。
-fn episode_vid(store: &Store, series_id: &str, vid_index: u32) -> Option<String> {
+pub(crate) fn episode_vid(store: &Store, series_id: &str, vid_index: u32) -> Option<String> {
     store
         .series_by_id(series_id)
         .ok()

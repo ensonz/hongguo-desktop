@@ -3,12 +3,14 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Loader2, Play, Star } from 'lucide-react';
+import { BellRing, Play, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { SeriesRowCard } from '@/components/series-row-card';
 import { rank as rankApi } from '@/service/commands';
+import { keys } from '@/service/queries';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import { t, tf } from '@/locales';
 import type { CalendarItem } from '@/service/schema';
@@ -25,9 +27,8 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
     onSuccess: () => {
       setReserved(true);
       toast.success(t('reservation.done'));
-      void qc.invalidateQueries({ queryKey: ['reservations'] });
+      void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   // 卡片一律进详情（排行榜预约榜同款口径）：未上线剧详情解析分集必然
@@ -66,11 +67,11 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
       metaLine={
         heat !== '' || item.category !== '' || item.score > 0 || item.episodeCnt > 0 ? (
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            {heat !== '' && <span className="font-semibold text-red-500">{heat}</span>}
+            {heat !== '' && <span className="text-hot font-semibold">{heat}</span>}
             {item.category !== '' && <span className="text-muted-foreground">{item.category}</span>}
             {item.score > 0 && (
               <span className="text-muted-foreground flex items-center gap-0.5">
-                <Star className="size-3 text-amber-400" aria-hidden />
+                <Star className="text-star size-3" aria-hidden />
                 {item.score.toFixed(1)}
               </span>
             )}
@@ -129,7 +130,7 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
             }}
           >
             {reserve.isPending ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
+              <Spinner aria-hidden />
             ) : (
               <BellRing className="size-4" aria-hidden />
             )}
@@ -141,9 +142,9 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
   );
 }
 
-/** unix 秒 → "MM-DD HH:mm"（本地时区）。 */
-function formatPublishTime(sec: number): string {
-  const dt = new Date(sec * 1000);
+/** UTC 毫秒时间戳 → "MM-DD HH:mm"（本地时区）。 */
+function formatPublishTime(ms: number): string {
+  const dt = new Date(ms);
   if (Number.isNaN(dt.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;

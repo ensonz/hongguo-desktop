@@ -113,7 +113,7 @@ pub async fn fetch_rank_ex(
     })
 }
 
-/// 会话级翻页去重（known-issues B4）。
+/// 会话级翻页去重。
 ///
 /// 服务端每页固定 20 条、相邻页重叠 10 条，去重原是前端义务——但那是
 /// 「每个调用点都必须记得」的隐含契约。这里在后端按 session_id 记账已
@@ -495,7 +495,7 @@ mod tests {
         assert!(tabs[1].subs.is_empty(), "无 sub_cell_selector 收空表");
     }
 
-    /// 回归（known-issues B2）：空 id 条目的取舍按结构判定，不依赖
+    /// 回归：空 id 条目的取舍按结构判定，不依赖
     /// 服务端文案——「总榜」改名后空 id 叶子选项仍要保留；空 id 却带
     /// panel_selector 的是异常二级子榜，无论叫什么都丢。
     #[test]
@@ -530,7 +530,7 @@ mod tests {
         assert_eq!(tabs[0].subs[0].name, "全部");
     }
 
-    /// 回归（known-issues B4）：相邻页重叠 10 条由后端按 session_id 记账
+    /// 回归：相邻页重叠 10 条由后端按 session_id 记账
     /// 去重，前端拿到的页间不再有重复；无会话（首页）不去重。
     #[test]
     fn dedup_rank_page_by_session() {

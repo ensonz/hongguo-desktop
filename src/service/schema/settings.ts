@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 const namingTemplateSchema = z.enum(['titleIndex', 'titleIndexEpisode', 'onlyTitle']);
 
-const proxyConfigSchema = z.object({
+export const proxyConfigSchema = z.object({
   mode: z.enum(['system', 'manual', 'direct']),
   url: z.string(),
 });
@@ -52,5 +52,3 @@ export const proxyTestResultSchema = z.object({
   elapsedMs: z.number().nonnegative(),
   message: z.string(),
 });
-
-export type ProxyTestResult = z.infer<typeof proxyTestResultSchema>;

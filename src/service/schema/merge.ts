@@ -31,18 +31,19 @@ export const mergeCandidateSchema = z.object({
   totalSize: z.number().nonnegative(),
 });
 
-export type MergeCandidate = z.infer<typeof mergeCandidateSchema>;
-
 export const mergePreflightSchema = z.object({
   ok: z.boolean(),
   episodeCount: z.number().int().nonnegative(),
-  estimatedSize: z.number().nonnegative(),
+  estimatedSize: z.number().int().nonnegative(),
   // null 表示查不到剩余空间，跟「剩余 0 B」是两回事，不能混
   freeSpace: z.number().int().nonnegative().nullable(),
   // 快速合并是字节级顺序拼接，编码不一致会产出连索引都过不去的文件
   codecConsistent: z.boolean(),
   codecMismatchEpisode: z.number().int().positive().nullable(),
-  warnings: z.array(z.string()),
+  // warnings 是 i18n key，键集由 Rust merge_service::prepare 定义（当前
+  // 三处：noDownloads / codecMismatch / insufficientSpace）——Rust 新增
+  // 警告键必须同一 commit 扩这个枚举，漏了会在响应校验当场暴露
+  warnings: z.array(
+    z.enum(['merge.noDownloads', 'merge.codecMismatch', 'merge.insufficientSpace']),
+  ),
 });
-
-export type MergePreflight = z.infer<typeof mergePreflightSchema>;

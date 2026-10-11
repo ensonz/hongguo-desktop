@@ -23,6 +23,9 @@ export const EVENTS = {
   // 隐身轮询器（set_incognito）发给主窗口：visible=false 暂停（只在隐身
   // 触发暂停时记「欠播」），visible=true 续播
   incognitoVisibility: 'incognito-visibility',
+  // 窗口最小化检测（lib.rs Resized+is_minimized，状态翻转才发；WebView2
+  // 最小化不派发 visibilitychange，前端拿不到）：true=最小化
+  windowMinimize: 'window-minimize',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

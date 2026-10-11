@@ -1,7 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
-import { Button } from '@/components/ui/button';
 import { TopBarTab, TopBarTabsPortal } from '@/components/layout/top-bar-tabs';
-import { t } from '@/locales';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { t, type MessageKey } from '@/locales';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import { useSessionState } from '@/hooks/use-scroll-restore';
 import { NewCalendarView } from './new-calendar-view';
@@ -15,7 +15,7 @@ import type { RankItem } from '@/service/schema';
  * 日历 = 官方按日期排布的上新表（前后各一周，含未上线条目）。
  */
 
-const GENDERS: { value: number; labelKey: string }[] = [
+const GENDERS: { value: number; labelKey: MessageKey }[] = [
   { value: 2, labelKey: 'newDrama.gender.all' },
   { value: 1, labelKey: 'newDrama.gender.male' },
   { value: 0, labelKey: 'newDrama.gender.female' },
@@ -72,22 +72,27 @@ export function NewDramaPage() {
         </TopBarTab>
       </TopBarTabsPortal>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {/* 顶栏 tab 在 AppShell 上，内容区自己留出与下方一致的四周呼吸 */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-3">
         {/* 频道胶囊只属于新剧推荐（cell_gender 是推荐流参数，日历不分频道） */}
         {view === 'recommend' && (
-          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <ToggleGroup
+            type="single"
+            spacing={1}
+            value={String(gender)}
+            onValueChange={(v) => v !== '' && setGender(Number(v))}
+            className="flex flex-wrap items-center justify-end gap-2"
+          >
             {GENDERS.map(({ value, labelKey }) => (
-              <Button
+              <ToggleGroupItem
                 key={value}
-                size="sm"
-                variant={gender === value ? 'default' : 'outline'}
-                className="rounded-full px-4"
-                onClick={() => setGender(value)}
+                value={String(value)}
+                className="text-muted-foreground hover:bg-accent hover:text-accent-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground h-auto min-w-0 rounded-full px-3 py-1 text-xs transition-colors data-[state=on]:font-medium"
               >
                 {t(labelKey)}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         )}
 
         {view === 'recommend' ? (

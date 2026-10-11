@@ -37,7 +37,7 @@ export function useIncognitoMode(videoRef: React.RefObject<HTMLVideoElement | nu
     void appApi.setIncognito(on).catch(() => undefined);
   }, [on]);
 
-  useEvent<{ visible: boolean }>(
+  useEvent(
     EVENTS.incognitoVisibility,
     useCallback(
       (p: { visible: boolean }) => {

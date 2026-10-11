@@ -18,6 +18,8 @@ export function useDanmaku(vid: string) {
     queryKey: keys.danmaku(vid),
     queryFn: () => danmakuCmd.list(groupId, bookId),
     enabled: vid.includes(':'),
+    // 播放器已有带上下文的定制 toast（「不影响播放」），全局不再重复弹
+    meta: { silentOnError: true },
     staleTime: 0,
   });
 }

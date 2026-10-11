@@ -2,7 +2,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { t } from '@/locales';
 import type { RelatedItem } from '@/service/schema';
-import { RelatedCard } from './related-card';
+import { RelatedCard, relatedDetailSearch } from './related-card';
 
 /**
  * 相关作品·系列（官方 plan 接口第一格）：同系列各季（第1季/第2季…）
@@ -13,10 +13,9 @@ export function RelatedWorks({ works }: { works: RelatedItem[] }) {
   const navigate = useNavigate();
   if (works.length === 0) return null;
 
-  const open = (id: string) => {
-    // 同一路由换 search 参数：整页数据随之换挡
-    void navigate({ to: '/detail', search: { seriesId: id } });
-  };
+  // 同一路由换 search 参数：整页数据随之换挡（带 prefill，未上线剧靠它降级渲染）
+  const open = (item: RelatedItem) =>
+    void navigate({ to: '/detail', search: relatedDetailSearch(item) });
 
   return (
     <div className="grid gap-3 pb-4">

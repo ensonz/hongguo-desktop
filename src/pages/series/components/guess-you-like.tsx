@@ -2,7 +2,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { t } from '@/locales';
 import type { RelatedItem } from '@/service/schema';
-import { RelatedCard } from './related-card';
+import { RelatedCard, relatedDetailSearch } from './related-card';
 
 /**
  * 猜你喜欢（官方 plan 接口第二格，第三方详情页同款）：响应式封面网格，
@@ -10,9 +10,9 @@ import { RelatedCard } from './related-card';
  */
 export function GuessYouLike({ items }: { items: RelatedItem[] }) {
   const navigate = useNavigate();
-  const open = (id: string) => {
-    void navigate({ to: '/detail', search: { seriesId: id } });
-  };
+  // 带 prefill：未上线剧靠档案快照渲染「即将上线」降级视图，缺了会整页报错
+  const open = (item: RelatedItem) =>
+    void navigate({ to: '/detail', search: relatedDetailSearch(item) });
   return (
     <div className="grid gap-3">
       <h3 className="text-sm font-semibold">{t('detail.guessYouLike')}</h3>

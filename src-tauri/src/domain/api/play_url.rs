@@ -33,9 +33,13 @@ pub struct PlayInfo {
 ///
 /// `definition` 为 `Some` 时取该档位；平台没提供这一档时自动回退到最高档
 /// （见 [`pick_stream_at`]），不会因此播放失败。
+///
+/// `cap` 决定选流模式：在线播放传本机探测结论（无 HEVC 扩展的机器自动
+/// 翻转到 h264）；转码源/下载选流传 `Full` 保持全量候选。
 pub async fn fetch_play_url(
     vid: &str,
     definition: Option<u32>,
+    cap: super::stream_pick::DecoderCapability,
     env: &super::client::ApiEnv,
 ) -> AppResult<PlayInfo> {
     let payload = serde_json::to_vec(&crate::domain::api::params::model_payload(vid))
@@ -68,7 +72,7 @@ pub async fn fetch_play_url(
     let parsed: Value = serde_json::from_str(model)
         .map_err(|e| AppError::Media(format!("video_model 解析失败: {e}")))?;
 
-    let stream = pick_stream_at(&parsed, definition)
+    let stream = pick_stream_at(&parsed, definition, cap)
         .ok_or_else(|| AppError::Media("没有可用的视频流".into()))?;
 
     Ok(PlayInfo {
@@ -77,6 +81,6 @@ pub async fn fetch_play_url(
         key_material: stream.spade.into_bytes(),
         codec: stream.codec.unwrap_or_default(),
         definition: stream.definition,
-        definitions: list_definitions(&parsed),
+        definitions: list_definitions(&parsed, cap),
     })
 }

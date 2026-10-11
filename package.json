@@ -1,7 +1,7 @@
 {
   "name": "hongguo-desktop",
   "private": true,
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",
   "description": "红果短剧桌面客户端（Windows / macOS）",
@@ -34,6 +34,7 @@
     "radix-ui": "^1.7.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-error-boundary": "^6.1.6",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "zod": "^4.6.5",
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query-devtools": "^5.104.1",
     "@tanstack/router-plugin": "^1.168.42",
     "@tauri-apps/cli": "^2.12.1",
     "@types/node": "^26.6.4",

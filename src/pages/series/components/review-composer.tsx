@@ -32,7 +32,6 @@ export function ReviewComposer({ seriesId }: { seriesId: string }) {
           toast.success(tf('detail.reviewSent', { score: stars * 2 }));
           setText('');
         },
-        onError: (e) => toast.error(String(e)),
       },
     );
   };

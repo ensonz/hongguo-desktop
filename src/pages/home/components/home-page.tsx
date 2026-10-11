@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ErrorState } from '@/components/common/error-state';
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PlayerView } from '@/features/player/components/player-page';
 import { play } from '@/service/commands';
@@ -14,9 +15,8 @@ import {
   useSeriesEpisodes,
   useSeriesProgress,
   useWatchHistory,
-  useWebCover,
 } from '@/service/queries';
-import { isRenderableCover } from '@/utils/cover';
+import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { t } from '@/locales';
 import type { Series } from '@/service/schema';
@@ -292,7 +292,7 @@ export function HomePage() {
   // 再挑 WebView 渲染得了的 URL。eagerProxy：HEIC 源不等 webp 网络请求，
   // 立即给本地转码代理——切剧瞬间的全屏占位黑一秒都是「卡顿感」的来源
   const rawCover = current?.horizCover || current?.cover || '';
-  const { data: webCover } = useWebCover(rawCover);
+  const webCover = enhancedCover(rawCover);
   const coverForPlayer = current
     ? (webCover ?? (isRenderableCover(rawCover) ? rawCover : undefined))
     : undefined;
@@ -331,8 +331,8 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, index, items.length, hasMore, isFetchingMore]);
 
-  // 不用手动 useCallback：依赖里的 source/长度每变一次本来就要新函数，
-  // React Compiler 能自动 memo；手动写反而和编译器打架（preserve-manual-memoization）。
+  // 依赖里的 source/长度每变一次本来就要新函数，useCallback 省不了重建。
+  // 别按「React Compiler 已启用」的口径写注释——本项目没装编译器插件。
   const step = (dir: 1 | -1) => {
     setIndexes((prev) => {
       const max = Math.max(0, items.length - 1);
@@ -379,37 +379,37 @@ export function HomePage() {
   // 静默停在「还没有选择剧集」就是用户反复看到的那个神秘界面
   if (seriesQuery.isError && current) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-        <p>{t('feed.loadFailed')}</p>
-        <p className="text-destructive text-xs">{String(seriesQuery.error)}</p>
-        <Button variant="outline" size="sm" onClick={() => void seriesQuery.refetch()}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('feed.loadFailed')}
+        detail={String(seriesQuery.error)}
+        onRetry={() => void seriesQuery.refetch()}
+      />
     );
   }
   if (loadError && items.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-3 py-16">
-        <p>{t('feed.loadFailed')}</p>
-        <p className="text-destructive text-xs">{loadError}</p>
-        <Button variant="outline" size="sm" onClick={retrySource}>
-          <Loader2 className="mr-1 size-4 animate-spin" aria-hidden />
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <ErrorState
+        message={t('feed.loadFailed')}
+        detail={loadError}
+        onRetry={() => void retrySource()}
+      />
     );
   }
   // 首批在拉时不是空态：画面继续播上一次的剧，拉到位自动过去
   if (!current && items.length === 0 && !isLoading) {
     return (
-      <div className="text-muted-foreground flex flex-col items-center gap-2 py-16">
-        <p className="text-sm">{t('home.empty')}</p>
-        <Button variant="outline" size="sm" onClick={retrySource}>
-          {t('feed.retry')}
-        </Button>
-      </div>
+      <Empty className="py-16">
+        <EmptyHeader>
+          <EmptyTitle className="text-muted-foreground text-sm font-normal">
+            {t('home.empty')}
+          </EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" size="sm" onClick={() => void retrySource()}>
+            {t('feed.retry')}
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
 

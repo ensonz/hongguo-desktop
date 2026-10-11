@@ -9,6 +9,10 @@
 //!   登记（ReaderDemand）驱动优先填充，回跳与前进一视同仁。
 //! - **整集**（回落）：CDN 不支持 Range、moov 定位失败等情形下，整集取回 +
 //!   解密后一次性交给协议，行为与本功能加入前完全一致。
+//!
+//! ⚠️ 起后台填充任务一律 `tauri::async_runtime::spawn`，不用裸 `tokio::spawn`：
+//! 后者依赖调用点所在的 Tokio 上下文，[`resume_fill`] 是同步入口、可能被协议/
+//! 回调线程调用（那里没有上下文，会 panic→abort，见 2026-10-07 闪退）。
 
 use std::sync::Arc;
 
@@ -108,7 +112,11 @@ pub async fn prepare(
 
     // 还没有键可查：先做一次很小的接口调用把流表拿回来，解析出的真实档位
     // 才是缓存的键。贵的那一步（整集下载 + 解密）要等拿到取流权之后才发生。
-    let play = crate::domain::api::play_url::fetch_play_url(vid, definition, env).await?;
+    // 无 HEVC 扩展的机器选流翻转到 h264（官方 CodecStrategy 语义，见 stream_pick）。
+    let cap = crate::domain::api::stream_pick::DecoderCapability::from_hevc(
+        crate::media::capability::playback::hevc_playable(),
+    );
+    let play = crate::domain::api::play_url::fetch_play_url(vid, definition, cap, env).await?;
     let want = play.definition;
     // 只记「不指定档位」那次解析到的结果。手动选过 720 之后再点「自动」，
     // 要的仍然是平台给的最高档，而不是上一次手动选的那档。
@@ -137,7 +145,7 @@ pub async fn prepare(
     // `cache()` 返回 `&'static StreamCache`，可以直接带进 spawn 的 future
     let c = cache();
     let app = app.clone();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let filled = fill(&app, c, &owned, &owned_key, want, &play, &settings, false).await;
         // 取流权一直持有到数据落盘：中途放开会让并发的第二个请求以为
         // 「没人管这一档」而重新下一遍。
@@ -186,7 +194,12 @@ pub async fn prefetch_stream(
     {
         return Ok(());
     }
-    let play = match crate::domain::api::play_url::fetch_play_url(vid, None, env).await {
+    // 预取与真实播放同一条选流模式：无 HEVC 机器预取的也必须是 h264，
+    // 否则起播时探测结论翻转会命中一条播不了的缓存流。
+    let cap = crate::domain::api::stream_pick::DecoderCapability::from_hevc(
+        crate::media::capability::playback::hevc_playable(),
+    );
+    let play = match crate::domain::api::play_url::fetch_play_url(vid, None, cap, env).await {
         Ok(p) => p,
         Err(e) => {
             log::info!("[Online] 预取 {vid} 取流表失败（忽略）: {e}");
@@ -210,7 +223,7 @@ pub async fn prefetch_stream(
     let c = cache();
     let app = app.clone();
     let settings = settings.clone();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let filled = fill(&app, c, &owned, &owned_key, want, &play, &settings, true).await;
         c.end_fetch(&owned, want);
         if let Err(e) = filled {
@@ -407,7 +420,8 @@ pub fn resume_fill(app: &tauri::AppHandle, vid: &str, definition: u32, progress_
     let app = app.clone();
     let owned = vid.to_string();
     let owned_key = progress_key.to_string();
-    tokio::spawn(async move {
+    // 本函数是同步入口，可能被协议/回调线程调用：必须用全局运行时，见模块头注释。
+    tauri::async_runtime::spawn(async move {
         let reporter = ProgressReporter::new(app.clone(), owned_key);
         let cancelled = || !c.exists(&owned, definition) || c.current() != owned;
         let client = match crate::domain::api::client::build_client(&proxy) {

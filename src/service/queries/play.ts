@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { play, transcode } from '../commands';
+import { capability, play, transcode } from '../commands';
 import { keys } from './common';
 
 // ---------------------------------------------------------------- 播放与转码
@@ -30,6 +30,8 @@ export function usePlay() {
 
 export function useSavePosition() {
   return useMutation({
+    // 播放中每 5 秒一次的后台保存，失败弹全局只会刷屏；换集/关闭仍有兜底
+    meta: { silentOnError: true },
     mutationFn: ({
       seriesId,
       vidIndex,
@@ -50,6 +52,37 @@ export function useDecodeCapability() {
     queryFn: transcode.capability,
     // 能力要跑 ffmpeg 试编一帧才能定，不随窗口聚焦重取
     staleTime: Infinity,
+  });
+}
+
+/**
+ * 本机 WebView2 能否解 HEVC。
+ *
+ * 后端是廉价的 MFT 枚举 + 进程级缓存，会话内结论不变；装完扩展走安装
+ * 命令的返回值刷新缓存，不靠 staleTime 过期。
+ */
+export function usePlaybackCapability() {
+  return useQuery({
+    queryKey: keys.playbackCapability,
+    queryFn: capability.playbackCapability,
+    staleTime: Infinity,
+  });
+}
+
+/**
+ * 按需下载并安装 HEVC 视频扩展。
+ *
+ * 成功后用返回值直接改写能力缓存——装完不必重启即可让引导卡消失并重试播放。
+ */
+export function useInstallHevcExtension() {
+  const qc = useQueryClient();
+  return useMutation({
+    // 组件层有带安装失败原因的定制 toast，全局错误 toast 静默
+    meta: { silentOnError: true },
+    mutationFn: capability.installHevcExtension,
+    onSuccess: (playable) => {
+      qc.setQueryData(keys.playbackCapability, playable);
+    },
   });
 }
 

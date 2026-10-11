@@ -1,11 +1,11 @@
 /** 找剧筛选面板：官方多维选项的渲染与单选交互。 */
-import { Loader2 } from 'lucide-react';
-import { t } from '@/locales';
-import { cn } from '@/lib/utils';
+import { Spinner } from '@/components/ui/spinner';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { t, type MessageKey } from '@/locales';
 import type { BrowseFilters } from '@/service/schema';
 
 /** 面板行 type → 行头标签（未知类型回落服务端行名去掉「全部」前缀）。 */
-const FILTER_LABEL_KEYS: Record<string, string> = {
+const FILTER_LABEL_KEYS: Record<string, MessageKey> = {
   genre: 'browse.fGenre',
   category_dim_theme: 'browse.fTheme',
   category_dim_role: 'browse.fRole',
@@ -36,7 +36,7 @@ export function FilterPanel({
   if (loading) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 py-2 text-sm">
-        <Loader2 className="size-3.5 animate-spin" />
+        <Spinner className="size-3.5" />
         {t('common.loading')}
       </div>
     );
@@ -66,21 +66,31 @@ export function FilterPanel({
     }
   };
 
-  const pill = (key: keyof BrowseFilters, id: string, label: string, active: boolean) => (
-    <button
-      key={id || '__all__'}
-      type="button"
-      onClick={() => onPick(key, id)}
-      aria-pressed={active}
-      className={cn(
-        'cursor-pointer rounded-full border px-3 py-0.5 text-xs transition-colors',
-        active
-          ? 'border-primary text-primary bg-primary/10 font-medium'
-          : 'text-muted-foreground hover:bg-accent hover:text-foreground border-border',
-      )}
+  /** 行内单选胶囊（ToggleGroupItem；空值「全部」走哨兵 value，提交时还原空串） */
+  const pillCls =
+    'text-muted-foreground h-auto cursor-pointer rounded-full border border-border bg-transparent px-3 py-0.5 text-xs transition-colors hover:bg-accent hover:text-foreground data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:font-medium data-[state=on]:text-primary';
+
+  const rowGroup = (
+    key: keyof BrowseFilters,
+    current: string,
+    items: { id: string; label: string }[],
+  ) => (
+    <ToggleGroup
+      type="single"
+      spacing={1}
+      value={current === '' ? '__all__' : current}
+      onValueChange={(v) => onPick(key, v === '__all__' ? '' : v)}
+      className="flex flex-wrap gap-x-1 gap-y-1.5"
     >
-      {label}
-    </button>
+      <ToggleGroupItem value="__all__" className={pillCls}>
+        {t('browse.all')}
+      </ToggleGroupItem>
+      {items.map((it) => (
+        <ToggleGroupItem key={it.id} value={it.id} className={pillCls}>
+          {it.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   );
 
   return (
@@ -88,16 +98,20 @@ export function FilterPanel({
       {rows.map((row) => {
         const key = row.rowType as keyof BrowseFilters;
         const current = rowValue(row.rowType);
-        const fallbackLabel = FILTER_LABEL_KEYS[row.rowType] ?? row.rowName.replace(/^全部/, '');
+        // 已知行类型走 i18n key；未知类型回落服务端行名（纯展示串，
+        // 查不到词条 t() 会回落原串）——服务端数据无法静态枚举才 cast
+        const fallbackLabel =
+          FILTER_LABEL_KEYS[row.rowType] ?? (row.rowName.replace(/^全部/, '') as MessageKey);
         return (
           <div key={row.rowType} className="flex items-start gap-3 text-sm">
             <span className="text-muted-foreground w-10 shrink-0 pt-1 text-xs">
               {t(fallbackLabel)}
             </span>
-            <div className="flex flex-wrap gap-x-1 gap-y-1.5">
-              {pill(key, '', t('browse.all'), current === '')}
-              {row.items.map((it) => pill(key, it.id, it.name, current === it.id))}
-            </div>
+            {rowGroup(
+              key,
+              current,
+              row.items.map((it) => ({ id: it.id, label: it.name })),
+            )}
           </div>
         );
       })}
@@ -108,21 +122,10 @@ export function FilterPanel({
         <span className="text-muted-foreground w-10 shrink-0 pt-1 text-xs">
           {t('browse.fCreation')}
         </span>
-        <div className="flex flex-wrap gap-x-1 gap-y-1.5">
-          {pill('creationStatus', '', t('browse.all'), filters.creationStatus === '')}
-          {pill(
-            'creationStatus',
-            'creation_status_0',
-            t('browse.creationFinished'),
-            filters.creationStatus === 'creation_status_0',
-          )}
-          {pill(
-            'creationStatus',
-            'creation_status_1',
-            t('browse.creationOngoing'),
-            filters.creationStatus === 'creation_status_1',
-          )}
-        </div>
+        {rowGroup('creationStatus', filters.creationStatus, [
+          { id: 'creation_status_0', label: t('browse.creationFinished') },
+          { id: 'creation_status_1', label: t('browse.creationOngoing') },
+        ])}
       </div>
     </div>
   );

@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { SettingsPage } from '@/pages/settings/components/settings-page';
+import { createFileRoute, lazyRouteComponent } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/settings')({
-  component: SettingsPage,
+  component: lazyRouteComponent(
+    () => import('@/pages/settings/components/settings-page'),
+    'SettingsPage',
+  ),
 });

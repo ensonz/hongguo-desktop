@@ -146,10 +146,20 @@ export function readLastTarget(): LastPlayTarget | null {
   try {
     const raw = window.localStorage.getItem(LAST_TARGET_KEY);
     if (!raw) return null;
-    const v = JSON.parse(raw);
-    return typeof v?.seriesId === 'string' && v.seriesId !== '' && Number.isFinite(v?.vidIndex)
-      ? { seriesId: v.seriesId, vidIndex: v.vidIndex }
-      : null;
+    const v: unknown = JSON.parse(raw);
+    if (
+      typeof v === 'object' &&
+      v !== null &&
+      'seriesId' in v &&
+      typeof v.seriesId === 'string' &&
+      v.seriesId !== '' &&
+      'vidIndex' in v &&
+      typeof v.vidIndex === 'number' &&
+      Number.isFinite(v.vidIndex)
+    ) {
+      return { seriesId: v.seriesId, vidIndex: v.vidIndex };
+    }
+    return null;
   } catch {
     return null;
   }

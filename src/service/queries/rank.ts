@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 
 import { rank } from '../commands';
-import type { RankItem, RankPage } from '../schema';
+import type { RankPage } from '../schema';
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -9,12 +9,9 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { keys, useInfiniteStream } from './common';
+import { dedupBy, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 排行榜 / 新剧 / 上新日历 / 预约
-
-/** 我的预约查询的根 key（登录/预约变更后整组失效用）。 */
-export const RESERVATIONS_KEY_ROOT = ['reservations'] as const;
 
 /**
  * 一个榜单（内容tab × 子榜 × 筛选 组合缓存；社交态数据不缓存——
@@ -40,18 +37,10 @@ export function useRank(selected: string, sub: string, panel: string) {
     placeholderData: keepPreviousData,
   });
 
-  const items = useMemo(() => {
-    const seen = new Set<string>();
-    const out: RankItem[] = [];
-    for (const page of query.data?.pages ?? []) {
-      for (const item of page.items) {
-        if (seen.has(item.seriesId)) continue;
-        seen.add(item.seriesId);
-        out.push(item);
-      }
-    }
-    return out;
-  }, [query.data]);
+  const items = useMemo(
+    () => dedupBy(query.data?.pages.flatMap((p) => p.items) ?? [], (i) => i.seriesId),
+    [query.data],
+  );
   const tabs = query.data?.pages[0]?.tabs ?? [];
 
   return {
@@ -96,14 +85,42 @@ export function useNewDrama(gender: number) {
   return useInfiniteStream(query, newDramaItems);
 }
 
-/** 上新日历（date 为空串取默认日；切日期保旧列表平滑过渡）。 */
+/**
+ * 上新日历（date 为空串取默认日；切日期 keepPreviousData 保旧列表平滑过渡）。
+ *
+ * 服务端是多天混排 + 游标翻页，Rust 按展示日过滤后**单页返回**——这里
+ * 用无限查询懒翻页（滚到底再拉下一页），不再一次性串行吃满所有页
+ * （那曾是切换日期肉眼可见卡顿的根源）。
+ */
 export function useNewCalendar(date: string) {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: keys.newCalendar(date),
-    queryFn: () => rank.calendar(date === '' ? undefined : date),
+    queryFn: ({ pageParam }) => rank.calendar(date, pageParam.offset, pageParam.sessionId),
+    initialPageParam: { offset: 0, sessionId: '' },
+    getNextPageParam: (last) =>
+      last.hasMore && last.nextOffset > 0
+        ? { offset: last.nextOffset, sessionId: last.sessionId }
+        : undefined,
     staleTime: 0,
     placeholderData: keepPreviousData,
   });
+
+  return {
+    /** 日期条（每页响应都带 calendar_schema，取首页的即可） */
+    dates: query.data?.pages[0]?.dates ?? [],
+    defaultDate: query.data?.pages[0]?.defaultDate ?? '',
+    items: useMemo(
+      () => dedupBy(query.data?.pages.flatMap((p) => p.items) ?? [], (i) => i.seriesId),
+      [query.data],
+    ),
+    isLoading: query.isPending,
+    isFetching: query.isFetching,
+    error: query.error,
+    refetch: () => query.refetch(),
+    hasMore: query.hasNextPage,
+    isFetchingMore: query.isFetchingNextPage,
+    loadMore: () => void query.fetchNextPage().catch(() => undefined),
+  };
 }
 
 /** 我的预约（isOnline：已上线 / 待上线 tab）。 */
@@ -119,6 +136,8 @@ export function useReservations(isOnline: boolean) {
 export function useReservationsDelete() {
   const queryClient = useQueryClient();
   return useMutation({
+    // 部分失败时组件层有带明细的定制 toast，全局错误 toast 静默
+    meta: { silentOnError: true },
     mutationFn: (input: {
       itemIds: string[];
       allSelect?: boolean;
@@ -131,7 +150,7 @@ export function useReservationsDelete() {
         input.notDelItemIds ?? [],
         input.isOnline,
       ),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.reservationsRoot }),
   });
 }
 
@@ -148,8 +167,8 @@ export function useReserveSeries() {
     mutationFn: (input: { seriesId: string; reserve: boolean }) =>
       rank.reserve(input.seriesId, input.reserve),
     onSuccess: (_data, input) => {
-      void queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY_ROOT });
-      for (const query of queryClient.getQueryCache().findAll({ queryKey: ['rank'] })) {
+      void queryClient.invalidateQueries({ queryKey: keys.reservationsRoot });
+      for (const query of queryClient.getQueryCache().findAll({ queryKey: keys.rankRoot })) {
         queryClient.setQueryData<RankPage>(query.queryKey, (page) =>
           page
             ? {

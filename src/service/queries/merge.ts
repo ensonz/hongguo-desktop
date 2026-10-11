@@ -90,7 +90,7 @@ export function useMergeEvents() {
     },
     [qc],
   );
-  useEvent<MergeTask>(EVENTS.mergeProgress, applyProgress);
+  useEvent(EVENTS.mergeProgress, applyProgress);
   useEvent(EVENTS.mergeTaskAdded, invalidate);
   useEvent(EVENTS.mergeCompleted, invalidate);
   useEvent(EVENTS.mergeFailed, invalidate);

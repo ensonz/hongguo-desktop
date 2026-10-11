@@ -71,7 +71,6 @@ export function SettingsPage() {
           setDraft(null);
           setProxyUrl(null);
         },
-        onError: (e: Error) => toast.error(e.message),
       },
     );
   };
@@ -320,24 +319,24 @@ export function SettingsPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                transcodeApi.clearOnlineCache().then(
+              onClick={() => {
+                void transcodeApi.clearOnlineCache().then(
                   (n) => toast.success(tf('settings.clearedCache', { count: n })),
-                  (e) => toast.error(e.message),
-                )
-              }
+                  (e: Error) => toast.error(e.message),
+                );
+              }}
             >
               {t('settings.clearOnlineCache')}
             </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                transcodeApi.clearCompatCache().then(
+              onClick={() => {
+                void transcodeApi.clearCompatCache().then(
                   (n) => toast.success(tf('settings.clearedCache', { count: n })),
-                  (e) => toast.error(e.message),
-                )
-              }
+                  (e: Error) => toast.error(e.message),
+                );
+              }}
             >
               {t('settings.clearCompatCache')}
             </Button>

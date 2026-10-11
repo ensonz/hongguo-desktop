@@ -27,7 +27,7 @@ pub struct CalendarItem {
     /// 热度文案（rec_tags[].content，如 "374万热度"）
     #[serde(default)]
     pub rec_tags: Vec<String>,
-    /// 排期上线时间（unix 秒；0 = 未定档）
+    /// 排期上线时间（UTC 毫秒时间戳；0 = 未定档）
     #[serde(default)]
     pub publish_time: i64,
     /// 是否已上线

@@ -74,7 +74,7 @@ fn known_tab_config(tab: &str) -> Option<RecommendTabConfig> {
 
 /// 配置进程内缓存（首页 cr=4 与翻页共享；失败回落抓包已知值）。
 ///
-/// 条目带时间戳做 TTL 过期（known-issues B3）：cell_id/bookstore_id 原本
+/// 条目带时间戳做 TTL 过期：cell_id/bookstore_id 原本
 /// 按服务端常量假设永不重取，运营调整后只能靠重启恢复。现在超过
 /// [`TAB_CONFIG_TTL`] 后下次使用会先重取一次，重取失败继续用旧值
 /// （stale-while-error）——翻页不会因此重打配置请求。
@@ -87,14 +87,13 @@ struct CachedTabConfig {
 /// 配置复验间隔：服务端常量假设下 1 小时重验一次足够及时，开销可忽略。
 const TAB_CONFIG_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
-type TabConfigCache = std::sync::Mutex<std::collections::HashMap<String, CachedTabConfig>>;
+type TabConfigCache = parking_lot::Mutex<std::collections::HashMap<String, CachedTabConfig>>;
 static TAB_CONFIG_CACHE: std::sync::OnceLock<TabConfigCache> = std::sync::OnceLock::new();
 
 fn cache_tab_config_insert(tab: &str, cfg: RecommendTabConfig) {
     TAB_CONFIG_CACHE
         .get_or_init(TabConfigCache::default)
         .lock()
-        .unwrap()
         .insert(
             tab.to_string(),
             CachedTabConfig {
@@ -108,7 +107,6 @@ fn cached_tab_config(tab: &str) -> Option<CachedTabConfig> {
     TAB_CONFIG_CACHE
         .get_or_init(TabConfigCache::default)
         .lock()
-        .unwrap()
         .get(tab)
         .cloned()
 }

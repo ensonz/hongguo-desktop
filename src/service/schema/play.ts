@@ -23,8 +23,6 @@ export const playResponseSchema = z.object({
   definitions: z.array(videoDefinitionSchema),
 });
 
-export type PlayResponse = z.infer<typeof playResponseSchema>;
-
 /** 转码能力：探测「这台机器会走哪条路」。 */
 export const decodeCapabilitySchema = z.object({
   hasFfmpeg: z.boolean(),
@@ -41,24 +39,42 @@ export const decodeCapabilitySchema = z.object({
  * 整集取回 + 解密期间界面上原本只有一个转圈，用户既看不出在动还是卡住，
  * 也看不到还要多久。这个事件把「已收 / 总量 / 百分比 / 阶段」送上来。
  */
-export type OnlineProgress = {
+export const onlineProgressSchema = z.object({
   /** 缓存键，格式是 `{seriesId}:{vidIndex}` */
-  key: string;
-  received: number;
+  key: z.string(),
+  received: z.number(),
   /** CDN 没给 Content-Length 时为 0，此时不显示百分比 */
-  total: number;
-  percent: number;
+  total: z.number(),
+  percent: z.number(),
   /** downloading | decrypting | ready */
-  phase: 'downloading' | 'decrypting' | 'ready';
-};
+  phase: z.enum(['downloading', 'decrypting', 'ready']),
+});
+
+export type OnlineProgress = z.infer<typeof onlineProgressSchema>;
 
 /** 播放兼容兜底的转码进度。 */
-export type CompatProgress = {
+export const compatProgressSchema = z.object({
   /** 缓存键，格式 {seriesId}:{vidIndex} */
-  key: string;
-  percent: number;
+  key: z.string(),
+  percent: z.number(),
   /** downloading | transcoding | ready */
-  phase: 'downloading' | 'transcoding' | 'ready';
-};
+  phase: z.enum(['downloading', 'transcoding', 'ready']),
+});
+
+export type CompatProgress = z.infer<typeof compatProgressSchema>;
 
 export type DecodeCapability = z.infer<typeof decodeCapabilitySchema>;
+
+/** 本机 WebView2 能否解 HEVC（决定无扩展机器的选流与扩展安装引导）。 */
+export const playbackCapabilitySchema = z.boolean();
+
+/** HEVC 扩展安装结果：安装后的能力重探值。 */
+export const hevcInstallResultSchema = z.boolean();
+
+/** 播放链路的转码决策结果（本地直读 / 缓存命中 / 实时转码）。 */
+export const transcodePlaybackSchema = z.object({
+  url: z.string(),
+  cached: z.boolean(),
+  backend: z.string(),
+  elapsedMs: z.number(),
+});
