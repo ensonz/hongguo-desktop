@@ -1,0 +1,30 @@
+[package]
+name = "hongguo-media"
+description = "红果桌面版纯 Rust 编解码：demux / hevc / remux / transcode / 封面 HEIF / 后端选择"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 共用底座：统一错误 + 领域模型。
+hongguo-common = { path = "../hongguo-common" }
+# MP4 容器解析（样本表 / 时序 / box 游走）——本 crate 只做编解码，不碰解密。
+hongguo-mp4 = { path = "../hongguo-mp4" }
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+# H.264 封装（muxide，走根 manifest 的 [patch.crates-io] 补丁修 B 帧流表）
+muxide = "0.2.5"
+# 纯 Rust 软解软编：rusty_h265 解码 + rusty_h264 编码（最后的兜底路径）
+rusty_h265 = "0.6.0"
+rusty_h264 = "0.16.0"
+# 封面 HEIC 解码后的 JPEG 编码（纯 Rust、零 unsafe）
+jpeg-encoder = "0.6"
+# 合并前校验「输出卷还剩多少字节」，只开 disk
+sysinfo = { version = "0.39.6", default-features = false, features = ["disk"] }
+
+[dev-dependencies]
+# 本 crate 的测试要造 MP4 样本与比对序列化产物，开启 hongguo-mp4 的测试辅助模块。
+hongguo-mp4 = { path = "../hongguo-mp4", features = ["test-support"] }
+serde_json = "1"

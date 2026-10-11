@@ -9,7 +9,9 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 └─ app_state.rs         # AppState = Arc<AppStateInner>
 ```
 
-- 已迁出的 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）、`crates/hongguo-signer`（请求签名，JS 1:1 禁改）、`crates/hongguo-mp4`（MP4 解析与 CENC 解密）、`crates/hongguo-api`（官方接口客户端，14 域；改端点前必读 `docs/hongguo-api-endpoints.md`）、`crates/hongguo-store`（Turso 持久化：db 迁移 / entity 六组实体 / bridge 同步门面 / 旧档导入与坏档恢复）、`crates/hongguo-stream`（在线流契约：渐进流 / 缓存 / Range 应答 / 进程级 `cache()` 单例）。本 crate 用 `hongguo_common::…` / `hongguo_signer::…` / `hongguo_mp4::…` / `hongguo_api::…` / `hongguo_store::…` / `hongguo_stream::…` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
+- 已迁出的 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）、`crates/hongguo-signer`（请求签名，JS 1:1 禁改）、`crates/hongguo-mp4`（MP4 解析与 CENC 解密）、`crates/hongguo-api`（官方接口客户端，14 域；改端点前必读 `docs/hongguo-api-endpoints.md`）、`crates/hongguo-store`（Turso 持久化：db 迁移 / entity 六组实体 / bridge 同步门面 / 旧档导入与坏档恢复）、`crates/hongguo-stream`（在线流契约：渐进流 / 缓存 / Range 应答 / 进程级 `cache()` 单例）、`crates/hongguo-media`（纯 Rust 编解码：demux / hevc / remux / transcode / heif 等）。本 crate 用 `hongguo_common::…` / `hongguo_signer::…` / `hongguo_mp4::…` / `hongguo_api::…` / `hongguo_store::…` / `hongguo_stream::…` / `hongguo_media::…` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
+
+- **媒体层三块**：纯 Rust 编解码在 `hongguo-media`；平台硬编（VT / MF / WIC）与 ffmpeg 执行还在本 crate 的 `media/{platform,ffmpeg}`；解码能力探测在 `media/capability`。方向恒为「平台/ffmpeg/能力探测 → 纯 Rust 核心」，不许反向（核心不依赖 tauri）。
 
 - **在线流的两侧分工（`hongguo-stream` 是唯一交点）**：填数据在 `service/play_service/online.rs`（`hongguo_stream::cache()` 拿全局缓存，塞 `ProgressiveStream` / 明文），答 Range 在 `protocol/register.rs`（`hongguo_stream::serve`）。两边都只往下依赖 stream 契约——**别再让协议层回头调 service**（历史上 `serve` 直接调 `service::play_service::online::cache()`，与 service 用本层类型构成双向耦合，2026-10-11 修掉）。
 

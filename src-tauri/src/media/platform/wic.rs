@@ -9,7 +9,7 @@
 //! 管线：内存 IStream → `CreateDecoderFromStream` → 首帧 →
 //! FormatConverter 统一到 32bppBGR → `CopyPixels` → 交换 B/R →
 //! jpeg-encoder 编码。编码不依赖 WIC 的 JPEG encoder（同样是可选组件），
-//! 统一用我们自己的 [`jpeg_encoder`]，与纯软解级（[`crate::media::heif`]）
+//! 统一用我们自己的 [`jpeg_encoder`]，与纯软解级（[`hongguo_media::heif`]）
 //! 共享同一产物口径。
 
 use windows::Win32::Foundation::{GlobalFree, WINCODEC_ERR_COMPONENTNOTFOUND};

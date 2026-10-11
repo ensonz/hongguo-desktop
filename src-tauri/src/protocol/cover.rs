@@ -149,7 +149,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
 
     // 3) 纯软解级：HEIF 解析 + rusty_h265 + JPEG，零外部依赖
     let heic = bytes_of(&mut downloaded, remote)?;
-    let jpeg = crate::media::heif::decode_primary_to_jpeg(heic)
+    let jpeg = hongguo_media::heif::decode_primary_to_jpeg(heic)
         .map_err(|e| format!("HEIC 软解失败: {e}"))?;
     Ok((jpeg, JPEG_KIND.0, JPEG_KIND.1))
 }

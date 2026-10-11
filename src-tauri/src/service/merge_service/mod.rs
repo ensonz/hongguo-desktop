@@ -21,7 +21,7 @@ use hongguo_common::{AppError, AppResult};
 /// 「已完成」与「文件存在」必须同时成立：用户在系统里删过文件时任务记录
 /// 仍留着 completed，只看状态就会把一个不存在的路径交给拼接器。
 pub fn done_inputs(state: &AppState, series_id: &str) -> Vec<(u32, PathBuf)> {
-    crate::media::remux::sort_by_index(
+    hongguo_media::remux::sort_by_index(
         &state
             .queue()
             .of_series(series_id)

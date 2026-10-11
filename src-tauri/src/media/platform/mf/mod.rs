@@ -21,7 +21,7 @@
 //!
 //! 复用软解路径的部分与 vt 侧相同：MP4 解复用、音轨 AAC 直通、封装
 //! （muxide faststart）、临时文件原子替换；Annex-B 转换同一份
-//! `media::hevc::to_annexb`。时间戳同样读**输出样本自带的 PTS**（100ns），
+//! `hongguo_media::hevc::to_annexb`。时间戳同样读**输出样本自带的 PTS**（100ns），
 //! 不依赖「输出序=输入序」——个别编码器拒收「关 B 帧」时可能重排。
 //!
 //! COM/线程模型：整个会话（探测与转码）跑在 `std::thread::scope` 的专用
@@ -78,9 +78,9 @@ pub fn transcode_h264(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
     if !h264_hw_encoder_available() {
         return None;
     }
-    let demuxed = crate::media::demux::demux_file(req.input).ok()?;
+    let demuxed = hongguo_media::demux::demux_file(req.input).ok()?;
     let video = demuxed.video_track()?;
-    if !crate::media::hevc::is_hevc(&video.info.codec) {
+    if !hongguo_media::hevc::is_hevc(&video.info.codec) {
         return None;
     }
     Some(run_on_mf_thread(|| {
@@ -92,9 +92,9 @@ pub fn transcode_h264(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
 /// 也能验证管线本身（解码/Annex-B/封装/时间戳）。硬件与否由探测测试另行验证。
 #[cfg(test)]
 pub fn transcode_h264_for_tests(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
-    let demuxed = crate::media::demux::demux_file(req.input).ok()?;
+    let demuxed = hongguo_media::demux::demux_file(req.input).ok()?;
     let video = demuxed.video_track()?;
-    if !crate::media::hevc::is_hevc(&video.info.codec) {
+    if !hongguo_media::hevc::is_hevc(&video.info.codec) {
         return None;
     }
     Some(run_on_mf_thread(|| {
@@ -1261,7 +1261,7 @@ impl Encoder {
             let mut annexb = if raw.starts_with(&[0, 0, 0, 1]) || raw.starts_with(&[0, 0, 1]) {
                 raw.clone()
             } else {
-                crate::media::hevc::to_annexb(&raw, 4)
+                hongguo_media::hevc::to_annexb(&raw, 4)
             };
             // 关键帧（以及首个样本，无论标没标）前插 SPS/PPS
             let first = units.is_empty();
@@ -1494,7 +1494,7 @@ fn fps_rate(fps: f64) -> u32 {
 
 fn run(
     req: &PlatformRequest<'_>,
-    demuxed: &crate::media::demux::Demuxed,
+    demuxed: &hongguo_media::demux::Demuxed,
     video: &TrackInfo,
     kind: EncoderKind,
 ) -> AppResult<()> {
@@ -1566,7 +1566,7 @@ fn run(
 
     // 4) 音轨直通 + 封装（与软解路径同一套代码，faststart）
     let (out_w, out_h) = out_dims.unwrap_or((video.width as usize, video.height as usize));
-    crate::media::transcode::mux_with_audio(
+    hongguo_media::transcode::mux_with_audio(
         req.input, demuxed, req.output, &units, out_w, out_h, fps as f32,
     )?;
 
@@ -1608,7 +1608,7 @@ mod tests {
             })
             .expect("应可转码")
             .expect("应成功");
-            let d = crate::media::demux::demux_file(out).unwrap();
+            let d = hongguo_media::demux::demux_file(out).unwrap();
             let n = d.video_track().unwrap().info.samples.len();
             let _ = std::fs::remove_file(out);
             n
@@ -1624,7 +1624,7 @@ mod tests {
         })
         .expect("硬编应可用")
         .expect("应成功");
-        let d = crate::media::demux::demux_file(&out3).unwrap();
+        let d = hongguo_media::demux::demux_file(&out3).unwrap();
         let n3 = d.video_track().unwrap().info.samples.len();
         let _ = std::fs::remove_file(&out3);
         eprintln!("[dbg] 软件 {n1} 帧 → 硬编 {n3} 帧");

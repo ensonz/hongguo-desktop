@@ -124,7 +124,7 @@ fn plaintext_temp_path_for(target: &Path) -> PathBuf {
 
 /// 视频轨时长（秒）。读不出来返回 `None`。
 fn video_seconds(path: &Path) -> Option<f64> {
-    let tracks = crate::media::demux::demux_file(path).ok()?;
+    let tracks = hongguo_media::demux::demux_file(path).ok()?;
     let v = tracks.video_track()?;
     (v.info.media_timescale > 0)
         .then(|| v.info.media_duration as f64 / v.info.media_timescale as f64)
@@ -185,7 +185,7 @@ mod tests {
         let target = cache::cache_file("s", 22);
         // 兼容播放的明文输入不能与流水线为最终输出创建的临时文件重名。
         let source = plaintext_temp_path_for(&target);
-        let ffmpeg_output = crate::service::download_service::worker::temp_path_for(&target);
+        let ffmpeg_output = hongguo_common::utils::path::temp_path_for(&target);
         assert_ne!(source, ffmpeg_output, "ffmpeg 会把自己的临时输出误认成输入");
     }
 

@@ -17,6 +17,6 @@
 
 - `tt_hash.rs` 内的 `calculate_*` 向量测试（含 len=127 的魔改填充分支 golden 与共享/独立核等价测试）；
 - 本目录 `py_gz.hex` 的跨块对拍；
-- register 域两条真实抓包字节级回归（`src-tauri/tests/fixtures/` 的 `register_req_real.bin` 与 `py_enc_accepted.hex`，后者是服务端发号成功样本的逐字节复现锁）。
+- register 域两条真实抓包字节级回归（`crates/hongguo-api/tests/fixtures/` 的 `register_req_real.bin` 与 `py_enc_accepted.hex`，后者是服务端发号成功样本的逐字节复现锁）。
 
 算法考证（2026-10-11，详见 `tt_hash.rs` 模块文档）：K/IV 与标准 SHA-512 常量逐值一致；`len % 128 <= 110` 时 `calculate` 与 SHA-512 逐字节相同，`>= 111` 的填充分支与标准分叉（len=127 golden 锁定）；`TT_ORD_LIST` 在官方 APK 的 `lib/arm64-v8a/libvideodec.so` 偏移 0x5220 原样存在（全 APK 唯一命中）。

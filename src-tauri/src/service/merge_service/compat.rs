@@ -1,6 +1,6 @@
 //! 兼容合并：转 H.264/AAC。
 //!
-//! 与兼容模式共用 `media::transcode` 的同一条流水线，区别只是
+//! 与兼容模式共用 `hongguo_media::transcode` 的同一条流水线，区别只是
 //! 「一集」变「多集」——流复制拼接成全集再转，或逐集转再流复制。
 //! 这里选择后者：内存占用恒定，且能复用单集转码的缓存。
 
@@ -12,10 +12,10 @@ use super::done_inputs;
 use super::guard::RunningMerge;
 use super::progress::ProgressSink;
 use crate::app_state::AppState;
-use crate::media::transcode::TranscodeOptions;
 use crate::service::transcode_service::{cache, pipeline};
 use hongguo_common::model::MergeTask;
 use hongguo_common::{AppError, AppResult};
+use hongguo_media::transcode::TranscodeOptions;
 
 /// 兼容合并：把每集转成 H.264 后流复制拼接。
 ///
@@ -226,12 +226,12 @@ pub fn compat_merge(
         return Err(AppError::Cancelled);
     }
 
-    let (size, count) = crate::media::remux::concat_copy(&transcoded, &output)?;
+    let (size, count) = hongguo_media::remux::concat_copy(&transcoded, &output)?;
 
     // 产物必须自己解得开才叫成功。流复制拼接对输入的一致性要求极高，
     // 漏检一个条件就会得到一份「有 moov、能打开、但只播得动前几秒」的文件——
     // 那种坏法用户看不出来，只会觉得「合并功能有问题」。
-    let verified = crate::media::demux::demux_file(&output).map_err(|e| {
+    let verified = hongguo_media::demux::demux_file(&output).map_err(|e| {
         let _ = std::fs::remove_file(&output);
         AppError::Media(format!("合并产物校验失败，已删除该文件: {e}"))
     })?;
@@ -281,7 +281,7 @@ fn merge_threads(episodes: usize) -> usize {
         .map(|n| n.get())
         .unwrap_or(1);
     let cap = match crate::media::capability::selected_backend() {
-        crate::media::Backend::Platform => {
+        hongguo_media::Backend::Platform => {
             if crate::media::platform::h264_hw_encoder_available() {
                 cores.clamp(1, 4)
             } else {
@@ -289,9 +289,9 @@ fn merge_threads(episodes: usize) -> usize {
                 cores.clamp(1, 2)
             }
         }
-        crate::media::Backend::FfmpegHw => cores.clamp(1, 6),
-        crate::media::Backend::FfmpegSw => (cores / 2).clamp(1, 4),
-        crate::media::Backend::Rust => 4,
+        hongguo_media::Backend::FfmpegHw => cores.clamp(1, 6),
+        hongguo_media::Backend::FfmpegSw => (cores / 2).clamp(1, 4),
+        hongguo_media::Backend::Rust => 4,
     };
     cap.min(episodes.max(1))
 }

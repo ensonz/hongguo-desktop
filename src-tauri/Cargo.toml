@@ -30,6 +30,8 @@ hongguo-api = { path = "../crates/hongguo-api" }
 hongguo-store = { path = "../crates/hongguo-store" }
 # 在线流契约（内存渐进流 + 缓存 + Range 应答）；依赖 common + mp4，不依赖 tauri。
 hongguo-stream = { path = "../crates/hongguo-stream" }
+# 纯 Rust 编解码（demux / hevc / remux / transcode / 封面 HEIF）；不依赖 tauri。
+hongguo-media = { path = "../crates/hongguo-media" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -80,12 +82,9 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 percent-encoding = "2"
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
-rusty_h265 = "0.6.0"
-rusty_h264 = "0.16.0"
-muxide = "0.2.5"
-# 合并前校验要问「输出卷还剩多少字节」。只开 disk：默认 feature 会把
-# component / network / system / user 一并拖进来，本项目一个都用不上。
-sysinfo = { version = "0.39.6", default-features = false, features = ["disk"] }
+# 编解码相关的重型依赖（rusty_h265 / rusty_h264 / muxide / sysinfo）随
+# 纯 Rust 编解码核心一起迁到了 crates/hongguo-media；本 crate 只保留
+# 平台层（MF/VT/WIC）与 ffmpeg 执行需要的那些。
 mouse_position = "0.1"
 tauri-plugin-updater = "2.13.2"
 tauri-plugin-process = "2.4.0"

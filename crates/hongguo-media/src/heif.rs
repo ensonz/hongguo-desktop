@@ -12,7 +12,7 @@
 //! 「HEIC = HEVC 进 HEIF 容器」：`meta` box 里 `pitm` 选主 item、`iinf`
 //! 声明类型（hvc1）、`ipco` 存属性（hvcC 参数集）、`iloc` 给出 mdat 里的
 //! 字节区间——与 MP4 的 stsd/sample 机制同源，所以参数集解析与视频管线
-//! 共用 [`crate::media::hevc::param_nalus_from_hvcc`]，解码复用转码同款
+//! 共用 [`crate::hevc::param_nalus_from_hvcc`]，解码复用转码同款
 //! rusty_h265 用法。
 //!
 //! 已知边界（对红果 CDN 样本实测，2026-10-09）：单 `hvc1` item、数据在
@@ -21,7 +21,7 @@
 
 use rusty_h265::Decoder;
 
-use crate::media::hevc::{START_CODE, param_nalus_from_hvcc, to_annexb};
+use crate::hevc::{START_CODE, param_nalus_from_hvcc, to_annexb};
 use hongguo_common::{AppError, AppResult};
 
 /// 解出主 item 并编码为 JPEG（质量 85）。

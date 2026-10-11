@@ -14,6 +14,7 @@ use futures_util::StreamExt;
 
 use crate::service::download_service::events::ProgressThrottle;
 use hongguo_common::model::Settings;
+use hongguo_common::utils::path::temp_path_for;
 use hongguo_common::{AppError, AppResult};
 
 /// 下载与解密的进度回调。
@@ -121,15 +122,6 @@ fn finalize(temp: &Path, output: &Path, episode: &EpisodeDownload) -> AppResult<
     result
 }
 
-/// 临时文件名：`xxx.mp4` → `xxx.enc.tmp`。
-pub fn temp_path_for(output: &Path) -> PathBuf {
-    let stem = output
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "download".to_string());
-    output.with_file_name(format!("{stem}.enc.tmp"))
-}
-
 /// 清理残留的临时文件。
 pub fn cleanup_temp(output: &Path) {
     let _ = std::fs::remove_file(temp_path_for(output));
@@ -142,20 +134,8 @@ mod tests {
     /// 测试用的取消标志（构造 EpisodeDownload 需要一个借用）
     static CANCEL_SLOT: AtomicBool = AtomicBool::new(false);
 
-    #[test]
-    fn temp_path_uses_enc_tmp() {
-        let p = temp_path_for(Path::new("D:/dl/剧名 001.mp4"));
-        assert!(p.to_string_lossy().ends_with("剧名 001.enc.tmp"));
-    }
-
-    #[test]
-    fn temp_path_of_extensionless_falls_back() {
-        assert!(
-            temp_path_for(Path::new("weird"))
-                .to_string_lossy()
-                .ends_with("weird.enc.tmp")
-        );
-    }
+    // `temp_path_for` 本身的用例随函数迁到了 `hongguo_common::utils::path`
+    // （同一份断言不留两处）；这里只留 worker 自己的清理语义。
 
     #[test]
     fn cleanup_temp_is_idempotent() {

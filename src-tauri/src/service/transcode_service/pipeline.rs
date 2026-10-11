@@ -6,16 +6,16 @@
 //! - **都没有** → 纯 Rust（`rusty_h265` + `rusty_h264` + `muxide`），零外部依赖
 //!
 //! 三条路都产出 H.264 MP4，对上层完全一致；上游失败时自动落回下一条，
-//! 不让用户卡死。实际走了哪条由 [`crate::media::Backend`] 报告，谁都不许
+//! 不让用户卡死。实际走了哪条由 [`hongguo_media::Backend`] 报告，谁都不许
 //! 再拿字符串猜。
 //!
 //! 谁在用：合并功能的「兼容格式合并」（`merge_service::compat`）与播放兼容兜底。
 
 use std::path::Path;
 
-use crate::media::transcode::{TranscodeOptions, TranscodeResult};
 use crate::service::transcode_service::cache;
 use hongguo_common::AppResult;
+use hongguo_media::transcode::{TranscodeOptions, TranscodeResult};
 
 /// 转码一个文件。
 ///
@@ -58,7 +58,7 @@ pub fn transcode(
     // 分流 1：平台原生编码（macOS：VideoToolbox，硬编优先、Apple 软编回落；
     // Windows：Media Foundation 硬编）。不依赖用户装任何东西；
     // 会话建不出来/失败会静默落回 ffmpeg。
-    let mut backend = crate::media::Backend::Rust;
+    let mut backend = hongguo_media::Backend::Rust;
     if let Some(done) =
         crate::media::platform::transcode_h264(&crate::media::platform::PlatformRequest {
             input: source,
@@ -70,7 +70,7 @@ pub fn transcode(
         match done {
             Ok(()) => {
                 if output_is_playable(&target) {
-                    backend = crate::media::Backend::Platform;
+                    backend = hongguo_media::Backend::Platform;
                 } else {
                     log::warn!("[Transcode] 平台硬编产物校验未通过，删除后尝试下一条路");
                     let _ = std::fs::remove_file(&target);
@@ -81,7 +81,7 @@ pub fn transcode(
     }
 
     // 分流 2：ffmpeg（含硬编码器）
-    if backend == crate::media::Backend::Rust
+    if backend == hongguo_media::Backend::Rust
         && let Some(encoder) = crate::media::ffmpeg::h264_encoder()
     {
         let req = crate::media::ffmpeg::TranscodeRequest {
@@ -96,9 +96,9 @@ pub fn transcode(
                 // 半路锁文件）。合并那头有产物校验，这里对齐同一道闸。
                 if output_is_playable(&target) {
                     backend = if encoder.hardware {
-                        crate::media::Backend::FfmpegHw
+                        hongguo_media::Backend::FfmpegHw
                     } else {
-                        crate::media::Backend::FfmpegSw
+                        hongguo_media::Backend::FfmpegSw
                     };
                 } else {
                     log::warn!("[Transcode] ffmpeg 产物校验未通过，删除后回落软解");
@@ -110,13 +110,13 @@ pub fn transcode(
     }
 
     // 分流 3：纯 Rust 软解
-    if backend == crate::media::Backend::Rust {
+    if backend == hongguo_media::Backend::Rust {
         // 源不是 HEVC 时在这里就把话说清楚。不加这道闸，错误会一路推迟到
-        // `media::transcode` 内部才抛「不是 HEVC 轨」，用户既不知道为什么
+        // `hongguo_media::transcode` 内部才抛「不是 HEVC 轨」，用户既不知道为什么
         // 失败，也不知道装 ffmpeg 能解决。
-        crate::media::codec_probe::ensure_softdecode_supported(source)?;
-        // 解码器内部的 unwind 兜底在 `media::transcode` 里，这里不再重复包一层
-        crate::media::transcode::transcode_file(source, &target, options)?;
+        hongguo_media::codec_probe::ensure_softdecode_supported(source)?;
+        // 解码器内部的 unwind 兜底在 `hongguo_media::transcode` 里，这里不再重复包一层
+        hongguo_media::transcode::transcode_file(source, &target, options)?;
     }
 
     cache::trim();
@@ -129,7 +129,7 @@ pub fn transcode(
         frames: 0,
         decoder: backend.decoder_label().to_string(),
         encoder: match backend {
-            crate::media::Backend::FfmpegHw | crate::media::Backend::FfmpegSw => {
+            hongguo_media::Backend::FfmpegHw | hongguo_media::Backend::FfmpegSw => {
                 backend_info.encoder
             }
             _ => String::new(),
@@ -140,7 +140,7 @@ pub fn transcode(
 
 /// 某个文件的目标分辨率（宽高）。读不出来返回 `None`。
 pub fn resolution_of(path: &Path) -> Option<(u32, u32)> {
-    let tracks = crate::media::demux::demux_file(path).ok()?;
+    let tracks = hongguo_media::demux::demux_file(path).ok()?;
     let v = tracks.video_track()?;
     (v.info.width > 0 && v.info.height > 0).then_some((v.info.width, v.info.height))
 }
@@ -148,7 +148,7 @@ pub fn resolution_of(path: &Path) -> Option<(u32, u32)> {
 /// 源分集的总时长（秒）。把 [`transcode`] 的「已编码秒数」回调折成集内比例
 /// 时要用它做分母；读不出来（坏文件/无视频轨）返回 `None`。
 pub fn episode_seconds(path: &Path) -> Option<f64> {
-    let demuxed = crate::media::demux::demux_file(path).ok()?;
+    let demuxed = hongguo_media::demux::demux_file(path).ok()?;
     let v = demuxed.video_track()?;
     let fps = v.info.average_framerate().filter(|f| *f > 0.0)?;
     let n = v.info.samples.len();
@@ -160,7 +160,7 @@ pub fn episode_seconds(path: &Path) -> Option<f64> {
 /// 与合并产物校验（`merge_service::compat`）同一口径：一个「有 moov、能打开、
 /// 只播得动前几秒」的坏文件用户看不出问题，只会觉得「功能有毛病」。
 fn output_is_playable(path: &Path) -> bool {
-    match crate::media::demux::demux_file(path) {
+    match hongguo_media::demux::demux_file(path) {
         Ok(d) => d.video_track().is_some_and(|t| !t.info.samples.is_empty()),
         // 校验失败必须留痕：平台层产物被拒后静默落 ffmpeg，没有这行日志
         // 就只剩「为什么没用上硬编」的悬案（B 帧 ctts 形态曾踩过）

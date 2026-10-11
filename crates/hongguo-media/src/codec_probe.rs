@@ -1,13 +1,13 @@
 //! 快速合并前的编码一致性探测。
 //!
-//! [`crate::media::remux::concat_copy`] 会**重写索引**（合并后的样本表覆盖全集，
+//! [`crate::remux::concat_copy`] 会**重写索引**（合并后的样本表覆盖全集，
 //! 时长累加到全集末尾），但样本描述、编解码参数这些 box 是从第 1 集原样搬过去的。
 //! 所以产出的文件能不能播，取决于各集除「样本表」之外的部分是否一致：同一份文件
 //! 在别处解析出的轨道信息必须相同，否则这道闸门给出的结论和实际产物对不上。
 
 use std::path::{Path, PathBuf};
 
-use crate::media::demux::demux_file;
+use crate::demux::demux_file;
 use hongguo_common::{AppError, AppResult};
 
 /// 某一条轨道的编码指纹。全部字段相同才算同一条编码。
@@ -34,17 +34,17 @@ pub struct Consistency {
 ///
 /// 放在 `pipeline::transcode` 决定走软解之前调用。少了这一道，非 HEVC 的源
 /// （`avc1`，或平台在同一档位里给的 bytevc1 / bytevc2）会一路走到
-/// [`crate::media::hevc::read_parameter_sets`] 才抛「不是 HEVC 轨」——那句话
+/// [`crate::hevc::read_parameter_sets`] 才抛「不是 HEVC 轨」——那句话
 /// 既没说为什么失败，也没说下一步能做什么，用户只能自己猜。
 ///
-/// 判定复用 [`crate::media::hevc::is_hevc`]，与解码器入口保持同一份答案。
+/// 判定复用 [`crate::hevc::is_hevc`]，与解码器入口保持同一份答案。
 pub fn ensure_softdecode_supported(path: &Path) -> AppResult<()> {
     let demuxed = demux_file(path)?;
     let track = demuxed
         .video_track()
         .ok_or_else(|| AppError::Media("没有视频轨".into()))?;
 
-    if crate::media::hevc::is_hevc(&track.info.codec) {
+    if crate::hevc::is_hevc(&track.info.codec) {
         return Ok(());
     }
 

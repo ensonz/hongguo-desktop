@@ -90,7 +90,7 @@ pub fn read_parameter_set_nalus(
 /// 解析 hvcC **载荷**（box header 之后的部分）：参数集 NAL 数组 + 长度前缀字节数。
 ///
 /// MP4（stsd sample entry）与 HEIF（ipco 属性）里的 hvcC 载荷布局完全一致，
-/// 封面软解（[`crate::media::heif`]）与此共用这一份解析。
+/// 封面软解（[`crate::heif`]）与此共用这一份解析。
 pub fn param_nalus_from_hvcc(hvcc: &[u8]) -> AppResult<(Vec<Vec<u8>>, usize)> {
     // hvcC 固定头 23 字节，其后才是参数集数组
     if hvcc.len() < 23 {

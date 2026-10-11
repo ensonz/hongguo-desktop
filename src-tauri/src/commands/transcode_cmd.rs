@@ -1,6 +1,6 @@
 //! 转码能力查询、播放兼容兜底与转码缓存清理。
 //!
-//! 真正的转码实现在 [`crate::media::transcode`]，由合并功能
+//! 真正的转码实现在 [`hongguo_media::transcode`]，由合并功能
 //! （`merge_service::compat`）与播放兼容兜底（`play_service::compat_play`）驱动。
 
 use std::path::PathBuf;

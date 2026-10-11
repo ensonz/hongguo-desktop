@@ -74,7 +74,7 @@ fn transcode_pipeline_produces_playable_mp4() {
     assert!(input.exists());
 
     // 3) 读回产物，验证是合法 MP4 且有视频轨
-    let demuxed = crate::media::demux::demux_file(&input).expect("产物应可解复用");
+    let demuxed = crate::demux::demux_file(&input).expect("产物应可解复用");
     let video = demuxed.video_track().expect("应有视频轨");
     assert_eq!(video.info.codec, "avc1", "H.264 的 fourcc 应为 avc1");
     assert_eq!(
@@ -214,6 +214,10 @@ fn peak_working_set_bytes() -> u64 {
         peak_pagefile_usage: usize,
     }
 
+    // 显式挂 psapi：此前这段代码住在 src-tauri，那里依赖 `windows` crate，
+    // 它的 windows-targets 会带进 kernel32 的 raw-dylib 导入，GetProcessMemoryInfo
+    // 搭便车就解析到了。本 crate 不依赖 windows，必须自己声明 import lib。
+    #[link(name = "psapi")]
     unsafe extern "system" {
         fn GetCurrentProcess() -> isize;
         fn GetProcessMemoryInfo(

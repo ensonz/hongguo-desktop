@@ -1,6 +1,6 @@
 //! macOS VideoToolbox 编码后端（硬编优先，无硬编回落 Apple 内置软编会话）。
 //!
-//! 链路与软解路径（`media::transcode`）逐段对应，只是「解码 → YUV → 编码」
+//! 链路与软解路径（`hongguo_media::transcode`）逐段对应，只是「解码 → YUV → 编码」
 //! 被整体换成了 GPU 上的「解码 → NV12 CVPixelBuffer → 编码」，IOSurface
 //! 背板的像素缓冲在编解码之间零拷贝：
 //!
@@ -93,9 +93,9 @@ pub fn clear_probe_cache() {
 /// 实测 44.9s 集：VT 链 ≈5.9s，libx264 18.2s、纯 Rust 54s），且同样不依赖
 /// 用户装任何东西。会话真建不出来（罕见）由管线落回下一条路。
 pub fn transcode_h264(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
-    let demuxed = crate::media::demux::demux_file(req.input).ok()?;
+    let demuxed = hongguo_media::demux::demux_file(req.input).ok()?;
     let video = demuxed.video_track()?;
-    if !crate::media::hevc::is_hevc(&video.info.codec) {
+    if !hongguo_media::hevc::is_hevc(&video.info.codec) {
         return None;
     }
     Some(run(req, &demuxed, &video.info))
@@ -687,8 +687,8 @@ impl Compressor {
             )?;
             let raw = std::slice::from_raw_parts(data, total);
             // VT 输出的 H.264 是 4 字节长度前缀（AVCC）；Annex-B 转换与
-            // media::hevc 是同一份实现
-            let mut annexb = crate::media::hevc::to_annexb(raw, 4);
+            // hongguo_media::hevc 是同一份实现
+            let mut annexb = hongguo_media::hevc::to_annexb(raw, 4);
 
             // 关键帧（同步样本）前插 SPS/PPS；首个输出样本无论标没标都带上
             // （拼接器重建 moov 时样本描述取自第 1 集，后续各集码流必须自带
@@ -938,14 +938,14 @@ fn ptkey(secs: f64) -> i64 {
 
 fn run(
     req: &PlatformRequest<'_>,
-    demuxed: &crate::media::demux::Demuxed,
+    demuxed: &hongguo_media::demux::Demuxed,
     video: &TrackInfo,
 ) -> AppResult<()> {
     let started = Instant::now();
 
     // 1) 参数集与源时间轴。hvcC 里可能混着非参数集 NAL（实测 libx265 会把
     //    两 KB 的 SEI 塞进 hvcC），格式描述只收 VPS/SPS/PPS，其余剔除。
-    let (raw_sets, _) = crate::media::hevc::read_parameter_set_nalus(req.input, video)?;
+    let (raw_sets, _) = hongguo_media::hevc::read_parameter_set_nalus(req.input, video)?;
     let parameter_sets: Vec<Vec<u8>> = raw_sets
         .into_iter()
         .filter(|n| !n.is_empty() && matches!((n[0] >> 1) & 0x3f, 32..=34))
@@ -1013,7 +1013,7 @@ fn run(
     };
 
     for (i, &(offset, size)) in video.samples.iter().enumerate() {
-        let raw = crate::media::transcode::read_range(req.input, offset, size)?;
+        let raw = hongguo_media::transcode::read_range(req.input, offset, size)?;
         if raw.is_empty() {
             continue;
         }
@@ -1071,7 +1071,7 @@ fn run(
 
     // 4) 音轨直通 + 封装（与软解路径同一套代码，faststart）
     let (out_w, out_h) = out_dims.unwrap_or((video.width as usize, video.height as usize));
-    crate::media::transcode::mux_with_audio(
+    hongguo_media::transcode::mux_with_audio(
         req.input, demuxed, req.output, &units, out_w, out_h, fps as f32,
     )?;
 
