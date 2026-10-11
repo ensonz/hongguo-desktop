@@ -9,7 +9,7 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 ├─ domain/api/<域>/     # 官方 API 端点客户端，每域一目录（mod+model[+parse]；改前必读 docs/hongguo-api-endpoints.md）
 ├─ domain/model/*       # serde 领域模型（与前端 zod schema 对齐）
 ├─ signer/              # 请求签名，JS 1:1 移植，禁改写法
-├─ store/{db,entity,bridge}.rs  # Turso 内嵌库
+├─ store/              # Turso 内嵌库（db/bridge + entity/ 六组实体）
 └─ app_state.rs         # AppState = Arc<AppStateInner>
 ```
 
@@ -17,6 +17,7 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 - **锁不跨 await**：`AppStateInner` 的字段全是 `RwLock`（parking_lot，guard 非 Send）。读状态走快照方法 `state.settings()` / `state.queue()` / `state.device()`（clone 出来用），绝不把 guard 带过 await 点。
 - 外呼命令标准开头：`let env = state.api_env();`——一次调用链内环境（代理+设备+Cookie）不变，避免「签名用 A 设备、请求带 B Cookie」。
 - service 层「归一化与校验一体」：校验的是归一化之后的结果，拆两个函数会留下顺序写反的窗口（settings_service 注释）。
+- **持久化与传输分离**：`store/entity/` 只被 bridge 转调，SQL 与行存储细节不出 store 层；IPC 出入参一律是 `domain/model/` 的 serde 模型（与前端 zod schema 对齐）。
 
 ## 新增 command（五步全链路见 references/ipc.md）
 
@@ -54,7 +55,7 @@ pub fn series_by_id(&self, series_id: &str) -> AppResult<Option<Series>> {
 **schema 迁移流程**（db.rs）：
 
 1. `SCHEMA_VERSION += 1`；
-2. `MIGRATIONS` 尾部追加一段 SQL（**只升一级**，注释写变更原因）；
+2. `MIGRATIONS` 尾部追加一段 SQL（**只升一级**，注释写变更原因，并在注释里附**回滚 SQL**——升级与回滚成对，不留只有升级的迁移）；
 3. 约束变更走「建新表 → INSERT SELECT → DROP → RENAME」（SQLite 不能改约束）；
 4. 多语句 DDL 必须 `execute_batch`（Turso 的 execute 只跑第一条）。
 

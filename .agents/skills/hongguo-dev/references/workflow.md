@@ -4,7 +4,7 @@
 
 - Node ≥ 22（pnpm）+ Rust toolchain（MSRV 1.99，edition 2024）。依赖：`pnpm install`。
 - 数据目录 `%APPDATA%/hongguo-downloader/hongguo.db`（SQLite，沿 Electron 版路径便于旧档迁移）；`HONGGUO_DATA_DIR` 环境变量可重定向（测试用）。
-- 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户自己开着 dev 会话时，要么请他关掉，要么走 computer-use 路线调试。
+- 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户自己开着 dev 会话时**一律不可调试——CDP、computer-use 都不行**，自动化调试只针对自己启动的实例。
 
 ## 日常命令
 

@@ -45,8 +45,8 @@ export const storage = {
 
 后端单一 `AppError` enum，序列化成 `{ kind, message }`：
 
-- `kind` 是前端 i18n key（`error.network`、`error.storeCorrupt`…共 13 个变体），**Rust 侧不硬编码面向用户的文案**；`message` 是后端中文原文，前端 `invoke.ts` 展示译文、原文挂 `error.cause`。
-- 变体语义是设计过的，别合并：`StoreLocked`（另一实例在跑）≠ `StoreCorrupt`（真损坏，报错了会让人删库）；`Busy`（现在不行等一下）≠ `InvalidArgs`（参数写错）；`EmptyResponse` 独立存在因为签名失效返回 HTTP 200 + 0 字节；`Cancelled` 供调度器区分取消与磁盘错误；`Auth` 是 transparent（消息已含完整语义如「登录失败 1202: 验证码错误」，i18n 无译文时前端透传原文）。
+- `kind` 是前端 i18n key（`error.network`、`error.storeCorrupt`…共 13 个变体），**Rust 侧不硬编码面向用户的文案**；`message` 是后端中文原文，前端 `invoke.ts` 展示译文、原文挂 `error.cause`。**每个 kind 都必须有 zh-CN/en-US 译文**（新增变体同一 commit 两份 locale 同步补），后端原文只进 `error.cause` 供排查，不作为用户可见文案依赖。
+- 变体语义是设计过的，别合并：`StoreLocked`（另一实例在跑）≠ `StoreCorrupt`（真损坏，报错了会让人删库）；`Busy`（现在不行等一下）≠ `InvalidArgs`（参数写错）；`EmptyResponse` 独立存在因为签名失效返回 HTTP 200 + 0 字节；`Cancelled` 供调度器区分取消与磁盘错误；`Auth` 是 transparent（消息已含完整语义如「登录失败 1202: 验证码错误」，原文挂 `error.cause`，展示走 `error.auth` 词条）。
 - 抛错惯用形态：`AppError::InvalidArgs("并发数必须在 1–10 之间".into())`；`AppError::NotFound(format!("剧集 {series_id}"))` 配 `.ok_or_else`；IO 用 `?`（有 From）。
 - **存进任务/队列的错误只存 i18n key 不存人话**（`queue.mark_failed(&id, e.i18n_key())`）——`DownloadTask.error` 会被前端直接渲染，底层细节只该进日志。
 
