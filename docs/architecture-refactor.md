@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
 > 版本：2026-10-12（rev3，定序已确认）
-> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1~3 条（common / signer / mp4 / api / store / stream / media / media-platform）已落地，第 4~6 步按 §8 分批执行
+> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1~4 条已落地（common / signer / mp4 / api / store / stream / media / media-platform / protocol / service），第 5~6 步进行中
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -31,17 +31,17 @@
 | 3a | 流契约：`hongguo-stream` | ✅ 2026-10-11 | 4 文件 / 1,459 行；包 726 → 727 |
 | 3b | 媒体核心：`hongguo-media` | ✅ 2026-10-11 | 16 文件 / 4,477 行；包 727 → 728 |
 | 3c | 平台层：`hongguo-media-platform` | ✅ 2026-10-12 | 12 文件 / 4,420 行（含 lib.rs 与 test-support 门控）；包 728 → 729 |
-| 4 | 协议与业务：`hongguo-protocol` → `hongguo-service` | ⬜ 待做 | |
-| 5 | 薄化 Tauri：`commands` / `app_state` / `bootstrap` / `diagnostics` → `hongguo-tauri` | ⬜ 待做 | |
-| 6 | 清理：删过渡代码、回收 vendor 补丁、补文档与测试 | ⬜ 待做 | |
+| 4 | 协议与业务：`hongguo-protocol` → `hongguo-service` | ✅ 2026-10-12 | protocol 5 文件（无 tauri 依赖）；service 41 文件（含 AppState 随迁）；包 729 → 731 |
+| 5 | 薄化 Tauri：`commands` / `app_state` / `bootstrap` / `diagnostics` → `hongguo-tauri` | ✅ 2026-10-12 | tauri 壳装配 31 文件 / 4,568 行迁出；壳降至 2 文件 / 22 行；包 731 → 729（壳瘦身净减 2 包） |
+| 6 | 清理：删过渡代码、回收 vendor 补丁、补文档与测试 | 🔄 进行中 | | |
 | 阶段 3 | 前端并行：评论/剧评双实现收敛、`components/` 归位、入参 zod 化 | ⬜ 待做 | |
 
-**当前体量**（2026-10-12，3c 后实测；含 3b 之后并行落地的功能提交增量）：
+**当前体量**（2026-10-12，第 5 条后实测）：
 
 | 位置 | 文件 | 行数 |
 | --- | --- | --- |
-| 壳 `src-tauri/src` | 75 | 11,510 |
-| `crates/`（8 个成员） | 131 | 34,444 |
+| 壳 `src-tauri/src`（纯配置 + 入口） | 2 | 22 |
+| `crates/`（12 个成员） | 208 | 46,060 |
 
 对照 §0 的重构前快照：壳是 **198 文件 / 41,890 行**。逐 crate 明细与依赖方向见 §4。
 

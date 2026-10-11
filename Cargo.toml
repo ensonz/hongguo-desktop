@@ -22,6 +22,7 @@ members = [
     "crates/hongguo-signer",
     "crates/hongguo-store",
     "crates/hongguo-stream",
+    "crates/hongguo-tauri",
     "src-tauri",
 ]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被
