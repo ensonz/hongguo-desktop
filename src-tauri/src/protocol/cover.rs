@@ -50,10 +50,23 @@ pub fn serve(raw_path: &str) -> Result<ProtocolResponse, String> {
         log::warn!("[Cover] 封面/头像获取失败: {e} ({remote})");
         e
     })?;
+    // 写缓存前必须确保目录存在：cover-cache 没有任何启动/清理路径会创建
+    // （兼容转码缓存有转码服务负责建，这里没有）——全新安装的机器上目录
+    // 不存在，下载转码全部成功也会死在最后一步写盘，且曾是零日志静默 404。
+    let dir = hongguo_store::paths::cover_cache_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        let msg = format!("创建封面缓存目录失败: {e}");
+        log::warn!("[Cover] {msg}");
+        return Err(msg);
+    }
     // 先写临时文件再改名：转一半的图不该被缓存住
     let final_path = cache_path(&remote, ext);
     let tmp = cache_tmp(&remote);
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("写封面缓存失败: {e}"))?;
+    if let Err(e) = std::fs::write(&tmp, &bytes) {
+        let msg = format!("写封面缓存失败: {e}");
+        log::warn!("[Cover] {msg}");
+        return Err(msg);
+    }
     let _ = std::fs::rename(&tmp, &final_path);
     Ok((200, headers(ct, bytes.len()), bytes))
 }
