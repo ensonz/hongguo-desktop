@@ -102,6 +102,16 @@ pub async fn resolve_play(
                 &request.series_id,
                 request.vid_index + 1,
             );
+            // 连播下一集的**流**预取：集间切换此前完全裸奔，自动连播每集
+            // 都冷走取流表+探针链（实测 1.4s）——切剧预取只救得了「换一部剧」。
+            online::schedule_next_episode_prefetch(
+                app,
+                &state.store,
+                state.settings(),
+                state.api_env(),
+                &request.series_id,
+                request.vid_index + 1,
+            );
             Ok(PlayResponse {
                 url: prepared.url,
                 online: true,

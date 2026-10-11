@@ -18,8 +18,10 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 
+use hongguo_api::client::ApiEnv;
 use hongguo_common::model::{Settings, VideoDefinition};
 use hongguo_common::{AppError, AppResult};
+use hongguo_store::Store;
 use hongguo_stream::{ProgressiveStream, StreamCache, cache};
 
 /// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，
@@ -227,6 +229,34 @@ pub async fn prefetch_stream(
         }
     });
     Ok(())
+}
+
+/// 连播预取：本集起播成功后排队**下一集**的流预取。
+///
+/// 切剧预取（首页 `play_prefetch`）只覆盖「换一部剧」；同剧的集间切换此前
+/// 完全没有预取，自动连播每集都要冷走一遍取流表+探针链（2026-10-12 实测
+/// 1.4s，正是「下一集黑一两秒」的来源——同现场切剧命中预取只要 20ms）。
+/// 幂等与礼让全部复用 [`prefetch_stream`]（StreamCache 去重 + FillBudget
+/// 让位）。档案里查不到下一集的 vid 就放弃：连播到它时 resolve_play 会
+/// 自行解析（与 compat_prefetch 同款语义）。
+pub fn schedule_next_episode_prefetch(
+    app: &tauri::AppHandle,
+    store: &Store,
+    settings: Settings,
+    env: ApiEnv,
+    series_id: &str,
+    next_vid_index: u32,
+) {
+    let Some(vid) = super::local::episode_vid(store, series_id, next_vid_index) else {
+        return;
+    };
+    let progress_key = format!("{series_id}:{next_vid_index}");
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = prefetch_stream(&app, &vid, &progress_key, &settings, &env).await {
+            log::info!("[Online] 第 {next_vid_index} 集连播预取失败（忽略）: {e}");
+        }
+    });
 }
 
 /// 等另一个请求把这一档取完，复用它的结果。
