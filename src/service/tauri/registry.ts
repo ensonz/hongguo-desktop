@@ -248,7 +248,6 @@ export const COMMANDS = {
     args: z.object({
       mobile: z.string(),
       code: z.string(),
-      mobileTicket: z.string().nullable(),
       mfaRetryTag: z.string().nullable(),
       mfaSmsCodeKey: z.string().nullable(),
     }),

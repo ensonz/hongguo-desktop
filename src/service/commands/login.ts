@@ -4,16 +4,10 @@ import { call } from '../tauri/invoke';
 
 export const login = {
   sendCode: (mobile: string) => call('login_send_code', { mobile }),
-  smsLogin: (
-    mobile: string,
-    code: string,
-    ticket?: string,
-    mfa?: { retryTag: string; smsCodeKey: string },
-  ) =>
+  smsLogin: (mobile: string, code: string, mfa?: { retryTag: string; smsCodeKey: string }) =>
     call('login_sms_login', {
       mobile,
       code,
-      mobileTicket: ticket ?? null,
       mfaRetryTag: mfa?.retryTag ?? null,
       mfaSmsCodeKey: mfa?.smsCodeKey ?? null,
     }),

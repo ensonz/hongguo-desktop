@@ -27,7 +27,7 @@ pub struct CommentItem {
     #[serde(default)]
     pub avatar: String,
     pub text: String,
-    /// unix 秒
+    /// UTC 毫秒时间戳（官方 `create_timestamp` 为 unix 秒，parse 层已 ×1000）
     #[serde(default)]
     pub create_time: i64,
     #[serde(default)]
@@ -113,7 +113,7 @@ pub struct ReplyItem {
     #[serde(default)]
     pub avatar: String,
     pub text: String,
-    /// unix 秒（Common.create_timestamp）
+    /// UTC 毫秒时间戳（`Common.create_timestamp` 为 unix 秒，parse 层已 ×1000）
     #[serde(default)]
     pub create_time: i64,
     #[serde(default)]

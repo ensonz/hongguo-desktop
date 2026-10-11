@@ -463,7 +463,7 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
                     <span className="truncate text-sm font-medium">{c.userName}</span>
                     {c.score && <ScoreStars score={c.score} />}
                     <span className="text-muted-foreground shrink-0 text-xs">
-                      {new Date(c.createTime * 1000).toLocaleDateString()}
+                      {new Date(c.createTime).toLocaleDateString()}
                     </span>
                     {c.scoreSuffixText && (
                       <span className="text-muted-foreground/70 shrink-0 text-xs">

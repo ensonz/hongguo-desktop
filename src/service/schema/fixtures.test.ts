@@ -22,7 +22,7 @@ const commentItem = {
   userName: '用户甲',
   avatar: 'https://p3-sign.example.com/img.jpg',
   text: '好看',
-  createTime: 1791603887,
+  createTime: 1791603887000,
   diggCount: 3,
   replyCount: 1,
   userDigg: false,
@@ -75,7 +75,7 @@ describe('弹幕/评论/剧评契约', () => {
       userName: '用户乙',
       avatar: 'https://p3-sign.example.com/img2.jpg',
       text: '同意',
-      createTime: 1791603900,
+      createTime: 1791603900000,
       diggCount: 0,
       userDigg: false,
     };
@@ -97,10 +97,14 @@ describe('弹幕/评论/剧评契约', () => {
 describe('登录 MFA 事件三态', () => {
   it('三态各过各的，state 串票失败', () => {
     expect(loginMfaStateSchema.safeParse({ state: 'success', name: '用户甲' }).success).toBe(true);
-    expect(loginMfaStateSchema.safeParse({ state: 'failed', message: '验证超时' }).success).toBe(
-      true,
-    );
-    expect(loginMfaStateSchema.safeParse({ state: 'waiting', message: '回复短信' }).success).toBe(
+    expect(
+      loginMfaStateSchema.safeParse({
+        state: 'failed',
+        messageKind: 'settings.loginMfaTimeout',
+        message: '',
+      }).success,
+    ).toBe(true);
+    expect(loginMfaStateSchema.safeParse({ state: 'waiting', serverTip: '回复短信' }).success).toBe(
       true,
     );
     // Rust 侧只发这三种；出现别的 state 是契约漂移

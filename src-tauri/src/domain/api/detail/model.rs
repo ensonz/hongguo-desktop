@@ -70,7 +70,7 @@ pub struct SeriesMeta {
     /// 付费信息（官方模型 VideoDetailVideoData.payInfo 原样透传；
     /// Null=免费。官方模型对照新增，抓包样本未及、防御性读取）
     pub pay_info: serde_json::Value,
-    /// 上线时间戳（online_time，秒；0=未知）
+    /// 上线时间戳（online_time；UTC 毫秒，0=未知）
     pub online_time: i64,
     /// 官方更新角标（update_tag，"更新至第N集"；空=无）
     pub update_tag: String,

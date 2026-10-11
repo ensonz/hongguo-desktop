@@ -14,16 +14,16 @@ pub(crate) fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// unix 秒 → 北京时区（UTC+8）的 "20261004" 形式日期。
+/// UTC 毫秒时间戳 → 北京时区（UTC+8）的 "20261004" 形式日期。
 ///
 /// 日历的日期桶按北京时间的"当天"划分；时间戳 0（未定档）不归任何一天。
 /// 来源：calendar/mod.rs 的 `beijing_date`。
-pub(crate) fn beijing_date(ts: i64) -> String {
-    if ts <= 0 {
+pub(crate) fn beijing_date(ts_ms: i64) -> String {
+    if ts_ms <= 0 {
         return String::new();
     }
     // Hinnant 的 civil_from_days：days 自 1970-01-01
-    let z = (ts + 8 * 3600).div_euclid(86_400) + 719_468;
+    let z = (ts_ms + 8 * 3_600_000).div_euclid(86_400_000) + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
@@ -49,17 +49,17 @@ mod tests {
     fn beijing_date_buckets_by_utc8_midnight() {
         assert!(beijing_date(0).is_empty(), "未定档（ts=0）不归任何一天");
         assert!(beijing_date(-5).is_empty());
-        assert_eq!(beijing_date(1), "19700101");
-        // 15:59:59 UTC 还是北京当天，16:00:00 就翻日
-        assert_eq!(beijing_date(57_599), "19700101");
-        assert_eq!(beijing_date(57_600), "19700102");
+        assert_eq!(beijing_date(1_000), "19700101");
+        // 15:59:59.999 UTC 还是北京当天，16:00:00 就翻日
+        assert_eq!(beijing_date(57_599_999), "19700101");
+        assert_eq!(beijing_date(57_600_000), "19700102");
     }
 
     #[test]
     fn beijing_date_matches_known_captures() {
-        // 2026-10-04 抓包样本里的 publish_time（日历/预约域实测值）
-        assert_eq!(beijing_date(1_790_957_041), "20261003");
-        assert_eq!(beijing_date(1_791_216_360), "20261006");
-        assert_eq!(beijing_date(1_759_276_800), "20251001");
+        // 2026-10-04 抓包样本里的 publish_time（日历/预约域实测值，秒 → 毫秒 ×1000）
+        assert_eq!(beijing_date(1_790_957_041_000), "20261003");
+        assert_eq!(beijing_date(1_791_216_360_000), "20261006");
+        assert_eq!(beijing_date(1_759_276_800_000), "20251001");
     }
 }

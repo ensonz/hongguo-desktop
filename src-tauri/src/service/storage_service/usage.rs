@@ -9,6 +9,7 @@ use crate::domain::model::DownloadTask;
 
 /// 占用统计。只出不进。
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageUsage {
     /// 总字节
     pub bytes: u64,

@@ -142,9 +142,9 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
   );
 }
 
-/** unix 秒 → "MM-DD HH:mm"（本地时区）。 */
-function formatPublishTime(sec: number): string {
-  const dt = new Date(sec * 1000);
+/** UTC 毫秒时间戳 → "MM-DD HH:mm"（本地时区）。 */
+function formatPublishTime(ms: number): string {
+  const dt = new Date(ms);
   if (Number.isNaN(dt.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;

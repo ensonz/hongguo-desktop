@@ -87,14 +87,13 @@ struct CachedTabConfig {
 /// 配置复验间隔：服务端常量假设下 1 小时重验一次足够及时，开销可忽略。
 const TAB_CONFIG_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
-type TabConfigCache = std::sync::Mutex<std::collections::HashMap<String, CachedTabConfig>>;
+type TabConfigCache = parking_lot::Mutex<std::collections::HashMap<String, CachedTabConfig>>;
 static TAB_CONFIG_CACHE: std::sync::OnceLock<TabConfigCache> = std::sync::OnceLock::new();
 
 fn cache_tab_config_insert(tab: &str, cfg: RecommendTabConfig) {
     TAB_CONFIG_CACHE
         .get_or_init(TabConfigCache::default)
         .lock()
-        .unwrap()
         .insert(
             tab.to_string(),
             CachedTabConfig {
@@ -108,7 +107,6 @@ fn cached_tab_config(tab: &str) -> Option<CachedTabConfig> {
     TAB_CONFIG_CACHE
         .get_or_init(TabConfigCache::default)
         .lock()
-        .unwrap()
         .get(tab)
         .cloned()
 }

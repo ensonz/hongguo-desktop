@@ -164,7 +164,7 @@ pub struct AccountState {
     /// 用户 id（字符串形态）
     #[serde(default)]
     pub user_id: String,
-    /// 登录时间（unix 秒）
+    /// 登录时间（UTC 毫秒时间戳）
     #[serde(default)]
     pub login_at: i64,
     /// x-tt-token 长凭据（登录响应头下发，`00<access>--<refresh>-3.0.3`

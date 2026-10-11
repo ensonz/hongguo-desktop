@@ -424,10 +424,12 @@ pub(crate) fn parse_comment_item(comment: &Value) -> Option<CommentItem> {
             .unwrap_or_default()
             .to_string(),
         text,
+        // 官方为 unix 秒；对外契约统一 UTC 毫秒
         create_time: comment
             .pointer("/common/create_timestamp")
             .and_then(Value::as_i64)
-            .unwrap_or(0),
+            .unwrap_or(0)
+            * 1000,
         digg_count: comment
             .pointer("/stat/digg_count")
             .and_then(Value::as_i64)
@@ -621,10 +623,12 @@ pub(crate) fn parse_reply_item(reply: &Value) -> Option<ReplyItem> {
             .unwrap_or_default()
             .to_string(),
         text,
+        // 官方为 unix 秒；对外契约统一 UTC 毫秒
         create_time: common
             .and_then(|c| c.get("create_timestamp"))
             .and_then(Value::as_i64)
-            .unwrap_or(0),
+            .unwrap_or(0)
+            * 1000,
         digg_count: reply
             .pointer("/stat/digg_count")
             .and_then(Value::as_i64)

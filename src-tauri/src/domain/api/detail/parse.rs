@@ -228,7 +228,8 @@ pub fn parse_series_meta(response: &Value, series_id: &str) -> AppResult<SeriesM
         // 官方模型对照字段（VideoDetailVideoData）：抓包样本未及、防御性
         // 读取，缺席走默认值
         pay_info: vd.get("pay_info").cloned().unwrap_or(Value::Null),
-        online_time: num_field(vd, "online_time"),
+        // 官方下发为 unix 秒；对外契约统一 UTC 毫秒
+        online_time: num_field(vd, "online_time") * 1000,
         update_tag: str_field_any(vd, &["update_tag"]),
         episode_total_cnt: num_field(vd, "episode_total_cnt"),
         latest_consumed_vid: str_field_any(vd, &["latest_consumed_item_id"]),
@@ -363,7 +364,7 @@ mod tests {
         assert_eq!(m.intro, "穿越者落地成盒，重启人生第二回合。");
         assert_eq!(m.update_tag, "更新至第45集");
         assert_eq!(m.episode_total_cnt, 80);
-        assert_eq!(m.online_time, 1_790_000_000);
+        assert_eq!(m.online_time, 1_790_000_000_000);
         assert_eq!(m.latest_consumed_vid, "7690802329313872921");
         assert!(
             m.pay_info

@@ -210,7 +210,7 @@ fn parse_calendar_item(raw: &Value) -> Option<CalendarItem> {
             description: str_field(sd, "video_desc"),
             category: str_field(raw, "category"),
             rec_tags: string_array(raw, "rec_tags"),
-            publish_time: int_field(raw, "schedule_publish_time"),
+            publish_time: int_field(raw, "schedule_publish_time") * 1000,
             is_online: raw
                 .get("is_online")
                 .and_then(Value::as_bool)
@@ -236,7 +236,7 @@ fn parse_calendar_item(raw: &Value) -> Option<CalendarItem> {
         description: str_field(raw, "item_desc"),
         category: str_field(raw, "category"),
         rec_tags: string_array(raw, "sub_title_list"),
-        publish_time: int_field(raw, "schedule_publish_time"),
+        publish_time: int_field(raw, "schedule_publish_time") * 1000,
         is_online: raw
             .get("is_online")
             .and_then(Value::as_bool)
@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(it.title, "穿越古代搞军工");
         assert_eq!(it.category, "逆袭");
         assert_eq!(it.rec_tags, vec!["374万热度"]);
-        assert_eq!(it.publish_time, 1790957041);
+        assert_eq!(it.publish_time, 1_790_957_041_000);
         assert!(it.is_online);
         assert_eq!(it.score, 8.4);
         assert_eq!(page.dates, vec!["20260926", "20261003", "20261010"]);
@@ -354,7 +354,7 @@ mod tests {
         assert_eq!(it.title, "聚宝仙盆之杂灵根才是真BOSS第十三季");
         assert_eq!(it.description, "杂灵根弟子贺平生……");
         assert_eq!(it.rec_tags, vec!["328.7万人预约", "逆袭"]);
-        assert_eq!(it.publish_time, 1791216360);
+        assert_eq!(it.publish_time, 1_791_216_360_000);
         assert!(!it.is_online);
         assert!(it.vid.is_empty(), "扁平形态没有 vid，留空而非报错");
         assert!(page.has_more);
