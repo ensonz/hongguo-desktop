@@ -221,7 +221,8 @@ hongguo-desktop/
 │   ├── hongguo-signer/  # ByteDance request signing + device registration primitives (JS 1:1 port, constants black-box locked)
 │   ├── hongguo-mp4/     # MP4 parsing & CENC decryption
 │   ├── hongguo-api/     # Official API clients (14 domains, one directory per endpoint domain)
-│   └── hongguo-store/   # Turso embedded database (entity/ split by aggregate / migrations / recovery)
+│   ├── hongguo-store/   # Turso embedded database (entity/ split by aggregate / migrations / recovery)
+│   └── hongguo-stream/  # Online stream contract (progressive stream / per (vid, definition) cache / Range replies)
 ├── src-tauri/src/
 │   ├── service/         # App services: download scheduler, playback, merge, transcode, storage…
 │   ├── commands/        # Thin Tauri command layer (~80 commands, mirrors service/)
