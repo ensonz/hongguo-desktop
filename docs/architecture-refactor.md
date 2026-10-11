@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
 > 版本：2026-10-11（rev3，定序已确认）
-> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1 条（common / signer / mp4 / api）、第 2 条（store）与第 3 条 3a（stream）已落地，3b/3c 与第 4~6 步按 §8 分批执行
+> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1 条（common / signer / mp4 / api）、第 2 条（store）、第 3 条 3a（stream）与 3b（media）已落地，3c 与第 4~6 步按 §8 分批执行
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -109,13 +109,13 @@
 | Crate | 职责 | 依赖 | 状态 |
 | --- | --- | --- | --- |
 | `hongguo-stream` | 流数据面：`ProgressiveStream` / `StreamCache` / `ReaderDemand` / `serve`（Range 应答 + 窗口策略）+ `range.rs`（`RangeSpec` / `ProtocolResponse`）+ 进程级缓存 `cache()` | mp4 + common | **已落地 2026-10-11** |
-| `hongguo-media` | `media/` 纯 Rust 编解码——backend / demux / hevc / transcode / remux / codec_probe / disk_space / heif | mp4 + common | 待 3b |
+| `hongguo-media` | `media/` 纯 Rust 编解码——backend / demux / hevc / transcode / remux / codec_probe / disk_space / heif | mp4 + common | **已落地 2026-10-11** |
 | `hongguo-media-platform` | `media/platform`（MF / VT / WIC）+ `media/ffmpeg` + `media/capability`——平台硬编、ffmpeg 执行与能力探测 | media | 待 3c |
 | `hongguo-protocol` | `protocol/`——自定义 URI 逻辑（`hongguo-local/stream/cover`）+ 路由。**注意命名：这是 URI 协议，不是 HTTP/传输协议** | stream + media + media-platform + common | 待第 4 条 |
 
 > **依赖修正（2026-10-11 实测，v1/rev3 原表有误）**：
 > - **`capability/` 必须随 platform、ffmpeg 一起进 `hongguo-media-platform`**。实测 `media/platform/{vt,mf}` 调 `media::{demux,hevc,transcode}`（19 处），而 `media/capability` 反手调 `media::{platform,ffmpeg}`（14 处）——照原表把 capability 留在 `hongguo-media` 里会成环。
-> - **`hongguo-protocol` 的依赖不止 stream + mp4 + common**：`protocol/cover.rs` 还要 `media::heif` / `media::platform::wic` / `media::ffmpeg`（封面 HEIC→JPEG 的三级阶梯）。
+> - **`hongguo-protocol` 的依赖不止 stream + mp4 + common**：`protocol/cover.rs` 还要 `hongguo_media::heif` / `media::platform::wic` / `media::ffmpeg`（封面 HEIC→JPEG 的三级阶梯）。
 > - **`hongguo-stream` 同时收 `range.rs` 与进程级 `cache()`**：`RangeSpec` / `ProtocolResponse` 是流应答的线格式；`cache()` 是填充侧与应答侧唯一的共享句柄——不搬它，`serve()` 只能回头调 `service::play_service::online::cache()`，反向边消不掉。原表把 stream 描述为「只放共用数据类型」，偏窄。
 
 > **不设 `hongguo-media-gpu`**：GPU 路径尚不存在，有真需求再立 crate（§14）。
@@ -275,7 +275,7 @@ hongguo-desktop/
 
 1. **抽枢纽底层**（**全部完成 2026-10-11**）：`hongguo-common` → `hongguo-signer` → `hongguo-mp4` → `hongguo-api`
 2. **抽持久化**（**已完成 2026-10-11**）：`hongguo-store`——13 文件 / 1,820 行迁出，`cargo metadata` 725 → 726 包（仅新增本 crate，无版本漂移）。两处解耦：`persist_tasks` 从 store 移入 `service::download_service`（去掉 store → `AppState` 反向依赖）；`paths::ScopedDataDir` 由 `#[cfg(test)]` 改 feature `test-support` 门控（跨 crate 后 `#[cfg(test)]` 对下游测试不可见）
-3. **立流契约再抽媒体**：**3a 已完成 2026-10-11**——`hongguo-stream` 落地（`protocol/stream/*` + `protocol/range.rs` 共 4 文件 / 1,459 行迁出，进程级 `cache()` 单例随迁）；`cargo metadata` 726 → 727 包（仅新增本 crate）。**3b `hongguo-media`（16 文件 / 4,477 行）→ 3c `hongguo-media-platform`（11 文件 / 4,084 行，含 `capability/`）** 待做，切法见 §4.2 的依赖修正。编译基线见 `docs/build-baseline.md`（拆分前已采，3a 复测持平）
+3. **立流契约再抽媒体**：**3a 已完成 2026-10-11**——`hongguo-stream` 落地（`protocol/stream/*` + `protocol/range.rs` 共 4 文件 / 1,459 行迁出，进程级 `cache()` 单例随迁）；`cargo metadata` 726 → 727 包。**3b 已完成 2026-10-11**——`hongguo-media` 落地（16 文件 / 4,477 行迁出，含 `tests/fixtures/heic-cover-sample.heic`）；`cargo metadata` 727 → 728 包。两处结构性决定：跨层的端到端用例 `remux/e2e_tests.rs` 归壳的 `src/testing/media_pipeline_e2e.rs`（它同时要平台硬编、ffmpeg 与服务层）；`worker::temp_path_for` 上移 `hongguo_common::utils::path`（下载 / 转码 / ffmpeg 三条链路的共同落盘约定，留在 service 会让 media 反向依赖）。**3c `hongguo-media-platform`（11 文件 / 4,084 行，含 `capability/`）** 待做。编译基线见 `docs/build-baseline.md`（3b 复测：改 media 文件的增量 build 18.6 s → 26 s，是拆分的真实代价，换来的是边界而非秒数）
 4. **抽协议与业务**：`hongguo-protocol` → `hongguo-service`（service 改为只依赖 stream 契约）
 5. **薄化 Tauri**：`commands/app_state/bootstrap/diagnostics` 迁入 `hongguo-tauri`，`src-tauri` 退化为纯配置与入口
 6. **清理**：删过渡代码、回收 vendor 补丁、补齐文档与测试
@@ -345,7 +345,9 @@ hongguo-desktop/
 | 遗留结构项的执行时机 | 前置项已完成；前端项并行；重叠项（`domain/api` 拆分 / `rank` 域对齐 / 载荷 struct 化）并入对应 crate（§8） | ✅ 已定 |
 | `hongguo-stream` 的物理边界 | 全量数据面（`ProgressiveStream`/`StreamCache`/`ReaderDemand`/`serve`）+ `range.rs` + 进程级 `cache()` 单例一起进；**不引入** `PlainStream` trait / `StreamSource` enum（先搬后抽象） | ✅ 已定（3a，2026-10-11） |
 | `media/capability` 归属 | 随 `platform` + `ffmpeg` 进 `hongguo-media-platform`（留 `media` 会成环） | ✅ 已定（实测，2026-10-11） |
-| 编译基线 | 已采：clean build 208.8 s，单文件增量 check 1.4 s / build ≈18 s（链接主导）；3a 后复测持平 | ✅ 已采（`docs/build-baseline.md`） |
+| 编译基线 | 已采：clean build 208.8 s，单文件增量 check 1.4 s / build ≈18 s（链接主导）；3a 后持平，3b 后改 media 的 build 升到 26 s | ✅ 已采（`docs/build-baseline.md`） |
+| 跨层 e2e 用例的归属（3b） | `remux/e2e_tests.rs` 同时依赖媒体核心 + 平台硬编 + ffmpeg + 服务层，任何单一 crate 都装不下 → 迁到壳的 `src/testing/media_pipeline_e2e.rs`（Cargo 集成测试目录够不着私有模块，只能是壳内 `#[cfg(test)]` 模块） | ✅ 已定（3b） |
+| `worker::temp_path_for` 的归属（3b） | 上移 `hongguo_common::utils::path`——下载/转码/ffmpeg 三条链路共用的落盘命名约定；留在 service 会让 `hongguo-media` 反向依赖服务层 | ✅ 已定（3b） |
 
 ---
 

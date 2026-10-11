@@ -56,7 +56,7 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 ### Rust 后端
 
 - `RUST_LOG=debug` 看日志；诊断快照见 `src-tauri/src/diagnostics.rs`。
-- 单测过滤：`cargo test --lib <模块路径>`（在仓库根跑）；e2e：`HONGGUO_E2E_DIR=<目录> cargo test --lib media::remux::e2e -- --nocapture`。
+- 单测过滤：`cargo test --lib <模块路径>`（在仓库根跑）；e2e：`HONGGUO_E2E_DIR=<目录> cargo test --lib testing::media_pipeline_e2e -- --nocapture`。
 - 网络请求问题先读 `docs/hongguo-api-endpoints.md` 的坑清单（签名失效返回 200+0 字节、send_code type=1 vs 3731 等）。
 
 ## 提交纪律

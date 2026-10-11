@@ -26,6 +26,7 @@
 - `crates/hongguo-api/` 官方接口客户端：14 个域（登录/推荐/搜索/详情/流地址/弹幕/互动等）；改端点或参数前必读 `docs/hongguo-api-endpoints.md`。commentapi 互动枚举（object_type / comment_type / commit_source / data_type 等，值即契约）集中在 `params::interaction`，使用点只引用不写字面量
 - `crates/hongguo-store/` 持久化：Turso 内嵌库（`db` 连接与 schema 迁移 / `entity/` 六组实体 / `bridge` 同步门面）、旧 data.json 一次性导入、坏档恢复；`paths::ScopedDataDir` 是 feature `test-support` 门控的测试辅助（落盘用例把数据目录重定向到临时目录）。无 tauri 依赖
 - `crates/hongguo-stream/` 在线流契约：内存渐进流（`ProgressiveStream`）、按 (vid, 档位) 分条的缓存（`StreamCache`）、Range 应答（`serve`）+ `range`（RangeSpec/ProtocolResponse）、进程级 `cache()` 单例。**填充侧（service）与应答侧（protocol）共用的上游**——两侧都只往下依赖它，禁止反向。无 tauri 依赖
+- `crates/hongguo-media/` 纯 Rust 编解码：demux / hevc / remux / transcode / codec_probe / disk_space / heif / backend（转码链路的兜底层，零外部依赖）；`tests/fixtures/` 放随代码走的样本。平台硬编与 ffmpeg 执行仍在壳的 `media/` 下，依赖本 crate。无 tauri 依赖
 - Rust 侧已 workspace 化：根 `Cargo.toml`（members / `resolver` / `[patch]` / `[profile]` 都在根），`Cargo.lock`、`target/`、`vendor/` 也都在仓库根；cargo 一律在**仓库根**跑（`--workspace`）。`vendor/` 被 `[workspace] exclude` 排除，不参与 lint/test/format
 - `captures/` 抓包工具与数据（`addon.py` 抓包 / `audit.py` 参数审计），`docs/` 仓库文档，`scripts/` 构建辅助脚本
 
