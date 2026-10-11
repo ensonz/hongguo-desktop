@@ -1,0 +1,52 @@
+[package]
+name = "hongguo-media-platform"
+description = "红果桌面版平台层编解码：MF / VT / WIC 平台硬编 + ffmpeg 执行 + 能力探测"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 共用底座：统一错误（AppError / AppResult）。
+hongguo-common = { path = "../hongguo-common" }
+# 纯 Rust 编解码核心：Backend 标识与能力探测口径；平台后端产出与软解路径同构的容器。
+hongguo-media = { path = "../hongguo-media" }
+# 样本表类型（TrackInfo）：平台硬解要把 hvcC 参数集转 Annex-B 喂解码器。
+hongguo-mp4 = { path = "../hongguo-mp4" }
+log = "0.4"
+parking_lot = "0.12"
+# DecodeCapability 序列化给前端徽标。
+serde = { version = "1", features = ["derive"] }
+# 封面 WIC 级解码后的 JPEG 编码（与 hongguo-media 的 heif 软解级同一产物口径）。
+jpeg-encoder = "0.6"
+
+# Windows 平台硬编（Media Foundation）与 WIC 静图的 COM 绑定。选 windows crate
+# 而不是手写虚表：MF 是 COM API（接口经虚表调用），手排虚表槽位错一个就是
+# 运行期崩到错误函数上。0.62 已在依赖图里（tauri/wry/sysinfo 传递引入），声明
+# 为直接依赖不新增外部 crate，feature 按需裁剪只编译用到的接口。
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    # WIC 静图解码：封面的平台级通路（HEIF/HEVC 扩展在则走系统解码器）
+    "Win32_Graphics_Imaging",
+    # 内存流：HEIC 字节 → IStream → WIC 解码器
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Memory",
+] }
+
+# macOS 的 VideoToolbox 是纯 C API，手写声明零依赖（platform/vt/ffi.rs），
+# 经 `#[link(kind = "framework")]` 直接链接系统框架，无第三方 crate。
+
+[features]
+# 壳的跨层 e2e（src/testing/media_pipeline_e2e.rs）要调本 crate 的测试通道
+# `platform::transcode_h264_for_tests`——跨 crate 后 pub(crate) 够不着，
+# 由本 feature 门控（对齐 hongguo-mp4 的 fixtures / hongguo-store 的
+# ScopedDataDir 先例）。生产构建不带，函数不编译。
+test-support = []
+
+[dev-dependencies]
+serde_json = "1"
