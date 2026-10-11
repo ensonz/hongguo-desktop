@@ -32,6 +32,15 @@ pub struct SuggestItem {
     /// 摘要行（「第1季·玄幻·4105万热度」，v2 的 sug_abstract）
     #[serde(default, rename = "abstract")]
     pub abstract_text: String,
+    /// 命中书籍数据（官方 SuggestItem.bookData=ApiBookInfo 的
+    /// title/cover/score；纯词联想为空。官方模型对照新增、抓包样本未及，
+    /// 防御性读取）
+    #[serde(default)]
+    pub book_title: String,
+    #[serde(default)]
+    pub book_cover: String,
+    #[serde(default)]
+    pub book_score: String,
 }
 
 /// 一条搜索结果（形状同榜单条目，省去榜单专属字段）。

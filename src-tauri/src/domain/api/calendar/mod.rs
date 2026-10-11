@@ -105,6 +105,7 @@ pub async fn fetch_new_calendar(date: Option<&str>, env: &ApiEnv) -> AppResult<C
         online_total: 0,
         offline_total: 0,
         session_id: String::new(),
+        online_unread_count_text: String::new(),
     })
 }
 
@@ -174,6 +175,11 @@ pub(super) fn parse_calendar(data: Option<&Value>) -> AppResult<CalendarPage> {
             .unwrap_or(0),
         session_id: data
             .get("session_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        online_unread_count_text: data
+            .get("online_unread_count_text")
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
@@ -285,7 +291,8 @@ mod tests {
             "calendar_schema": {
                 "date_list": ["20260926", "20261003", "20261010"],
                 "default_date": "20261003",
-            }
+            },
+            "online_unread_count_text": "3部上新",
         });
         let page = parse_calendar(Some(&data)).unwrap();
         assert_eq!(page.items.len(), 1, "空 series_id 要跳过");
@@ -298,6 +305,7 @@ mod tests {
         assert_eq!(it.score, 8.4);
         assert_eq!(page.dates, vec!["20260926", "20261003", "20261010"]);
         assert_eq!(page.default_date, "20261003");
+        assert_eq!(page.online_unread_count_text, "3部上新");
     }
 
     #[test]
@@ -307,6 +315,7 @@ mod tests {
         assert!(page.items.is_empty());
         assert!(page.dates.is_empty());
         assert_eq!(page.default_date, "");
+        assert_eq!(page.online_unread_count_text, "");
     }
 
     /// 2026-10-04 抓包形状：带 install_id Cookie / target_date 时服务端

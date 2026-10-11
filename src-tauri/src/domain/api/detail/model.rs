@@ -67,4 +67,15 @@ pub struct SeriesMeta {
     /// 剧情简介（series_intro，缺失退 video_desc/abstract；详情页与
     /// 播放器简介面板共用，取代旧官网 extras 链路）
     pub intro: String,
+    /// 付费信息（官方模型 VideoDetailVideoData.payInfo 原样透传；
+    /// Null=免费。官方模型对照新增，抓包样本未及、防御性读取）
+    pub pay_info: serde_json::Value,
+    /// 上线时间戳（online_time，秒；0=未知）
+    pub online_time: i64,
+    /// 官方更新角标（update_tag，"更新至第N集"；空=无）
+    pub update_tag: String,
+    /// 全剧总集数（episode_total_cnt；0=未知）
+    pub episode_total_cnt: i64,
+    /// 服务端续播锚点 vid（latest_consumed_item_id；空=无）
+    pub latest_consumed_vid: String,
 }

@@ -225,7 +225,26 @@ pub fn parse_series_meta(response: &Value, series_id: &str) -> AppResult<SeriesM
         season,
         tags,
         intro: str_field_any(vd, &["series_intro", "video_desc", "abstract"]),
+        // 官方模型对照字段（VideoDetailVideoData）：抓包样本未及、防御性
+        // 读取，缺席走默认值
+        pay_info: vd.get("pay_info").cloned().unwrap_or(Value::Null),
+        online_time: num_field(vd, "online_time"),
+        update_tag: str_field_any(vd, &["update_tag"]),
+        episode_total_cnt: num_field(vd, "episode_total_cnt"),
+        latest_consumed_vid: str_field_any(vd, &["latest_consumed_item_id"]),
     })
+}
+
+/// 计数字段：JSON 数字直取，字符串形态回退解析（与 followed_cnt 同款容错）。
+fn num_field(v: &Value, key: &str) -> i64 {
+    v.get(key)
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            v.get(key)
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse().ok())
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -324,7 +343,12 @@ mod tests {
                         { "content": "玄幻", "data_type": 3 },
                         { "content": "逆袭", "data_type": 3 },
                         { "content": "忽略项", "data_type": 9 }
-                    ]
+                    ],
+                    "pay_info": { "need_pay": true, "price": "18.0" },
+                    "online_time": 1790000000,
+                    "update_tag": "更新至第45集",
+                    "episode_total_cnt": 80,
+                    "latest_consumed_item_id": "7690802329313872921"
                 }
             }
         });
@@ -337,6 +361,32 @@ mod tests {
         assert_eq!(m.tags, vec!["玄幻", "逆袭"], "data_type=3 才是题材标签");
         assert_eq!(m.record_number, "（番茄）网微剧备字（2026）第847205号");
         assert_eq!(m.intro, "穿越者落地成盒，重启人生第二回合。");
+        assert_eq!(m.update_tag, "更新至第45集");
+        assert_eq!(m.episode_total_cnt, 80);
+        assert_eq!(m.online_time, 1_790_000_000);
+        assert_eq!(m.latest_consumed_vid, "7690802329313872921");
+        assert!(
+            m.pay_info
+                .get("need_pay")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            "pay_info 原样透传"
+        );
+    }
+
+    /// 官方模型对照字段缺席时走默认值（防御性读取语义）。
+    #[test]
+    fn series_meta_alignment_fields_default_when_absent() {
+        let v: Value = serde_json::json!({
+            "code": 0,
+            "data": { "1": { "series_id_str": "1", "series_title": "t" } }
+        });
+        let m = parse_series_meta(&v, "1").unwrap();
+        assert!(m.update_tag.is_empty());
+        assert_eq!(m.episode_total_cnt, 0);
+        assert_eq!(m.online_time, 0);
+        assert!(m.latest_consumed_vid.is_empty());
+        assert!(m.pay_info.is_null());
     }
 
     #[test]

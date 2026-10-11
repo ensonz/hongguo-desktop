@@ -436,7 +436,10 @@ pub(crate) fn parse_comment_item(comment: &Value) -> Option<CommentItem> {
             .pointer("/stat/reply_count")
             .and_then(Value::as_i64)
             .unwrap_or(0),
-        user_digg: comment.pointer("/user_action/user_digg").and_then(Value::as_bool) == Some(true),
+        user_digg: comment
+            .pointer("/user_action/user_digg")
+            .and_then(Value::as_bool)
+            == Some(true),
         // 剧评评分（expand.score 十分制字符串 + 后缀文案）；单集评论无 expand.score 恒空。
         // 发送响应同样回显（2026-10-10 抓包：剧评发送后 comment_info.expand.score="10"）
         score: comment
@@ -626,7 +629,10 @@ pub(crate) fn parse_reply_item(reply: &Value) -> Option<ReplyItem> {
             .pointer("/stat/digg_count")
             .and_then(Value::as_i64)
             .unwrap_or(0),
-        user_digg: reply.pointer("/user_action/user_digg").and_then(Value::as_bool) == Some(true),
+        user_digg: reply
+            .pointer("/user_action/user_digg")
+            .and_then(Value::as_bool)
+            == Some(true),
         reply_to_name: reply
             .pointer("/reply_to_user_info/base_info/user_name")
             .and_then(Value::as_str)

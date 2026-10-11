@@ -67,9 +67,11 @@ pub async fn send_danmaku(
     offset_ms: u64,
     env: &ApiEnv,
 ) -> AppResult<String> {
-    Ok(comment_add(group_id, book_id, text, 20, 1500, offset_ms, env)
-        .await?
-        .comment_id)
+    Ok(
+        comment_add(group_id, book_id, text, 20, 1500, offset_ms, env)
+            .await?
+            .comment_id,
+    )
 }
 
 /// 发评论（`data_type=4`，offset 恒 0）。返回**服务端回显的完整评论对象**

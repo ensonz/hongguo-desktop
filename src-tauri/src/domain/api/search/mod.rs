@@ -120,6 +120,14 @@ fn parse_suggest(value: &Value) -> AppResult<Vec<SuggestItem>> {
             ),
             None => (str_field(raw, "keyword"), String::new(), String::new()),
         };
+        let (book_title, book_cover, book_score) = match raw.get("book_data") {
+            Some(b) => (
+                str_field(b, "title"),
+                str_field(b, "cover"),
+                str_field(b, "score"),
+            ),
+            None => (String::new(), String::new(), String::new()),
+        };
         items.push(SuggestItem {
             parts: highlight_parts(&word, raw.pointer("/search_high_light/high_light_position")),
             word,
@@ -127,6 +135,9 @@ fn parse_suggest(value: &Value) -> AppResult<Vec<SuggestItem>> {
             vid,
             cover,
             abstract_text: str_field(raw, "sug_abstract"),
+            book_title,
+            book_cover,
+            book_score,
         });
     }
     Ok(items)
@@ -351,7 +362,8 @@ mod tests {
                           "high_light_position": [[0, 2]]
                       },
                       "video_data": { "series_id": "7644", "vid": "99", "cover": "https://x/heic",
-                                      "title": "不死帝师" } },
+                                      "title": "不死帝师" },
+                      "book_data": { "title": "不死帝师", "cover": "https://b/heic", "score": "9.2" } },
                     { "name": "纯词联想", "keyword": "纯词联想" },
                     { "name": "", "keyword": "废条目" }
                 ]
@@ -362,6 +374,9 @@ mod tests {
         assert_eq!(items[0].series_id, "7644");
         assert_eq!(items[0].vid, "99");
         assert_eq!(items[0].abstract_text, "第1季·玄幻·4105万热度");
+        assert_eq!(items[0].book_title, "不死帝师");
+        assert_eq!(items[0].book_cover, "https://b/heic");
+        assert_eq!(items[0].book_score, "9.2");
         assert_eq!(
             items[0].parts,
             vec![
@@ -379,6 +394,7 @@ mod tests {
         assert_eq!(items[1].series_id, "纯词联想", "无 video_data 退 keyword");
         assert_eq!(items[1].cover, "");
         assert!(items[1].parts.is_empty(), "无高亮信息 parts 空");
+        assert_eq!(items[1].book_title, "", "纯词联想无 book_data");
     }
 
     #[test]

@@ -47,5 +47,9 @@ export const suggestItemSchema = z.object({
   cover: z.string(),
   /** 摘要行（「第1季·玄幻·4105万热度」） */
   abstract: z.string(),
+  /** 官方模型对照新增：命中书籍（book_data 的 title/cover/score；纯词联想为空） */
+  bookTitle: z.string().default(''),
+  bookCover: z.string().default(''),
+  bookScore: z.string().default(''),
 });
 export type SuggestItem = z.infer<typeof suggestItemSchema>;

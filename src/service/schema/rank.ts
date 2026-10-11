@@ -103,5 +103,7 @@ export const calendarPageSchema = z.object({
   /** 预约列表两个 tab 的计数（日历形态恒 0） */
   onlineTotal: z.number(),
   offlineTotal: z.number(),
+  /** 官方模型对照新增：已上线未读文案（"3部上新"服务端直发，缺席为空） */
+  onlineUnreadCountText: z.string().default(''),
 });
 export type CalendarPage = z.infer<typeof calendarPageSchema>;
