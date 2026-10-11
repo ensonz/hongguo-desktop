@@ -2,7 +2,7 @@
 
 ## 目录归属判定
 
-重构已于 2026-10 完成并定型（依据 `docs/refactor-plan.md`）：`pages/ + features/{player,update} + service/ + stores/locales/utils/hooks` 就是当前且唯一的结构。新代码按顺序自问，命中即止：
+重构已于 2026-10 完成并定型：`pages/ + features/{player,update} + service/ + stores/locales/utils/hooks` 就是当前且唯一的结构。新代码按顺序自问，命中即止：
 
 1. 只服务一个路由页面 → `pages/<域>/` 就近（复杂页面才有 components/hooks 子目录）
 2. 复杂、跨页面复用的能力 → `features/`（player/update 这类体量才配进）

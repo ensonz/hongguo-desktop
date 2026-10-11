@@ -78,6 +78,16 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 6. 改应用名/图标后：`make assets` 重新生成并**提交产物**（构建不依赖本机 Python/网络）。
 7. capabilities 是最小权限集（自绘标题栏的逐条 window 动作放行），新增窗口操作要同步 `src-tauri/capabilities/default.json`。
 
+### 登录链路手测（无自动化覆盖的唯一链路）
+
+发版前或动过 `domain/api/login`、`signer/` 后手测一遍（需真实手机号）：
+
+1. 设置页 → 登录 → 输入手机号发码：能收到短信；60s 内重发按钮有倒计时。
+2. 上行短信验证（若触发 MFA）：按提示回复短信，前端 3 秒轮询内自动通过——「已注册」后无需手动操作即登录成功。
+3. 登录成功后：侧栏头像区显示用户名；收藏一部剧 → 我的收藏页出现。
+4. 退出登录：账号态清空，收藏页回空表，互动栏回未登录态。
+5. 错误路径：错误验证码登录 → toast 报「登录失败 1202: 验证码错误」类原文（Auth 变体 transparent）。
+
 ## 工程背景（改构建配置前必知）
 
 - release profile `opt-level=3 + lto="thin" + strip`：fat LTO 曾让 rustc 段 17-18 分钟，thin 砍半以上。**禁加 `panic="abort"`**（见 SKILL.md 红线 6）。
