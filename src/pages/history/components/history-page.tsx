@@ -113,7 +113,6 @@ export function HistoryPage() {
         setTarget(item.seriesId, Math.max(1, item.vidIndex));
         void navigate({ to: '/player' });
       },
-      onError: (e) => toast.error(t('common.resolveFailed'), { description: e.message }),
     });
   };
 

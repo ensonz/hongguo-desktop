@@ -138,6 +138,8 @@ export function useSeriesCollect() {
 export function useSeriesCollectBatch() {
   const queryClient = useQueryClient();
   return useMutation({
+    // 部分失败时组件层有带明细的定制 toast，全局错误 toast 静默
+    meta: { silentOnError: true },
     mutationFn: (entries: { seriesId: string; collect: boolean }[]) =>
       interactCmd.seriesCollectBatch(entries),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.bookshelf }),

@@ -180,7 +180,6 @@ export function CollectionPage() {
                     toast.success(t('collections.removed'));
                     refreshAuth();
                   },
-                  onError: (e) => toast.error(String(e)),
                 },
               );
             }}

@@ -32,7 +32,6 @@ export function DanmakuSendBox({ vid, currentSec }: { vid: string; currentSec: n
           toast.success(t('player.interact.danmakuSent'));
           setText('');
         },
-        onError: (e) => toast.error(String(e)),
       },
     );
   };

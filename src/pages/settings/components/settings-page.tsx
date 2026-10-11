@@ -71,7 +71,6 @@ export function SettingsPage() {
           setDraft(null);
           setProxyUrl(null);
         },
-        onError: (e: Error) => toast.error(e.message),
       },
     );
   };

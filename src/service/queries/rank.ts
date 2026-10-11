@@ -108,6 +108,8 @@ export function useReservations(isOnline: boolean) {
 export function useReservationsDelete() {
   const queryClient = useQueryClient();
   return useMutation({
+    // 部分失败时组件层有带明细的定制 toast，全局错误 toast 静默
+    meta: { silentOnError: true },
     mutationFn: (input: {
       itemIds: string[];
       allSelect?: boolean;

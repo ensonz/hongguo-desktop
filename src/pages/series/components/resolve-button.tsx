@@ -21,7 +21,6 @@ export function ResolveButton({ seriesId }: { seriesId: string }) {
             void qc.invalidateQueries({ queryKey: keys.seriesEpisodes(seriesId) });
             toast.success(t('detail.resolved'));
           },
-          onError: (e) => toast.error(e.message),
         })
       }
     >

@@ -37,7 +37,6 @@ export function StoragePage() {
   const handleDelete = (seriesId: string, title: string) => {
     deleteSeries.mutate(seriesId, {
       onSuccess: (n) => toast.success(`${title} · ${tf('storage.freedFiles', { count: n })}`),
-      onError: (e) => toast.error(e.message),
     });
   };
 
@@ -134,7 +133,6 @@ export function StoragePage() {
               onClick={() =>
                 deleteAll.mutate(undefined, {
                   onSuccess: (n) => toast.success(tf('storage.freedFiles', { count: n })),
-                  onError: (e) => toast.error(e.message),
                 })
               }
             >

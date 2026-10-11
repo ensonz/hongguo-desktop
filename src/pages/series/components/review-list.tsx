@@ -258,13 +258,10 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
   const digg = useReviewDigg(seriesId);
   const reviewReplyDigg = useReviewReplyDigg(seriesId);
   const onDigg = (id: string, next: boolean) => {
-    digg.mutate({ reviewId: id, digg: next }, { onError: (e) => toast.error(String(e)) });
+    digg.mutate({ reviewId: id, digg: next });
   };
   const onReplyDigg = (parentId: string, id: string, next: boolean) => {
-    reviewReplyDigg.mutate(
-      { commentId: parentId, replyId: id, digg: next },
-      { onError: (e) => toast.error(String(e)) },
-    );
+    reviewReplyDigg.mutate({ commentId: parentId, replyId: id, digg: next });
   };
 
   // 回复：剧评形态 reply/add（commit_source=13）；回复「回复」带 replyToReplyId
@@ -335,7 +332,6 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
           // hgplayer 同款：发送成功强制展开回复区，新回复立刻可见
           setReplySectionOpen(reviewId, true);
         },
-        onError: (e) => toast.error(String(e)),
       },
     );
   };

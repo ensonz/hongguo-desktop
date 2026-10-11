@@ -246,7 +246,6 @@ function ReservationCard({
       toast.success(t('reservation.cancelled'));
       void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   // 详情带上行内档案快照：未上线剧详情解析分集必然失败，prefill 支撑

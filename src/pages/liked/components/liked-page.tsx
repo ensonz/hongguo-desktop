@@ -138,7 +138,6 @@ export function LikedPage() {
                 { vid: item.vid, seriesId: item.seriesId, digg: false },
                 {
                   onSuccess: () => toast.success(t('player.interact.undone')),
-                  onError: (e) => toast.error(String(e)),
                 },
               )
             }

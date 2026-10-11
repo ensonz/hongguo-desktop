@@ -29,7 +29,6 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
       toast.success(t('reservation.done'));
       void qc.invalidateQueries({ queryKey: keys.reservationsRoot });
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   // 卡片一律进详情（排行榜预约榜同款口径）：未上线剧详情解析分集必然

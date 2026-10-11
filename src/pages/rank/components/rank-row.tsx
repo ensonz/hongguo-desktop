@@ -45,7 +45,6 @@ export function RankRow({ item }: { item: RankItem }) {
           setReserved(next);
           toast.success(t(next ? 'player.interact.reserved' : 'player.interact.unreserved'));
         },
-        onError: (err) => toast.error(String(err)),
       },
     );
   };

@@ -145,7 +145,6 @@ export function InteractionRail({
       {
         onSuccess: () =>
           toast.success(t(digged ? 'player.interact.undone' : 'player.interact.liked')),
-        onError: (e) => toast.error(String(e)),
       },
     );
   };
@@ -157,7 +156,6 @@ export function InteractionRail({
       {
         onSuccess: () =>
           toast.success(t(collected ? 'player.interact.uncollected' : 'player.interact.collected')),
-        onError: (e) => toast.error(String(e)),
       },
     );
   };

@@ -75,6 +75,8 @@ export function usePlaybackCapability() {
 export function useInstallHevcExtension() {
   const qc = useQueryClient();
   return useMutation({
+    // 组件层有带安装失败原因的定制 toast，全局错误 toast 静默
+    meta: { silentOnError: true },
     mutationFn: capability.installHevcExtension,
     onSuccess: (playable) => {
       qc.setQueryData(keys.playbackCapability, playable);

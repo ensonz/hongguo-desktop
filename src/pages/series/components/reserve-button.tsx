@@ -29,7 +29,6 @@ export function ReserveButton({ seriesId }: { seriesId: string }) {
           {
             onSuccess: () =>
               toast.success(t(next ? 'player.interact.reserved' : 'player.interact.unreserved')),
-            onError: (err) => toast.error(String(err)),
           },
         );
       }}
