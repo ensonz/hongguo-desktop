@@ -68,7 +68,7 @@ export function FilterPanel({
 
   /** 行内单选胶囊（ToggleGroupItem；空值「全部」走哨兵 value，提交时还原空串） */
   const pillCls =
-    'text-muted-foreground h-auto cursor-pointer rounded-full border-border bg-transparent px-3 py-0.5 text-xs transition-colors hover:bg-accent hover:text-foreground data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:font-medium data-[state=on]:text-primary';
+    'text-muted-foreground h-auto cursor-pointer rounded-full border border-border bg-transparent px-3 py-0.5 text-xs transition-colors hover:bg-accent hover:text-foreground data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:font-medium data-[state=on]:text-primary';
 
   const rowGroup = (
     key: keyof BrowseFilters,

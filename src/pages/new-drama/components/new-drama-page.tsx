@@ -85,7 +85,7 @@ export function NewDramaPage() {
               <ToggleGroupItem
                 key={value}
                 value={String(value)}
-                className="text-primary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-8 rounded-full border px-4 text-sm shadow-xs transition-colors data-[state=on]:border-transparent"
+                className="text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-8 rounded-full border px-4 text-sm shadow-xs transition-colors data-[state=on]:border-transparent"
               >
                 {t(labelKey)}
               </ToggleGroupItem>

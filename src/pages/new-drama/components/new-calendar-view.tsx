@@ -64,7 +64,7 @@ export function NewCalendarView() {
               <ToggleGroupItem
                 key={d}
                 value={d}
-                className="text-primary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-14 min-w-14 flex-1 flex-col gap-0 rounded-lg border px-1 py-1.5 shadow-xs transition-colors data-[state=on]:border-transparent sm:max-w-20"
+                className="text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground bg-background hover:bg-accent hover:text-accent-foreground h-14 min-w-14 flex-1 flex-col gap-0 rounded-lg border px-1 py-1.5 shadow-xs transition-colors data-[state=on]:border-transparent sm:max-w-20"
               >
                 <span className="text-[11px] leading-tight opacity-80">{formatWeekday(d)}</span>
                 <span className="text-sm leading-tight font-semibold tabular-nums">
