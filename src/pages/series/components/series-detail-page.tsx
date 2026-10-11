@@ -187,7 +187,7 @@ export function SeriesDetailPage({
       {isPending && (
         <div className="mt-6 flex gap-8">
           <Skeleton className="aspect-[3/4] w-44 shrink-0 rounded-xl" />
-          <div className="flex-1 space-y-4">
+          <div className="flex flex-1 flex-col gap-4">
             <Skeleton className="h-7 w-2/3" />
             <Skeleton className="h-4 w-1/3" />
             <Skeleton className="h-20 w-full" />

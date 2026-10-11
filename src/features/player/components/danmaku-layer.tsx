@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { cn } from '@/lib/utils';
 import { parseEmojiSegments } from '@/utils/danmaku-emoji';
 import type { DanmakuDisplaySettings } from '@/utils/playback-prefs';
 import type { Danmaku } from '@/service/schema';
@@ -236,7 +237,10 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
   return (
     <div
       ref={layerRef}
-      className={`pointer-events-none absolute inset-0 z-10 overflow-hidden ${enabled ? '' : 'invisible'}`}
+      className={cn(
+        'pointer-events-none absolute inset-0 z-10 overflow-hidden',
+        !enabled && 'invisible',
+      )}
       style={{ opacity: display.opacity }}
       aria-hidden
     />

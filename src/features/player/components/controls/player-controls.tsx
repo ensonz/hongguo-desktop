@@ -508,7 +508,7 @@ export function PlayerControls({
               onClick={() => setDanmakuPanelOpen(!danmakuPanelOpen)}
             >
               <Settings2
-                className={`size-4 ${danmakuPanelOpen ? 'text-white' : 'text-white/70'}`}
+                className={cn('size-4', danmakuPanelOpen ? 'text-white' : 'text-white/70')}
                 aria-hidden
               />
             </IconButton>
@@ -550,7 +550,7 @@ export function PlayerControls({
 
           <IconButton label={t('player.danmaku')} onClick={onToggleDanmaku}>
             <MessageSquareText
-              className={`size-5 ${danmakuOn ? 'text-white' : 'text-white/40'}`}
+              className={cn('size-5', danmakuOn ? 'text-white' : 'text-white/40')}
               aria-hidden
             />
           </IconButton>
@@ -568,7 +568,7 @@ export function PlayerControls({
           {/* 隐身模式（一只眼睛）：开启后鼠标离开窗口 → 整窗透明 + 暂停，
               鼠标回来即恢复显示。看不该看的东西时的「闪避键」 */}
           <IconButton label={t('player.incognito')} onClick={onToggleIncognito}>
-            <Eye className={`size-4 ${incognito ? 'text-white' : 'text-white/55'}`} aria-hidden />
+            <Eye className={cn('size-4', incognito ? 'text-white' : 'text-white/55')} aria-hidden />
           </IconButton>
 
           <IconButton label={t('player.fullscreen')} onClick={toggleFullscreen}>

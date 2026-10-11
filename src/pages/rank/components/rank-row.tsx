@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Bell, Check, Flame, Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { SeriesRowCard } from '@/components/series-row-card';
 import { useReserveSeries } from '@/service/queries';
@@ -64,9 +65,10 @@ export function RankRow({ item }: { item: RankItem }) {
       leading={
         rankNo !== undefined ? (
           <span
-            className={`w-8 shrink-0 text-center text-2xl font-black tabular-nums ${
-              rankNo <= 3 ? 'text-amber-500' : 'text-muted-foreground/50'
-            }`}
+            className={cn(
+              'w-8 shrink-0 text-center text-2xl font-black tabular-nums',
+              rankNo <= 3 ? 'text-amber-500' : 'text-muted-foreground/50',
+            )}
             aria-hidden
           >
             {rankNo}
