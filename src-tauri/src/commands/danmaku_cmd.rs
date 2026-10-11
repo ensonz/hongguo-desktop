@@ -3,7 +3,7 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::danmaku::{
+use hongguo_api::danmaku::{
     CommentItem, CommentPage, Danmaku, ReplyPage, SeriesReviewPage, fetch_comment_replies,
     fetch_comments_page, fetch_danmaku_all, fetch_review_replies, fetch_series_comments_page,
     send_series_review,

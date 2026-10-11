@@ -24,6 +24,8 @@ hongguo-common = { path = "../crates/hongguo-common" }
 hongguo-signer = { path = "../crates/hongguo-signer" }
 # MP4 解析与 CENC 解密；依赖 common，不依赖 tauri。
 hongguo-mp4 = { path = "../crates/hongguo-mp4" }
+# 官方接口客户端；依赖 common + signer，不依赖 tauri。
+hongguo-api = { path = "../crates/hongguo-api" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"

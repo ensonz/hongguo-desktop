@@ -67,9 +67,9 @@ pub async fn download_episode(
     }
 
     let temp_path = temp_path_for(&episode.output_path);
-    let client = crate::domain::api::client::build_client(&episode.settings.proxy)?;
+    let client = hongguo_api::client::build_client(&episode.settings.proxy)?;
 
-    let resp = crate::domain::api::client::get_video_stream(&client, &episode.video_url).await?;
+    let resp = hongguo_api::client::get_video_stream(&client, &episode.video_url).await?;
 
     let total = resp.content_length().unwrap_or(0);
     let mut file = std::fs::File::create(&temp_path).map_err(|e| AppError::Io(e.to_string()))?;

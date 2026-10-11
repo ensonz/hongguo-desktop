@@ -552,7 +552,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_send_code_invalid_number() {
-        let mut env = crate::domain::api::client::ApiEnv::anonymous(
+        let mut env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         // 实验分支：HG_LOGIN_DEVICE=random 换随机 device_id/iid（测发码
@@ -597,7 +597,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_sms_login_real() {
-        let env0 = crate::domain::api::client::ApiEnv::anonymous(
+        let env0 = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         let mobile = std::env::var("HG_LOGIN_MOBILE").expect("HG_LOGIN_MOBILE 必填");
@@ -612,7 +612,7 @@ mod tests {
         let env = if csrf.is_empty() {
             env0.clone()
         } else {
-            crate::domain::api::client::ApiEnv {
+            crate::client::ApiEnv {
                 cookie: Some(format!(
                     "passport_csrf_token={csrf}; passport_csrf_token_default={csrf}"
                 )),
@@ -635,7 +635,7 @@ mod tests {
                     &cookies[..cookies.len().min(60)],
                     token.len()
                 );
-                let env = crate::domain::api::client::ApiEnv {
+                let env = crate::client::ApiEnv {
                     cookie: Some(cookies),
                     ..env0
                 };
@@ -659,7 +659,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_user_info_with_cookies() {
-        let mut env = crate::domain::api::client::ApiEnv::anonymous(
+        let mut env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         env.cookie = Some(std::env::var("HG_LOGIN_COOKIES").expect("HG_LOGIN_COOKIES 必填"));
@@ -670,8 +670,8 @@ mod tests {
                     u.name, u.user_id, u.avatar_url
                 );
                 // 原始响应全字段（排查账号资料字段用：红果号/昵称/头像来源）
-                let raw = crate::domain::api::client::api_call_reading(
-                    crate::domain::api::danmaku::LQ_API_ORIGIN,
+                let raw = crate::client::api_call_reading(
+                    crate::danmaku::LQ_API_ORIGIN,
                     "/reading/user/info/v1/",
                     None,
                     &[],
@@ -692,7 +692,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_sms_login_invalid_number() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         match sms_login(&env, "10000000000", "123456", None).await {

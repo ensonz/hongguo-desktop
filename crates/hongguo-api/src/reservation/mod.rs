@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn reserve_payload_roundtrips_through_gzip() {
         let raw = br#"{"item_id":7692797468404091929,"item_type":1,"op_type":1}"#;
-        let gz = crate::domain::api::client::gzip_bytes(raw).expect("gzip");
+        let gz = crate::client::gzip_bytes(raw).expect("gzip");
         assert_ne!(gz, raw.to_vec(), "应真的压缩了");
         let mut back = flate2::read::GzDecoder::new(gz.as_slice());
         let mut out = Vec::new();
@@ -276,7 +276,7 @@ mod tests {
 #[cfg(test)]
 pub(crate) mod probe {
     use super::*;
-    use crate::domain::api::rank::probe::anon_env;
+    use crate::rank::probe::anon_env;
 
     /// 预约列表直连。匿名返回空表；设 HG_RESERVE_COOKIES（hgplayer
     /// 登录 cookie）则验证两个 tab 的解析（已上线=嵌套、待上线=扁平，

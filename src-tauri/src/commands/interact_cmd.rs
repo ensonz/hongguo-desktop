@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::interact::{
+use hongguo_api::interact::{
     BookshelfEntry, CommentItem, InteractionState, ReplyItem, collect_series, collect_series_batch,
     delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
     fetch_interaction_state, send_comment, send_danmaku, send_reply, send_review_reply,

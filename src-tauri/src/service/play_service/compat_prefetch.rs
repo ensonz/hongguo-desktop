@@ -14,7 +14,7 @@ use std::collections::HashSet;
 
 use parking_lot::Mutex;
 
-use crate::domain::api::client::ApiEnv;
+use hongguo_api::client::ApiEnv;
 use crate::store::Store;
 use hongguo_common::model::Settings;
 
@@ -68,11 +68,11 @@ async fn check_and_prefetch(
     vid_index: u32,
     vid: &str,
 ) -> hongguo_common::AppResult<bool> {
-    use crate::domain::api::stream_pick::DecoderCapability;
+    use hongguo_api::stream_pick::DecoderCapability;
 
     // NoHevc 视角看下一集：有可选流（h264/未知编码）就不用转
     let probe =
-        crate::domain::api::play_url::fetch_play_url(vid, None, DecoderCapability::NoHevc, env)
+        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::NoHevc, env)
             .await?;
     if !probe.definitions.is_empty() {
         return Ok(false);
@@ -80,7 +80,7 @@ async fn check_and_prefetch(
     log::info!("[CompatPrefetch] 第 {vid_index} 集 HEVC-only，后台预转兼容产物");
     // Full 取流拿 HEVC 源（转码源必须全量候选，见计划文档非目标）
     let play =
-        crate::domain::api::play_url::fetch_play_url(vid, None, DecoderCapability::Full, env)
+        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::Full, env)
             .await?;
     let plain = super::online::fetch_plain(&play, settings).await?;
     super::compat_play::ensure_compat(

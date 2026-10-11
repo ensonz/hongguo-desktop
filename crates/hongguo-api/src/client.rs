@@ -50,7 +50,7 @@ pub fn build_client(config: &hongguo_common::model::ProxyConfig) -> AppResult<re
 
 /// 一次官方 API 调用的全部环境：代理、设备档案、会话 Cookie。
 ///
-/// 三者都从 `AppState` 快照而来（[`AppState::api_env`](crate::app_state::AppStateInner::api_env)），
+/// 三者都从 `AppState` 快照而来（应用壳的 `AppStateInner::api_env`），
 /// 调用链上以值传递，避免中途被设置修改后出现「签名用 A 设备、请求带 B Cookie」
 /// 之类的半新半旧状态。
 #[derive(Debug, Clone)]
@@ -67,8 +67,10 @@ pub struct ApiEnv {
 
 impl ApiEnv {
     /// 未登录的默认环境：静态兜底设备档案 + 默认 origin。
-    /// 测试基线专用（生产走登录态/注册档案），接线后移回常规编译。
-    #[cfg(test)]
+    ///
+    /// 测试基线专用（生产走登录态 / 注册档案）。不 `#[cfg(test)]` 门控：下游
+    /// crate（本仓 src-tauri 的 service 测试）要用，而依赖 crate 对下游以非
+    /// test 方式编译，门控项会消失。
     pub fn anonymous(proxy: hongguo_common::model::ProxyConfig) -> Self {
         Self {
             proxy,

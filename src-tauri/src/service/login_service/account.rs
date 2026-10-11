@@ -1,7 +1,7 @@
 //! 账号会话落库与资料刷新。
 
 use crate::app_state::AppState;
-use crate::domain::api::login::{self, PassportUser};
+use hongguo_api::login::{self, PassportUser};
 use hongguo_common::model::AccountState;
 use hongguo_common::{AppError, AppResult};
 

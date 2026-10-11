@@ -12,11 +12,9 @@ use serde_json::Value;
 use hongguo_common::{AppError, AppResult};
 
 pub use model::{EpisodeList, RelatedSeries, SeriesMeta};
-// 保持既有公共路径 `detail::RelatedItem` 不变（crate 内暂无直接引用者）
-#[expect(
-    unused_imports,
-    reason = "RelatedItem 只被 RelatedSeries 聚合引用，re-export 为兼容旧路径保留"
-)]
+// 保持公共路径 `detail::RelatedItem` 可用（被 `RelatedSeries` 聚合引用，
+// crate 内暂无直接引用者）。作为 crate 公开再导出，rustc 不再按
+// unused_imports 处理，故不需要 `#[expect]`。
 pub use model::RelatedItem;
 pub use parse::{parse_episodes, parse_series_meta};
 
@@ -71,8 +69,8 @@ pub async fn fetch_related_series(
             ))
             .await;
         }
-        let bytes = crate::domain::api::client::api_call_reading(
-            crate::domain::api::danmaku::LQ_API_ORIGIN,
+        let bytes = crate::client::api_call_reading(
+            crate::danmaku::LQ_API_ORIGIN,
             PLAN_PATH,
             None,
             &biz_query,
@@ -96,11 +94,11 @@ pub async fn fetch_episode_list(
     series_id: &str,
     env: &super::client::ApiEnv,
 ) -> AppResult<EpisodeList> {
-    let payload = serde_json::to_vec(&crate::domain::api::params::detail_payload(series_id))
+    let payload = serde_json::to_vec(&crate::params::detail_payload(series_id))
         .map_err(|e| AppError::Signer(e.to_string()))?;
 
-    let bytes = crate::domain::api::client::api_call(
-        crate::domain::api::params::DETAIL_PATH,
+    let bytes = crate::client::api_call(
+        crate::params::DETAIL_PATH,
         Some(payload),
         env,
     )
@@ -158,15 +156,15 @@ mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_detail_counts() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
-        let payload = serde_json::to_vec(&crate::domain::api::params::detail_payload(
+        let payload = serde_json::to_vec(&crate::params::detail_payload(
             "7690883800057777177",
         ))
         .unwrap();
-        let bytes = crate::domain::api::client::api_call(
-            crate::domain::api::params::DETAIL_PATH,
+        let bytes = crate::client::api_call(
+            crate::params::DETAIL_PATH,
             Some(payload),
             &env,
         )
@@ -222,14 +220,14 @@ mod probe2 {
             Ok(path) => {
                 let json = std::fs::read_to_string(&path).expect("读设备档案");
                 let device = serde_json::from_str(&json).expect("解析设备档案");
-                crate::domain::api::client::ApiEnv {
+                crate::client::ApiEnv {
                     proxy,
                     device,
                     cookie: None,
                     x_tt_token: None,
                 }
             }
-            Err(_) => crate::domain::api::client::ApiEnv::anonymous(proxy),
+            Err(_) => crate::client::ApiEnv::anonymous(proxy),
         };
         let sid = std::env::var("PROBE_SERIES_ID").unwrap_or_else(|_| "7685637575473630270".into());
 
@@ -272,7 +270,7 @@ mod probe2 {
             "series_id": sid,
         }))
         .unwrap();
-        let vd_bytes = crate::domain::api::client::api_call(VIDEO_DETAIL_PATH, Some(payload), &env)
+        let vd_bytes = crate::client::api_call(VIDEO_DETAIL_PATH, Some(payload), &env)
             .await
             .expect("video_detail");
         let vd_raw = String::from_utf8_lossy(&vd_bytes).to_string();
@@ -311,7 +309,7 @@ mod probe2 {
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
-        let bytes = crate::domain::api::client::api_call_reading(
+        let bytes = crate::client::api_call_reading(
             super::super::danmaku::LQ_API_ORIGIN,
             PLAN_PATH,
             None,
@@ -387,15 +385,15 @@ mod probe2 {
     #[ignore = "直连真实接口的探测用例"]
     #[tokio::test]
     async fn probe_detail_related_series() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
-        let payload = serde_json::to_vec(&crate::domain::api::params::detail_payload(
+        let payload = serde_json::to_vec(&crate::params::detail_payload(
             "7689382439004671038",
         ))
         .unwrap();
-        let bytes = crate::domain::api::client::api_call(
-            crate::domain::api::params::DETAIL_PATH,
+        let bytes = crate::client::api_call(
+            crate::params::DETAIL_PATH,
             Some(payload),
             &env,
         )
@@ -438,7 +436,7 @@ mod probe_related {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_related_series_live() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = crate::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         let rel = fetch_related_series("7687961503718198334", &env)

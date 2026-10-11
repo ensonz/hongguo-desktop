@@ -7,7 +7,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::login::{
+use hongguo_api::login::{
     self, LoginOutcome, MfaContext, MfaFlow, PassportUser, UpsmsState,
 };
 use crate::service::login_service::{account, csrf, polling};
@@ -210,7 +210,7 @@ mod tests {
     /// 真实通道号（parse 层已做 95→106 修正，这里锁序列化形状）。
     #[test]
     fn mfa_serializes_to_frontend_shape() {
-        let r = mfa_result(&crate::domain::api::login::MfaContext {
+        let r = mfa_result(&hongguo_api::login::MfaContext {
             retry_tag: "1".into(),
             sms_code_key: "k".into(),
             channel_mobile: "10691859839103".into(),

@@ -19,9 +19,9 @@
 use serde::Serialize;
 
 use crate::app_state::AppState;
-use crate::domain::api::client::ApiEnv;
-use crate::domain::api::register::register_device;
-use crate::domain::api::search::search_series;
+use hongguo_api::client::ApiEnv;
+use hongguo_api::register::register_device;
+use hongguo_api::search::search_series;
 use crate::store::Store;
 use hongguo_common::AppError;
 use hongguo_common::utils::time::now_ms;

@@ -360,7 +360,7 @@ mod tests {
 #[cfg(test)]
 pub(crate) mod probe {
     use super::*;
-    use crate::domain::api::rank::probe::anon_env;
+    use crate::rank::probe::anon_env;
 
     /// 上新日历直连：应返回日期列表 + 当日条目（首页单页，带游标）。
     #[tokio::test]

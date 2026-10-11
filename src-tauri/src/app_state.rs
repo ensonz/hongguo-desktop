@@ -29,7 +29,7 @@ pub struct AppStateInner {
     pub login_csrf: RwLock<Option<String>>,
     /// MFA 上行短信验证的进行中流程（上下文 + 原始登录要素）。
     /// 轮询到 registered 后用它自动重登；不落库。
-    pub login_mfa: RwLock<Option<crate::domain::api::login::MfaFlow>>,
+    pub login_mfa: RwLock<Option<hongguo_api::login::MfaFlow>>,
     /// 下载队列
     pub queue: RwLock<Arc<DownloadQueue>>,
     scheduler: RwLock<Arc<DownloadScheduler>>,
@@ -113,7 +113,7 @@ impl AppStateInner {
     ///
     /// Cookie 的组成是「账号字段优先、匿名兜底补缺」：reading 系接口按
     /// `install_id` 风控，未登录也不能裸奔（2026-10-04 实测 0 字节拒）。
-    pub fn api_env(&self) -> crate::domain::api::client::ApiEnv {
+    pub fn api_env(&self) -> hongguo_api::client::ApiEnv {
         let settings = self.settings();
         let device = self.device();
         let account_cookie = settings
@@ -121,7 +121,7 @@ impl AppStateInner {
             .as_ref()
             .map(|a| a.cookies.as_str())
             .filter(|c| !c.is_empty());
-        crate::domain::api::client::ApiEnv {
+        hongguo_api::client::ApiEnv {
             proxy: settings.proxy,
             cookie: Some(merge_session_cookie(account_cookie, &device)),
             // x-tt-token（登录响应头凭据）：在账号里就带上，send_once 统一

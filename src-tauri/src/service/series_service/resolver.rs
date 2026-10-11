@@ -13,7 +13,7 @@ use hongguo_common::{AppError, AppResult};
 /// 解析剧集：输入是纯数字剧集 ID。
 pub async fn resolve_series(
     input: &str,
-    env: &crate::domain::api::client::ApiEnv,
+    env: &hongguo_api::client::ApiEnv,
 ) -> AppResult<Series> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -25,7 +25,7 @@ pub async fn resolve_series(
         ));
     }
 
-    let list = crate::domain::api::detail::fetch_episode_list(trimmed, env).await?;
+    let list = hongguo_api::detail::fetch_episode_list(trimmed, env).await?;
     log::info!(
         "[Series] 官方接口命中《{}》共 {} 集",
         list.title,
@@ -49,7 +49,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_input_errors() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = hongguo_api::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         assert!(resolve_series("", &env).await.is_err());
@@ -58,7 +58,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_numeric_input_errors() {
-        let env = crate::domain::api::client::ApiEnv::anonymous(
+        let env = hongguo_api::client::ApiEnv::anonymous(
             hongguo_common::model::ProxyConfig::default(),
         );
         assert!(resolve_series("随便一段文字", &env).await.is_err());

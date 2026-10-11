@@ -1,7 +1,7 @@
 //! 发码 / 登录会话的 csrf 凭据注入。
 
 use crate::app_state::AppState;
-use crate::domain::api::client::ApiEnv;
+use hongguo_api::client::ApiEnv;
 
 /// 把暂存的 csrf 并进调用环境（覆盖同名 cookie 字段，缺失则追加）。
 ///

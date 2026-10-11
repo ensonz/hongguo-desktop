@@ -746,7 +746,7 @@ mod probe {
             Err(e) => println!("[review-interact] 剧评回复 ERR: {e}"),
         }
         // 回复列表读取（匿名也应可读；带登录态对照）
-        let page = crate::domain::api::danmaku::fetch_review_replies(book, review, "", &env)
+        let page = crate::danmaku::fetch_review_replies(book, review, "", &env)
             .await
             .expect("剧评回复列表");
         println!(
@@ -756,8 +756,9 @@ mod probe {
         );
     }
 
-    /// **运行时等价环境复现**：从 `.hg-runtime-settings.json`（python 从
-    /// 应用 db 导出）读账号 + 代理，完全复刻 `AppState::api_env()` 的
+    /// **运行时等价环境复现**：从 hongguo-api crate 根（`crates/hongguo-api/`）
+    /// 的 `.hg-runtime-settings.json`（python 从应用 db 导出）读账号 + 代理，
+    /// 完全复刻 `AppState::api_env()` 的
     /// merge_session_cookie 合并链路（匿名兜底打底 + 账号覆盖）。
     /// UI 里互动失败而裸 cookie probe 成功时，用这个对照定位差异。
     fn runtime_env() -> Option<ApiEnv> {

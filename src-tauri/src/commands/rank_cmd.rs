@@ -3,11 +3,11 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::calendar::{CalendarPage, fetch_new_calendar};
-use crate::domain::api::new_drama::fetch_new_drama;
-use crate::domain::api::rank::{RankPage, fetch_rank_ex};
-use crate::domain::api::reservation::{delete_reservations, fetch_reservations, reserve_series};
-use crate::domain::api::search::{SearchPage, SuggestItem, search_series, search_suggest};
+use hongguo_api::calendar::{CalendarPage, fetch_new_calendar};
+use hongguo_api::new_drama::fetch_new_drama;
+use hongguo_api::rank::{RankPage, fetch_rank_ex};
+use hongguo_api::reservation::{delete_reservations, fetch_reservations, reserve_series};
+use hongguo_api::search::{SearchPage, SuggestItem, search_series, search_suggest};
 use hongguo_common::{AppError, AppResult};
 
 /// 拉一个榜单（任意 tab × 子榜 × 筛选组合；offset 游标翻页，每页 20 条）。

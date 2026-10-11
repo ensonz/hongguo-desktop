@@ -3,10 +3,10 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::api::discover::{
+use hongguo_api::discover::{
     BrowseFilters, FeedPage, SelectorRow, fetch_browse, fetch_browse_panel,
 };
-use crate::domain::api::recommend::fetch_recommend_feed;
+use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_common::AppResult;
 
 /// 拉找剧筛选面板（八行维度选项，选项表随服务端运营变化，不落死）。

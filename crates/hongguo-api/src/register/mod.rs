@@ -512,7 +512,7 @@ mod tests {
     /// 锁死「派生链 + AES-CBC + PKCS7 + gzip 字节流」与官方客户端一致。
     #[test]
     fn tt_v5_real_capture_roundtrip() {
-        let body = include_bytes!("../../../../tests/fixtures/register_req_real.bin");
+        let body = include_bytes!("../../tests/fixtures/register_req_real.bin");
         let (plain, app_gz) = tt_decrypt_v5(body).expect("真实抓包应能解密");
 
         // 解出的明文必须是合法 AppLog 注册 JSON
@@ -544,7 +544,7 @@ mod tests {
     /// TT-Encrypt V5 body，解密需通过 digest[16..64] 校验）。
     #[test]
     fn tt_v5_reproduces_accepted_body() {
-        let hex = include_str!("../../../../tests/fixtures/py_enc_accepted.hex");
+        let hex = include_str!("../../tests/fixtures/py_enc_accepted.hex");
         let hex = hex.trim();
         let body: Vec<u8> = (0..hex.len())
             .step_by(2)
@@ -585,7 +585,7 @@ mod tests {
 #[cfg(test)]
 mod probe {
     use super::*;
-    use crate::domain::api::client::ApiEnv;
+    use crate::client::ApiEnv;
     use hongguo_common::model::ProxyConfig;
     use hongguo_common::utils::url::encode_rfc3986;
 
@@ -733,7 +733,7 @@ mod probe {
                 "application/x-www-form-urlencoded".to_string(),
             ),
         ];
-        match crate::domain::api::client::api_call_full_with_headers(
+        match crate::client::api_call_full_with_headers(
             REGISTER_ORIGIN,
             REGISTER_PATH,
             Some(body),
@@ -757,7 +757,7 @@ mod probe {
     #[ignore = "需要先跑 python 生成 register_body.hex"]
     async fn probe_register_ttencript_v5() {
         let hex =
-            std::fs::read_to_string(crate::domain::api::capture_dir().join("register_body.hex"))
+            std::fs::read_to_string(crate::capture_dir().join("register_body.hex"))
                 .expect("先跑 python 生成 register_body.hex");
         let hex = hex.trim();
         let body: Vec<u8> = (0..hex.len())
@@ -773,7 +773,7 @@ mod probe {
         // meta 里有与 body 配套的 cdid/openudid/时间戳（query 必须与 body 一致）
         let meta: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(
-                crate::domain::api::capture_dir().join("register_body_meta.json"),
+                crate::capture_dir().join("register_body_meta.json"),
             )
             .unwrap(),
         )
@@ -801,7 +801,7 @@ mod probe {
     #[ignore = "需要先跑 python 生成 register_body2.hex"]
     async fn probe_register_applog_json() {
         let hex =
-            std::fs::read_to_string(crate::domain::api::capture_dir().join("register_body2.hex"))
+            std::fs::read_to_string(crate::capture_dir().join("register_body2.hex"))
                 .expect("先跑 python 生成 register_body2.hex");
         let body: Vec<u8> = (0..hex.trim().len())
             .step_by(2)
@@ -810,7 +810,7 @@ mod probe {
 
         let meta: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(
-                crate::domain::api::capture_dir().join("register_body2_meta.json"),
+                crate::capture_dir().join("register_body2_meta.json"),
             )
             .unwrap(),
         )
@@ -878,7 +878,7 @@ mod probe {
         let env0 = anon_env();
 
         // P0：重放 py_fresh2
-        let dir = crate::domain::api::capture_dir();
+        let dir = crate::capture_dir();
         if let (Ok(hex), Ok(meta_s)) = (
             std::fs::read_to_string(dir.join("py_fresh2.hex")),
             std::fs::read_to_string(dir.join("py_fresh2_meta.json")),
