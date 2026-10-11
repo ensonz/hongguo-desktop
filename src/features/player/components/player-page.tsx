@@ -591,6 +591,19 @@ export function PlayerView({
                   onError={handleVideoError}
                 />
                 {coverBackdrop}
+                {/* 切集/首帧间隙的中央 loading：此刻必然还没有画面（封面占位
+                  在下、弹幕在上），黑屏等待给个明确的「在加载」信号——自动
+                  连播切集遇未缓存集时尤其需要，不然观感就是卡死黑屏。播放中
+                  的缓冲不在此列（stalled 时有末帧可看，顶部细条已够），压
+                  内容的中央胶囊也是用户明令移除过的，别借这条还魂。 */}
+                {(switching || !videoLive) && !compat && !error && (
+                  <div className="absolute inset-0 z-[6] grid place-items-center">
+                    <Loader2
+                      className="size-8 animate-spin text-white/60"
+                      aria-label={t('common.loading')}
+                    />
+                  </div>
+                )}
                 <DanmakuLayer
                   videoRef={videoRef}
                   items={danmakuQuery.data ?? []}
