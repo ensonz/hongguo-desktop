@@ -323,6 +323,28 @@ impl StreamCache {
         self.current.lock().clone()
     }
 
+    /// 当前集（正在看的那部）的渐进流上是否还有读者在等数据。
+    ///
+    /// 预取的有界填充据此让位：切到一部没预载过的剧时，它的 `<video>`
+    /// 会立刻登记需求，此时预取哪怕没填满头部也该收工让出门闸——
+    /// 在播那一路的供数永远优先于下一部的铺垫。条目保留，转正后续填。
+    pub fn current_has_waiters(&self) -> bool {
+        let current = self.current.lock().clone();
+        if current.is_empty() {
+            return false;
+        }
+        let entries = self.entries.lock();
+        entries
+            .iter()
+            .filter(|(k, _)| k.vid == current)
+            .any(|(_, e)| {
+                e.progressive
+                    .lock()
+                    .as_ref()
+                    .is_some_and(|p| p.demand.has_waiters())
+            })
+    }
+
     /// 同 vid 任一档位已就绪就带回 `(实际档位, 全部档位表)`。
     ///
     /// 「不指定档位」又没有 auto 记录时的兜底命中：条目键里必须带具体档位，

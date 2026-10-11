@@ -48,10 +48,12 @@ pub struct Prepared {
     pub definitions: Vec<VideoDefinition>,
 }
 
-/// 填充门闸：同时只允许一路「下载+解密」。
+/// 填充门闸：数据填充段（真正抢带宽的下载+解密）同时只允许一路。
 ///
-/// 拿着门闸时才真正开始下载；等门闸的调用方在 `begin_fetch` 已登记取流权，
-/// 不会重复发请求。放在 fill 开头 acquire、函数结束自动释放。
+/// 渐进注册（探针链，~1MB 流量）**不排门闸**——它越早完成，切剧能命中
+/// 缓存的面越大；连它一起串行的话，快速滚动时下一部的注册会被当前集的
+/// 整集填充压住，切过去就得现场重走整条探针链（滚轮后 1-2s 的主因）。
+/// 拿着门闸的调用方在 `begin_fetch` 已登记取流权，不会重复发请求。
 static FILL_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 /// 准备在线播放，返回流地址与档位信息。
@@ -260,18 +262,19 @@ async fn wait_for_fetch(c: &StreamCache, vid: &str, definition: u32) -> AppResul
 /// 回落后行为与旧版完全一致。注册成功后的填充阶段失败则直接上抛——
 /// 那时回落只会把整集再重下一遍，和今天的失败语义一样交给上层清理。
 ///
-/// **全局串行**（[`FILL_GATE`]）：当前剧与预取的填充排队走，一次只填一路。
-/// 并发两路整集下载+解密会抢爆带宽与 CPU——用户实测卡死的那次，
-/// 当前剧与预取同时 fill 是最可疑的现场。
+/// **数据填充段全局串行**（[`FILL_GATE`]）：渐进注册不排队（见 [`FILL_GATE`]），
+/// 拿到门闸后才进入真正抢带宽的填充段，一次只填一路。并发两路整集下载+解密
+/// 会抢爆带宽与 CPU——用户实测卡死的那次，当前剧与预取同时 fill 是最可疑的现场。
 ///
 /// **可取消**（2026-10-06）：条目被逐出（用户切走）后填充立即中止让出队列——
 /// 否则被切走的前一集拖着整集下载占住串行通道，当前集黑屏干等到天荒地老。
-/// 每个分块边界都检查一次，最坏滞后一个分块（4MB）。
+/// 每个分块边界都检查一次，最坏滞后一个分块（1MB）。
 ///
 /// `prefetch = true` 时是**有界**预填（默认只填 [`PREFETCH_HEAD_BYTES`]，
-/// 够首帧秒开），但上限是动态的：条目升格为当前集、或已有读者在等这一档，
-/// 上限即刻解除、同一条填充无缝续满——不必依赖 [`resume_fill`] 事后抢
-/// 取流权（预取尚未收工时它抢不到，那正是「播到头部上限就断流」的窗口）。
+/// 够首帧秒开），但预算是动态的：条目升格为当前集、或已有读者在等这一档，
+/// 即刻转无界续满；当前集（另一条流）的读者在等数据则立刻让位收工
+/// （见 [`FillBudget`]）——不必依赖 [`resume_fill`] 事后抢取流权
+/// （预取尚未收工时它抢不到，那正是「播到头部上限就断流」的窗口）。
 #[expect(
     clippy::too_many_arguments,
     reason = "参数表与平台 C API（虚表/会话属性）一一对应，硬拆参数结构反而失真"
@@ -294,9 +297,8 @@ async fn fill(
         !c.exists(vid, definition)
             || (!prefetch && c.current() != vid && !c.is_prefetch_marked(vid, definition))
     };
-    let _gate = FILL_GATE.acquire().await;
     if cancelled() {
-        log::info!("[Online] {vid} 已被切走/让位，排队轮到时取消填充");
+        log::info!("[Online] {vid} 已被切走/让位，取消填充");
         return Ok(());
     }
     let reporter = ProgressReporter::new(app.clone(), progress_key.to_string());
@@ -312,21 +314,31 @@ async fn fill(
                 "[Online] {vid} 档位 {definition} 渐进流就绪（密文 {} 字节），开始顺序填充",
                 sparse.len()
             );
+            // 注册完成后才排门闸：条目已可应答（`<video>` 能取到已就绪的
+            // 窗口），门闸只串行化接下来的大流量填充段。
+            let _gate = FILL_GATE.acquire().await;
+            if cancelled() {
+                log::info!("[Online] {vid} 排到门闸时已切走，中止填充");
+                return Ok(());
+            }
             // CDN 抖动（短读/断流）是常态而不是异常，整体重试而不是一次失败
             // 就永远停在前沿——播放追上未填充区只能超时报错。
-            // 预取的动态上限：升格为当前集或已有读者在等即解除（见 fill 文档）
-            let cap: Box<dyn Fn() -> Option<u64> + Send + Sync> = if prefetch {
+            // 预取的动态预算：升格为当前集、本流已有读者在等即转无界；当前集
+            // （另一条流）的读者在等数据则立刻让位（见 [`FillBudget`]）
+            let cap: Box<dyn Fn() -> FillBudget + Send + Sync> = if prefetch {
                 let key = vid.to_string();
                 let prog_cap = prog.clone();
                 Box::new(move || {
                     if cache().current() == key || prog_cap.demand.has_waiters() {
-                        None
+                        FillBudget::Unbounded
+                    } else if cache().current_has_waiters() {
+                        FillBudget::Yield
                     } else {
-                        Some(PREFETCH_HEAD_BYTES)
+                        FillBudget::Bounded(PREFETCH_HEAD_BYTES)
                     }
                 })
             } else {
-                Box::new(|| None)
+                Box::new(|| FillBudget::Unbounded)
             };
             let mut last_err = None;
             for attempt in 0..3 {
@@ -368,6 +380,12 @@ async fn fill(
         }
         Err(e) => {
             log::info!("[Online] {vid} 渐进取流不可用（{e}），回落整集路径");
+            // 整集下载是流量最大的一档，进门闸串行
+            let _gate = FILL_GATE.acquire().await;
+            if cancelled() {
+                log::info!("[Online] {vid} 排到门闸时已切走，整集回落取消");
+                return Ok(());
+            }
             let plain =
                 fetch_plain_with(play, settings, &|r, t, phase| reporter.report(r, t, phase))
                     .await?;
@@ -390,6 +408,20 @@ async fn fill(
 /// 预取只填的头部字节数：够 `<video>` 首帧 + 前几十秒，不背整集。
 /// 升格为当前集后由 [`resume_fill`] 续满。
 const PREFETCH_HEAD_BYTES: u64 = 8 * 1024 * 1024;
+
+/// 填充调度器一次容量决策的结果（预取的有界填充逐决策点求值）。
+///
+/// - [`FillBudget::Unbounded`]：不限量填满整集——已升格为当前集，或本流
+///   自己的读者在等（需求由同一条填充按「需求优先」即时供给）；
+/// - [`FillBudget::Bounded`]：顺序填到该字节数收工，余下等转正续填；
+/// - [`FillBudget::Yield`]：立刻收工让出门闸——**另一条流**（当前集）的
+///   读者正在等数据，带宽该让给在播的那一路。条目保留，转正后由
+///   [`resume_fill`] 续满。
+enum FillBudget {
+    Unbounded,
+    Bounded(u64),
+    Yield,
+}
 
 /// 预取条目升格为当前集后的**续填**：渐进已注册、URL/代理存在条目里，
 /// 直接把余下字节按序填满（当前集优先级，无窗口上限、不礼让）。
@@ -432,7 +464,7 @@ pub fn resume_fill(app: &tauri::AppHandle, vid: &str, definition: u32, progress_
             &cdn_url,
             &reporter,
             &cancelled,
-            &|| None, // 续填只发生在当前集上：无上限，填满为止
+            &|| FillBudget::Unbounded, // 续填只发生在当前集上：无上限，填满为止
         )
         .await;
         c.end_fetch(&owned, definition);
@@ -541,9 +573,9 @@ async fn build_progressive(
 ///
 /// [`fill_remaining_with_client`] 是三级调度器：需求优先 → 顺序前沿 →
 /// 收尾回绕。`is_cancelled` 在每个分块边界检查（条目被逐出 = 用户切走，
-/// 立即收工让出串行队列）。`cap` 是有界填充（预取）的动态上限：
-/// `Some(limit)` 时顺序填充到该字节数即收工，读者需求不受限；`None` 填满
-/// 整集。逐决策点求值，预取条目升格为当前集（或已有读者在等）的瞬间自动解除。
+/// 立即收工让出串行队列）。`cap` 是预取等有界填充的容量决策：[`FillBudget`]
+/// 逐决策点求值，预取条目升格为当前集、读者在等、或当前集开始等数据的
+/// 瞬间自动切换形态。
 async fn fill_remaining(
     sparse: &Arc<hongguo_mp4::streaming::SparseBuffer>,
     prog: &Arc<ProgressiveStream>,
@@ -551,7 +583,7 @@ async fn fill_remaining(
     settings: &Settings,
     reporter: &ProgressReporter,
     is_cancelled: &(dyn Fn() -> bool + Send + Sync),
-    cap: &(dyn Fn() -> Option<u64> + Send + Sync),
+    cap: &(dyn Fn() -> FillBudget + Send + Sync),
 ) -> AppResult<()> {
     let client = hongguo_api::client::build_client(&settings.proxy)?;
     fill_remaining_with_client(
@@ -611,7 +643,7 @@ async fn fill_remaining_with_client(
     cdn_url: &str,
     reporter: &ProgressReporter,
     is_cancelled: &(dyn Fn() -> bool + Send + Sync),
-    cap: &(dyn Fn() -> Option<u64> + Send + Sync),
+    cap: &(dyn Fn() -> FillBudget + Send + Sync),
 ) -> AppResult<()> {
     use hongguo_api::client::get_video_range;
     let total = sparse.len();
@@ -636,12 +668,21 @@ async fn fill_remaining_with_client(
                 );
             }
             frontier = want;
-        } else if let Some(limit) = cap() {
-            // 决策 2 的有界形态（预取）：没有读者在等也不是当前集，
-            // 顺序填到上限就收工，串行队列让给真正在看的那一路。
-            if sparse.downloaded() >= limit.min(total) {
-                log::info!("[Online] 预填达到上限（{limit} 字节），余下等转正续填");
-                return Ok(());
+        } else {
+            // 决策 2 的容量形态（预取）：没有读者在等时按预算走——逐决策点
+            // 求值，升格为当前集或当前集开始等数据的瞬间自动切换。
+            match cap() {
+                FillBudget::Yield => {
+                    log::info!("[Online] 当前集读者在等数据，预取让位收工，余下等转正续填");
+                    return Ok(());
+                }
+                FillBudget::Bounded(limit) => {
+                    if sparse.downloaded() >= limit.min(total) {
+                        log::info!("[Online] 预填达到上限（{limit} 字节），余下等转正续填");
+                        return Ok(());
+                    }
+                }
+                FillBudget::Unbounded => {}
             }
         }
 
