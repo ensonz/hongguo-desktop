@@ -7,8 +7,8 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     // captures/ 是逆向用的抓包产物与提取脚本（第三方混淆代码 + 数据），
-    // 不是本项目源码，lint 范围只覆盖 src 与脚本
-    ignores: ['dist', 'captures', 'src-tauri', 'routeTree.gen.ts', 'node_modules'],
+    // 不是本项目源码，lint 范围只覆盖 src 与脚本；.agents/ 是 skill 资产
+    ignores: ['dist', 'captures', 'src-tauri', 'routeTree.gen.ts', 'node_modules', '.agents'],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
