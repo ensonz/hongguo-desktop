@@ -5,6 +5,9 @@
 > 原则：纯移动/重命名与行为修改分开提交（硬红线 10、13）；不为目录整齐制造转发文件；
 > 新代码单一归属，同一段逻辑只留一个明确归属；`signer/`、`media/platform`、`player/` 渲染结构是禁改区。
 > 目标：把「已定型但只落实了一半的约定」补齐，消掉唯一的真实逻辑双实现。
+>
+> **进度（2026-10-11）**：第一批已落地 —— §3 P2（fixture 迁 `tests/fixtures/`，消 `signer→domain` 反向依赖）、
+> §5 P4（`episode-range-picker`）、§7.1（生成器归 `scripts/`）、§7.2（元测试改目录自动发现）。其余（§1 P0 / §2 P1 / §4 P3 / §6 P5 / §8）未动。
 
 ## 0. 结论与健康基线
 
@@ -136,7 +139,7 @@ domain/api/danmaku/
 
 ---
 
-## 3. P2 —— 测试数据住在生产源码树，且构成反向依赖
+## 3. P2 —— 测试数据住在生产源码树，且构成反向依赖 ✅ 已落地
 
 ### 3.1 位置与现状
 
@@ -196,7 +199,7 @@ src-tauri/src/domain/api/testdata/
 
 ---
 
-## 5. P4 —— 两个同名不同物的 `EpisodePicker`
+## 5. P4 —— 两个同名不同物的 `EpisodePicker` ✅ 已落地
 
 ### 5.1 位置与现状
 
@@ -255,12 +258,12 @@ CDP probe `/rank` `/new` `/reservations` 三页。
 
 ## 7. P6/P7 —— 零散项（可随手带走，不单独排期）
 
-### 7.1 `gen_tt_hash.py` 放错了根
+### 7.1 `gen_tt_hash.py` 放错了根 ✅ 已落地
 
 `src-tauri/gen_tt_hash.py` 是生成器，应在仓库根 `scripts/`（那里已有 `make-icons.py`、
 `build-updater-manifest.py` 等 6 个同类脚本）。纯移动。
 
-### 7.2 meta-test 的 `SOURCES` 清单是手工登记的坑
+### 7.2 meta-test 的 `SOURCES` 清单是手工登记的坑 ✅ 已落地
 
 `src-tauri/src/commands/mod.rs` 的 `commands_do_not_touch_tokio_context_directly` 用硬编码
 `SOURCES` 数组列文件。**新增 command 文件不加进这个列表，就静默逃过守护**，而清单里
