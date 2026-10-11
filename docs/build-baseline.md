@@ -118,6 +118,23 @@ cargo build --workspace
 > 教训：**如果哪天要拿「编译更快」当拆分的理由，这张表就是反例。** 拆分的正当理由
 > 始终是职责边界与可复用性（GPUI 壳要单独用 media），不是构建时间。
 
+### 3c `hongguo-media-platform` 之后（2026-10-12）
+
+| 探针 | check | build | 重建的 hongguo crate |
+| --- | --- | --- | --- |
+| P1 `crates/hongguo-media-platform/src/capability/probe.rs` | 1.4 s | **21.5 s** | `hongguo-media-platform`, `hongguo-desktop` |
+| P2 `src-tauri/src/service/play_service/online.rs` | 1.3 s | 16.0 s | `hongguo-desktop` |
+
+**结论：与 3b 同形态。** 平台层文件改动 18.6 s → 21.5 s（多付一次
+`hongguo-media-platform` 的 codegen，涨幅比 3b 的 +7.4 s 小——平台层没有
+rusty_h265 那种重型 codegen）；壳文件持平（16 s）。check 稳定 1.3~1.4 s。
+重建清单干净：改平台层只波及 `hongguo-media-platform` + `hongguo-desktop`，
+不误伤其他叶子 crate。
+
+⚠️ 预热注意（3a 教训的变体）：`cargo test --workspace` 带 shell dev-deps 的
+`test-support` feature，`cargo build` 是无 feature 的另一套指纹——测试后第一轮
+build 要为新配置重做 codegen（实测 45 s），**复测必须等预热后的第二轮**再读数。
+
 ## 6. 附带发现：本机 `make lint` 在 `cargo clean` 后会挂在 `objc2-exception-helper`
 
 两个 macOS 交叉 clippy 用 `CC_...=true` / `AR_...=true` 占位，让

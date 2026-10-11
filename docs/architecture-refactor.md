@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
-> 版本：2026-10-11（rev3，定序已确认）
-> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1 条（common / signer / mp4 / api）、第 2 条（store）、第 3 条 3a（stream）与 3b（media）已落地，3c 与第 4~6 步按 §8 分批执行
+> 版本：2026-10-12（rev3，定序已确认）
+> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1~3 条（common / signer / mp4 / api / store / stream / media / media-platform）已落地，第 4~6 步按 §8 分批执行
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -20,7 +20,7 @@
 ## 进度看板（随每步更新）
 
 > 口径：行数用 `Get-ChildItem -Recurse -Include *.rs` 实测；包数用 `cargo metadata`。
-> **最后更新 2026-10-11（3b 合并后）**；每完成一步在 `docs/build-baseline.md` 复测编译数字。
+> **最后更新 2026-10-12（3c 合并后）**；每完成一步在 `docs/build-baseline.md` 复测编译数字。
 
 | 步骤 | 内容 | 状态 | 实测 |
 | --- | --- | --- | --- |
@@ -30,19 +30,18 @@
 | 2 | 持久化：`hongguo-store` | ✅ 2026-10-11 | 13 文件 / 1,820 行；包 725 → 726 |
 | 3a | 流契约：`hongguo-stream` | ✅ 2026-10-11 | 4 文件 / 1,459 行；包 726 → 727 |
 | 3b | 媒体核心：`hongguo-media` | ✅ 2026-10-11 | 16 文件 / 4,477 行；包 727 → 728 |
-| 3c | 平台层：`hongguo-media-platform` | ⬜ 待做 | 范围 11 文件 / 4,084 行 |
+| 3c | 平台层：`hongguo-media-platform` | ✅ 2026-10-12 | 12 文件 / 4,420 行（含 lib.rs 与 test-support 门控）；包 728 → 729 |
 | 4 | 协议与业务：`hongguo-protocol` → `hongguo-service` | ⬜ 待做 | |
 | 5 | 薄化 Tauri：`commands` / `app_state` / `bootstrap` / `diagnostics` → `hongguo-tauri` | ⬜ 待做 | |
 | 6 | 清理：删过渡代码、回收 vendor 补丁、补文档与测试 | ⬜ 待做 | |
 | 阶段 3 | 前端并行：评论/剧评双实现收敛、`components/` 归位、入参 zod 化 | ⬜ 待做 | |
 
-**当前体量**（同一时点）：
+**当前体量**（2026-10-12，3c 后实测；含 3b 之后并行落地的功能提交增量）：
 
 | 位置 | 文件 | 行数 |
 | --- | --- | --- |
-| 壳 `src-tauri/src` | 87 | 14,548 |
-| —└ 其中 `media/` 残部（3c 待迁） | 12 | 4,097 |
-| `crates/`（7 个成员） | 119 | 27,652 |
+| 壳 `src-tauri/src` | 75 | 11,510 |
+| `crates/`（8 个成员） | 131 | 34,444 |
 
 对照 §0 的重构前快照：壳是 **198 文件 / 41,890 行**。逐 crate 明细与依赖方向见 §4。
 
@@ -141,13 +140,14 @@
 | --- | --- | --- | --- |
 | `hongguo-stream` | 流数据面：`ProgressiveStream` / `StreamCache` / `ReaderDemand` / `serve`（Range 应答 + 窗口策略）+ `range.rs`（`RangeSpec` / `ProtocolResponse`）+ 进程级缓存 `cache()` | mp4 + common | **已落地 2026-10-11** |
 | `hongguo-media` | `media/` 纯 Rust 编解码——backend / demux / hevc / transcode / remux / codec_probe / disk_space / heif | mp4 + common | **已落地 2026-10-11** |
-| `hongguo-media-platform` | `media/platform`（MF / VT / WIC）+ `media/ffmpeg` + `media/capability`——平台硬编、ffmpeg 执行与能力探测 | media | 待 3c |
+| `hongguo-media-platform` | `media/platform`（MF / VT / WIC）+ `media/ffmpeg` + `media/capability`——平台硬编、ffmpeg 执行与能力探测 | media + mp4 + common | **已落地 2026-10-12** |
 | `hongguo-protocol` | `protocol/`——自定义 URI 逻辑（`hongguo-local/stream/cover`）+ 路由。**注意命名：这是 URI 协议，不是 HTTP/传输协议** | stream + media + media-platform + common | 待第 4 条 |
 
 > **依赖修正（2026-10-11 实测，v1/rev3 原表有误）**：
 > - **`capability/` 必须随 platform、ffmpeg 一起进 `hongguo-media-platform`**。实测 `media/platform/{vt,mf}` 调 `media::{demux,hevc,transcode}`（19 处），而 `media/capability` 反手调 `media::{platform,ffmpeg}`（14 处）——照原表把 capability 留在 `hongguo-media` 里会成环。
 > - **`hongguo-protocol` 的依赖不止 stream + mp4 + common**：`protocol/cover.rs` 还要 `hongguo_media::heif` / `media::platform::wic` / `media::ffmpeg`（封面 HEIC→JPEG 的三级阶梯）。
 > - **`hongguo-stream` 同时收 `range.rs` 与进程级 `cache()`**：`RangeSpec` / `ProtocolResponse` 是流应答的线格式；`cache()` 是填充侧与应答侧唯一的共享句柄——不搬它，`serve()` 只能回头调 `service::play_service::online::cache()`，反向边消不掉。原表把 stream 描述为「只放共用数据类型」，偏窄。
+> - **`hongguo-media-platform` 实测依赖还含 `mp4` 与 `common`**（2026-10-12，3c 落地时核对）：`platform/{vt,mf}` 直接消费 `hongguo_mp4::sample_table::TrackInfo`（hvcC 参数集 → Annex-B 喂解码器），门面与 ffmpeg / capability 消费 `AppError` / `AppResult`。原表只写「media」。
 
 > **不设 `hongguo-media-gpu`**：GPU 路径尚不存在，有真需求再立 crate（§14）。
 > **`service` 不再依赖 `protocol`**（**已落地 2026-10-11**）：`service/play_service/online` 改为 `use hongguo_stream::{ProgressiveStream, StreamCache, cache}`，`protocol::register` 改为 `hongguo_stream::serve`——两侧都只往下依赖 `hongguo-stream`，那条「协议层回头找服务层要缓存」的反向边没了。
@@ -228,7 +228,7 @@ pub trait PlainStream: Send + Sync {
 
 ### 5.3 GPUI 帧流是新增末端（前置 spike）
 
-- GPUI 无内建视频元素（GPUI Kit 规范不含 video/texture/surface）。要出帧，需：平台解码（复用 `media/platform` 的 VT/MF）→ GPU 纹理（macOS `CVMetalTextureCache`、Windows `IMFSample`→D3D11）→ 与 GPUI 渲染器集成。
+- GPUI 无内建视频元素（GPUI Kit 规范不含 video/texture/surface）。要出帧，需：平台解码（复用 `hongguo-media-platform` 的 VT/MF）→ GPU 纹理（macOS `CVMetalTextureCache`、Windows `IMFSample`→D3D11）→ 与 GPUI 渲染器集成。
 - **无成熟先例，风险最高**。落地前必须先做技术验证（spike）：macOS 一个 `CVPixelBuffer → Metal → GPUI 上屏`的最小闭环。
 - 清晰度口径：帧流的价值是**免转码**——平台解得出 HEVC 就直出（原画）；解不出可退回软解出帧，仍不重编码；而 Tauri 侧解不出只能转码（有损）。这是「帧流更清晰」的唯一成立场景，本质是不转码，与「字节/帧」无关。
 - **spike 结论决定 §5.2 草案是否要引入帧侧抽象**——先验证再定契约。
@@ -306,7 +306,7 @@ hongguo-desktop/
 
 1. **抽枢纽底层**（**全部完成 2026-10-11**）：`hongguo-common` → `hongguo-signer` → `hongguo-mp4` → `hongguo-api`
 2. **抽持久化**（**已完成 2026-10-11**）：`hongguo-store`——13 文件 / 1,820 行迁出，`cargo metadata` 725 → 726 包（仅新增本 crate，无版本漂移）。两处解耦：`persist_tasks` 从 store 移入 `service::download_service`（去掉 store → `AppState` 反向依赖）；`paths::ScopedDataDir` 由 `#[cfg(test)]` 改 feature `test-support` 门控（跨 crate 后 `#[cfg(test)]` 对下游测试不可见）
-3. **立流契约再抽媒体**：**3a 已完成 2026-10-11**——`hongguo-stream` 落地（`protocol/stream/*` + `protocol/range.rs` 共 4 文件 / 1,459 行迁出，进程级 `cache()` 单例随迁）；`cargo metadata` 726 → 727 包。**3b 已完成 2026-10-11**——`hongguo-media` 落地（16 文件 / 4,477 行迁出，含 `tests/fixtures/heic-cover-sample.heic`）；`cargo metadata` 727 → 728 包。两处结构性决定：跨层的端到端用例 `remux/e2e_tests.rs` 归壳的 `src/testing/media_pipeline_e2e.rs`（它同时要平台硬编、ffmpeg 与服务层）；`worker::temp_path_for` 上移 `hongguo_common::utils::path`（下载 / 转码 / ffmpeg 三条链路的共同落盘约定，留在 service 会让 media 反向依赖）。**3c `hongguo-media-platform`（11 文件 / 4,084 行，含 `capability/`）** 待做。编译基线见 `docs/build-baseline.md`（3b 复测：改 media 文件的增量 build 18.6 s → 26 s，是拆分的真实代价，换来的是边界而非秒数）
+3. **立流契约再抽媒体**：**3a 已完成 2026-10-11**——`hongguo-stream` 落地（`protocol/stream/*` + `protocol/range.rs` 共 4 文件 / 1,459 行迁出，进程级 `cache()` 单例随迁）；`cargo metadata` 726 → 727 包。**3b 已完成 2026-10-11**——`hongguo-media` 落地（16 文件 / 4,477 行迁出，含 `tests/fixtures/heic-cover-sample.heic`）；`cargo metadata` 727 → 728 包。两处结构性决定：跨层的端到端用例 `remux/e2e_tests.rs` 归壳的 `src/testing/media_pipeline_e2e.rs`（它同时要平台硬编、ffmpeg 与服务层）；`worker::temp_path_for` 上移 `hongguo_common::utils::path`（下载 / 转码 / ffmpeg 三条链路的共同落盘约定，留在 service 会让 media 反向依赖）。**3c 已完成 2026-10-12**——`hongguo-media-platform` 落地（12 文件 / 4,420 行迁出，含 `capability/` 与新增 `lib.rs`；`cargo metadata` 728 → 729 包）。一处结构性决定：`transcode_h264_for_tests` 测试通道（及 mf 软件编码器路径）由 `#[cfg(test)]` 改 `any(test, feature = "test-support")` 门控——跨 crate 后 `pub(crate)` 对壳的 e2e 够不着，经壳的 dev-dependencies feature 开启（对齐 hongguo-mp4 `fixtures` / hongguo-store `ScopedDataDir` 先例）。增量复测：平台层文件 build 18.6 s → 21.5 s，壳文件持平（16 s），见 `docs/build-baseline.md`。编译基线见 `docs/build-baseline.md`（3b 复测：改 media 文件的增量 build 18.6 s → 26 s，是拆分的真实代价，换来的是边界而非秒数）
 4. **抽协议与业务**：`hongguo-protocol` → `hongguo-service`（service 改为只依赖 stream 契约）
 5. **薄化 Tauri**：`commands/app_state/bootstrap/diagnostics` 迁入 `hongguo-tauri`，`src-tauri` 退化为纯配置与入口
 6. **清理**：删过渡代码、回收 vendor 补丁、补齐文档与测试
@@ -379,6 +379,7 @@ hongguo-desktop/
 | 编译基线 | 已采：clean build 208.8 s，单文件增量 check 1.4 s / build ≈18 s（链接主导）；3a 后持平，3b 后改 media 的 build 升到 26 s | ✅ 已采（`docs/build-baseline.md`） |
 | 跨层 e2e 用例的归属（3b） | `remux/e2e_tests.rs` 同时依赖媒体核心 + 平台硬编 + ffmpeg + 服务层，任何单一 crate 都装不下 → 迁到壳的 `src/testing/media_pipeline_e2e.rs`（Cargo 集成测试目录够不着私有模块，只能是壳内 `#[cfg(test)]` 模块） | ✅ 已定（3b） |
 | `worker::temp_path_for` 的归属（3b） | 上移 `hongguo_common::utils::path`——下载/转码/ffmpeg 三条链路共用的落盘命名约定；留在 service 会让 `hongguo-media` 反向依赖服务层 | ✅ 已定（3b） |
+| `transcode_h264_for_tests` 的可见性（3c） | 跨 crate 后 `pub(crate)` 对壳 e2e 够不着 → 改 `pub` + `any(test, feature = "test-support")` 门控（连带 mf 的软件编码器通道同步门控）；生产构建不带 feature 不编译 | ✅ 已定（3c） |
 
 ---
 
@@ -399,7 +400,7 @@ hongguo-desktop/
 
 - **不建 `hongguo-media-gpu`**、不预拆 GPUI feature crate——有代码再立。
 - **不搬前端**（不加 `apps/web/`、不建 pnpm workspace）——GPUI 是 Rust，用不上 JS workspace；搬家与目标正交，属独立决策。
-- **不动 `signer/` 写法**（JS 1:1 移植，红线 9）；不动 `media/platform` 的 FFI 结构；不动 `player/` 渲染结构。
+- **不动 `signer/` 写法**（JS 1:1 移植，红线 9）；不动 `media-platform` 的 FFI 结构；不动 `player/` 渲染结构。
 - **不写数据兼容回退分支**（产品未上线）。
 - **不在本方案内动代码**——大规模结构调整先出计划、经确认再动；确认后按 §8 分 PR 推进（纯移动/拆分与行为修改分开提交）。
 
