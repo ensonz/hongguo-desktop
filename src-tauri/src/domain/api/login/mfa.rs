@@ -11,7 +11,7 @@ use super::{
     form_urlencoded, passport_sdk_query, sms_login,
 };
 use crate::domain::api::client::{ApiEnv, api_call_full_response};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// MFA 上行短信的**真实可回复通道号**。
 ///
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn merges_mfa_cookie_into_env() {
         let mk = |cookie: Option<&str>| ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             device: crate::signer::video_device(),
             cookie: cookie.map(str::to_string),
             x_tt_token: None,

@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
 use super::discover::{check_code, int_field, num_field, str_field};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 pub use model::{RankItem, RankPage, RankPanelItem, RankPanelRow, RankSubList, RankTab};
 
@@ -593,7 +593,7 @@ pub(crate) mod probe {
     use super::*;
 
     pub(crate) fn anon_env() -> ApiEnv {
-        ApiEnv::anonymous(crate::domain::model::ProxyConfig::default())
+        ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default())
     }
 
     /// hgplayer 抓包里的已注册设备（bookmall 系在静态旧设备上报 110，
@@ -656,7 +656,7 @@ pub(crate) mod probe {
             serde_json::from_str(&device_json).expect("device json");
         crate::signer::device::align_app_version(&mut device);
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             device,
             cookie: None,
             x_tt_token: None,
@@ -772,7 +772,7 @@ pub(crate) mod probe {
             account_cookie
         );
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             device,
             cookie: Some(cookie),
             x_tt_token: None,
@@ -815,7 +815,7 @@ pub(crate) mod probe {
         }
         let device: crate::signer::device::DeviceProfile = serde_json::from_value(v).unwrap();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             cookie: Some(crate::signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,
@@ -935,7 +935,7 @@ pub(crate) mod probe {
     async fn probe_rank_selector_app_device() {
         let device = crate::signer::video_device();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             cookie: Some(crate::signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,

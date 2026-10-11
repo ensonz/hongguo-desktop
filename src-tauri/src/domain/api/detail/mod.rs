@@ -9,7 +9,7 @@ mod parse;
 
 use serde_json::Value;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 pub use model::{EpisodeList, RelatedSeries, SeriesMeta};
 // 保持既有公共路径 `detail::RelatedItem` 不变（crate 内暂无直接引用者）
@@ -159,7 +159,7 @@ mod probe {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_detail_counts() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let payload = serde_json::to_vec(&crate::domain::api::params::detail_payload(
             "7690883800057777177",
@@ -215,7 +215,7 @@ mod probe2 {
     #[ignore = "直连真实接口的探测用例"]
     #[tokio::test]
     async fn probe_fengshen_live() {
-        let proxy = crate::domain::model::ProxyConfig::default();
+        let proxy = hongguo_common::model::ProxyConfig::default();
         // PROBE_DEVICE_FILE 给真实设备档案（默认静态兜底档案）：
         // 评分/猜你喜欢疑随设备信任度下发，匿名静态档案拿到的是空。
         let env = match std::env::var("PROBE_DEVICE_FILE") {
@@ -388,7 +388,7 @@ mod probe2 {
     #[tokio::test]
     async fn probe_detail_related_series() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let payload = serde_json::to_vec(&crate::domain::api::params::detail_payload(
             "7689382439004671038",
@@ -439,7 +439,7 @@ mod probe_related {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_related_series_live() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let rel = fetch_related_series("7687961503718198334", &env)
             .await

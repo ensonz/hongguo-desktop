@@ -40,9 +40,9 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
         .merge_tasks()
         .map_err(|e| tauri::Error::Anyhow(e.into()))?;
     for mut task in merges {
-        if task.status == crate::domain::model::MergeStatus::Running {
+        if task.status == hongguo_common::model::MergeStatus::Running {
             task.mark_failed("merge.interrupted");
-            task.status = crate::domain::model::MergeStatus::Failed;
+            task.status = hongguo_common::model::MergeStatus::Failed;
             state
                 .store
                 .upsert_merge_task(&task)

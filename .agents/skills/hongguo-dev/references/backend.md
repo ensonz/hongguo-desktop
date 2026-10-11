@@ -13,6 +13,8 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 └─ app_state.rs         # AppState = Arc<AppStateInner>
 ```
 
+- 共用底座 `crates/hongguo-common`：领域模型（`model`）、统一错误（`AppError`）、纯工具（`utils`）、跨端常量（`consts`）。`domain/model/*` 已迁出，本 crate 用 `hongguo_common::model::X` / `hongguo_common::AppError` 引用；常量归属规则见其 `consts/mod.rs` 头注释。
+
 - command 层两条硬纪律（有静态测试扫源码）：禁 `tokio::spawn`/`Handle::current`/`block_on`（主线程 IPC 回调无 Tokio 上下文，会 panic→abort）；起后台任务用 `tauri::async_runtime::spawn`。
 - **锁不跨 await**：`AppStateInner` 的字段全是 `RwLock`（parking_lot，guard 非 Send）。读状态走快照方法 `state.settings()` / `state.queue()` / `state.device()`（clone 出来用），绝不把 guard 带过 await 点。
 - 外呼命令标准开头：`let env = state.api_env();`——一次调用链内环境（代理+设备+Cookie）不变，避免「签名用 A 设备、请求带 B Cookie」。

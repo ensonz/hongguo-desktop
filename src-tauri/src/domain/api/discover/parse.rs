@@ -1,14 +1,14 @@
 //! 发现域的 JSON 解析（信息流 / 找剧面板组装）。
 //!
 //! 跨域共享的字段与错误码助手（check_code/str_field/int_field/num_field/
-//! parse_tags）已收敛进 `crate::utils::json`（P3-C9），经本域 mod.rs
+//! parse_tags）已收敛进 `hongguo_common::utils::json`（P3-C9），经本域 mod.rs
 //! 再导出，保持 `super::discover::X` 的既有引用路径不变。
 
 use serde_json::Value;
 
 use super::model::{FeedItem, FeedPage, SelectorItem, SelectorRow};
-use crate::error::{AppError, AppResult};
-use crate::utils::json::{int_field, num_field, parse_tags, str_field};
+use hongguo_common::{AppError, AppResult};
+use hongguo_common::utils::json::{int_field, num_field, parse_tags, str_field};
 
 /// 解析面板 data 节点为 selector 行列表。
 pub(super) fn parse_browse_panel(data: Option<&Value>) -> AppResult<Vec<SelectorRow>> {

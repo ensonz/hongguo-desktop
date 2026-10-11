@@ -22,12 +22,12 @@ mod tests {
     /// `tokio::time::sleep` / `tokio::sync::*` 这类运行时内调用不在禁止之列；
     /// 测试代码允许自建运行时，故先切掉每个文件 `#[cfg(test)]` 之后的内容再扫。
     ///
-    /// 源码清单由目录自动发现（[`crate::utils::source_guard`]），不再手工登记——
+    /// 源码清单由目录自动发现（[`crate::testing::source_guard`]），不再手工登记——
     /// 新增 service 文件漏登记曾让本守护静默失效。
     #[test]
     fn services_do_not_touch_tokio_context_directly() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/service");
-        let sources = crate::utils::source_guard::collect_sources(&dir);
+        let sources = crate::testing::source_guard::collect_sources(&dir);
         assert!(!sources.is_empty(), "没扫到 service 层源码：{}", dir.display());
         for (path, text) in &sources {
             let runtime_src = text.split("#[cfg(test)").next().unwrap_or(text);

@@ -7,7 +7,7 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::model::PlaybackPosition;
+use hongguo_common::model::PlaybackPosition;
 
 /// 保存播放位置（Store 直连版：command 侧把 DB 写入扔进阻塞线程池时用，
 /// 同步 command 占 Tauri 主线程，高频保存不该在那里排队）。
@@ -20,7 +20,7 @@ pub fn save_store(
     vid_index: u32,
     current_time: f64,
     duration: f64,
-) -> crate::error::AppResult<()> {
+) -> hongguo_common::AppResult<()> {
     store.save_playback_position(
         series_id,
         vid_index,
@@ -44,7 +44,7 @@ pub fn load(state: &State<'_, AppState>, series_id: &str, vid_index: u32) -> f64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::PlaybackPosition;
+    use hongguo_common::model::PlaybackPosition;
     use std::path::PathBuf;
 
     fn at(current_time: f64, updated_at: i64) -> PlaybackPosition {

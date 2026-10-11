@@ -2,17 +2,18 @@
 //! bytes_from_hex）。
 
 /// 字节序列 → 小写 hex 串（来源：protocol/cover.rs 的 `hex`）。
-pub(crate) fn encode(bytes: &[u8]) -> String {
+pub fn encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// hex 串 → 字节序列（大小写均可）。
 ///
-/// 非法输入（奇数长度/非 hex 字符）直接 panic——现有消费者是测试与
-/// 内部可信输入，不需要 Result 化。当前仅测试在用（原 login 测试内
-/// `bytes_from_hex`），转正给生产用时去掉 cfg 门。
-#[cfg(test)]
-pub(crate) fn decode(hex: &str) -> Vec<u8> {
+/// 非法输入（奇数长度/非 hex 字符）直接 panic——消费者是测试与内部可信输入，
+/// 不需要 Result 化。
+///
+/// 不再 `#[cfg(test)]` 门控：迁到 hongguo-common 后下游 crate 的测试（login
+/// 抓包重放）要调它，而依赖 crate 对下游以非 test 方式编译，门控项会消失。
+pub fn decode(hex: &str) -> Vec<u8> {
     assert!(hex.len().is_multiple_of(2), "hex 长度必须为偶数: {hex}");
     (0..hex.len())
         .step_by(2)

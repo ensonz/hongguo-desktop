@@ -4,7 +4,7 @@
 //! 两者都挂在同一个 `impl DownloadQueue` 上，因此方法可以直接互相调用。
 
 use super::DownloadQueue;
-use crate::domain::model::{QueueStatus, TaskStatus};
+use hongguo_common::model::{QueueStatus, TaskStatus};
 
 impl DownloadQueue {
     /// 队列状态汇总。

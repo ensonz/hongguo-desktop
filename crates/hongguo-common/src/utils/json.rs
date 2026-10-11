@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::error::{AppError, AppResult};
 
 /// 业务错误码检查（信封 `{"code":0,"message":"…"}`），文案前缀「接口返回」。
-pub(crate) fn check_code(value: &Value) -> AppResult<()> {
+pub fn check_code(value: &Value) -> AppResult<()> {
     check_code_in(value, "接口")
 }
 
@@ -25,7 +25,7 @@ pub(crate) fn check_code(value: &Value) -> AppResult<()> {
 ///
 /// detail 域三个端点各自的报错前缀（「详情接口」「相关作品接口」…）
 /// 是排障时的定位线索，不能统一成一个词。
-pub(crate) fn check_code_in(value: &Value, label: &str) -> AppResult<()> {
+pub fn check_code_in(value: &Value, label: &str) -> AppResult<()> {
     if let Some(code) = value.get("code").and_then(Value::as_i64)
         && code != 0
     {
@@ -39,7 +39,7 @@ pub(crate) fn check_code_in(value: &Value, label: &str) -> AppResult<()> {
 }
 
 /// 单键字符串字段：缺失或非字符串给空串。
-pub(crate) fn str_field(v: &Value, key: &str) -> String {
+pub fn str_field(v: &Value, key: &str) -> String {
     v.get(key)
         .and_then(Value::as_str)
         .unwrap_or_default()
@@ -51,7 +51,7 @@ pub(crate) fn str_field(v: &Value, key: &str) -> String {
 /// 注意：候选键的值是空字符串时**直接返回空串**，不向后兜——这是
 /// detail 线上行为（如 `series_cover` 存在但为空时不用 `cover_url` 补），
 /// 与 [`str_field_paths`] 的「跳过空串」语义相反，勿「修复」。
-pub(crate) fn str_field_any(v: &Value, keys: &[&str]) -> String {
+pub fn str_field_any(v: &Value, keys: &[&str]) -> String {
     keys.iter()
         .find_map(|k| v.get(*k).and_then(Value::as_str))
         .unwrap_or_default()
@@ -63,7 +63,7 @@ pub(crate) fn str_field_any(v: &Value, keys: &[&str]) -> String {
 /// passport 响应字段名/层级在端点间有出入（`data.encrypt_uid` 与
 /// `data.event_params.log_id` 这类嵌套路径），逐路径试探取首个非空值；
 /// 全部落空给 `None`，由调用方决定默认值。
-pub(crate) fn str_field_paths(v: &Value, paths: &[&str]) -> Option<String> {
+pub fn str_field_paths(v: &Value, paths: &[&str]) -> Option<String> {
     paths.iter().find_map(|p| {
         let mut cur = v;
         for seg in p.split('.') {
@@ -78,7 +78,7 @@ pub(crate) fn str_field_paths(v: &Value, paths: &[&str]) -> Option<String> {
 /// 量级超限不归零：超 i64 的 u64 饱和到 i64::MAX、
 /// 浮点形态截断——字段在位说明服务端发了数，静默给 0 会把「播 9500 万」
 /// 变成「播 0」这类展示事故；字符串解析失败才是真正的脏数据，维持 0。
-pub(crate) fn int_field(v: &Value, key: &str) -> i64 {
+pub fn int_field(v: &Value, key: &str) -> i64 {
     match v.get(key) {
         Some(Value::Number(n)) => n
             .as_i64()
@@ -91,7 +91,7 @@ pub(crate) fn int_field(v: &Value, key: &str) -> i64 {
 }
 
 /// 浮点字段容忍字符串形态（score 线上是 `"8.0"`），缺失给 0.0。
-pub(crate) fn num_field(v: &Value, key: &str) -> f64 {
+pub fn num_field(v: &Value, key: &str) -> f64 {
     match v.get(key) {
         Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
         Some(Value::String(s)) => s.parse().unwrap_or(0.0),
@@ -102,7 +102,7 @@ pub(crate) fn num_field(v: &Value, key: &str) -> f64 {
 /// `category_schema` 是 JSON 字符串：`[{"category_id":..,"name":"逆袭",...}]`，
 /// 取 name 做题材标签（至多 4 个）。解析失败给空表（标签是展示增强，
 /// 不值得报错）。
-pub(crate) fn parse_tags(schema: Option<&Value>) -> Vec<String> {
+pub fn parse_tags(schema: Option<&Value>) -> Vec<String> {
     let Some(s) = schema.and_then(Value::as_str) else {
         return Vec::new();
     };

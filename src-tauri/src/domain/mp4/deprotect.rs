@@ -11,7 +11,7 @@
 //!
 //! ⚠️ 顺序要求：必须先解密采样数据、再调用本模块；反过来会把密钥信息一起抹掉。
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 use super::r#box::{build_box, find_box, parse_boxes};
 

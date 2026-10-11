@@ -20,7 +20,7 @@ pub use model::{
 use serde_json::Value;
 
 use super::client::ApiEnv;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// hgplayer 实测的 reading 系 API 主机（我们的视频接口走 sinfonlineb，
 /// commentapi 只在这个主机上存在）。
@@ -904,7 +904,7 @@ mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_danmaku_full() {
-        let env = ApiEnv::anonymous(crate::domain::model::ProxyConfig::default());
+        let env = ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let all = fetch_danmaku_all("7690197301075119166", "7690150906532219966", &env)
             .await
             .expect("整集弹幕");
@@ -925,7 +925,7 @@ mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_comments_full() {
-        let env = ApiEnv::anonymous(crate::domain::model::ProxyConfig::default());
+        let env = ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         match fetch_comments_all("7690197301075119166", "7690150906532219966", &env).await {
             Ok(page) => {
                 println!(
@@ -948,7 +948,7 @@ mod probe {
     #[tokio::test]
     #[ignore = "直连真实接口的探测用例（匿名可读，无需登录态）"]
     async fn probe_reply_lists() {
-        let env = ApiEnv::anonymous(crate::domain::model::ProxyConfig::default());
+        let env = ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default());
         let book = "7691228619774905368";
 
         let review = fetch_review_replies(book, "7693600825641861912", "", &env)

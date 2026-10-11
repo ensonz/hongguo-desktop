@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use reqwest::Proxy;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 重试次数。
 pub const MAX_RETRIES: u32 = 3;
@@ -26,7 +26,7 @@ const RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
 ///
 /// 每次调用都按当前配置新建：用户改完代理设置立即生效，不必重启。
 /// API 解析、视频下载、在线播放都走它，所以它待在网络层而不是某个业务里。
-pub fn build_client(config: &crate::domain::model::ProxyConfig) -> AppResult<reqwest::Client> {
+pub fn build_client(config: &hongguo_common::model::ProxyConfig) -> AppResult<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .user_agent(crate::signer::VIDEO_UA)
         .timeout(Duration::from_secs(30))
@@ -55,7 +55,7 @@ pub fn build_client(config: &crate::domain::model::ProxyConfig) -> AppResult<req
 /// 之类的半新半旧状态。
 #[derive(Debug, Clone)]
 pub struct ApiEnv {
-    pub proxy: crate::domain::model::ProxyConfig,
+    pub proxy: hongguo_common::model::ProxyConfig,
     pub device: crate::signer::device::DeviceProfile,
     /// 会话 Cookie（`k=v; k=v` 形态）。未登录为 None。
     /// Cookie 不参与签名，走 `extra_headers` 注入。
@@ -69,7 +69,7 @@ impl ApiEnv {
     /// 未登录的默认环境：静态兜底设备档案 + 默认 origin。
     /// 测试基线专用（生产走登录态/注册档案），接线后移回常规编译。
     #[cfg(test)]
-    pub fn anonymous(proxy: crate::domain::model::ProxyConfig) -> Self {
+    pub fn anonymous(proxy: hongguo_common::model::ProxyConfig) -> Self {
         Self {
             proxy,
             device: crate::signer::video_device(),
@@ -538,8 +538,8 @@ async fn send_once(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::ProxyConfig;
-    use crate::domain::model::settings::ProxyMode;
+    use hongguo_common::model::ProxyConfig;
+    use hongguo_common::model::settings::ProxyMode;
     use crate::signer::ticket::{sign_get, sign_post};
     use crate::signer::video_device;
 

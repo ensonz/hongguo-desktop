@@ -24,7 +24,7 @@ use std::path::Path;
 
 use crate::domain::mp4::r#box::find_box;
 use crate::domain::mp4::sample_table::TrackInfo;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// VisualSampleEntry 载荷长度（ISO/IEC 14496-15）：
 /// reserved(6) + data_ref_idx(2) + pre_defined(2) + reserved(2) + pre_defined[3](12)

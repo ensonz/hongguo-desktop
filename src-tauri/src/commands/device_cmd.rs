@@ -7,7 +7,7 @@ use tauri::State;
 
 use crate::app_state::AppState;
 use crate::bootstrap::device::{DeviceStatus, retry_register, status};
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 当前设备状态（来源 / iid / 上次注册尝试与错误）。
 #[tauri::command]

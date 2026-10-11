@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use parking_lot::Mutex;
 
 use crate::domain::api::client::ApiEnv;
-use crate::domain::model::Settings;
+use hongguo_common::model::Settings;
 use crate::store::Store;
 
 /// 会话账本：处理过的 `{series_id}:{vid_index}`（预转过或查过无需转）。
@@ -67,7 +67,7 @@ async fn check_and_prefetch(
     series_id: &str,
     vid_index: u32,
     vid: &str,
-) -> crate::error::AppResult<bool> {
+) -> hongguo_common::AppResult<bool> {
     use crate::domain::api::stream_pick::DecoderCapability;
 
     // NoHevc 视角看下一集：有可选流（h264/未知编码）就不用转

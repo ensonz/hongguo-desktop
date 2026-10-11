@@ -2,5 +2,4 @@
 
 pub mod api;
 pub mod crypto;
-pub mod model;
 pub mod mp4;

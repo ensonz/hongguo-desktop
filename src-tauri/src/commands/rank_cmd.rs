@@ -8,7 +8,7 @@ use crate::domain::api::new_drama::fetch_new_drama;
 use crate::domain::api::rank::{RankPage, fetch_rank_ex};
 use crate::domain::api::reservation::{delete_reservations, fetch_reservations, reserve_series};
 use crate::domain::api::search::{SearchPage, SuggestItem, search_series, search_suggest};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 /// 拉一个榜单（任意 tab × 子榜 × 筛选组合；offset 游标翻页，每页 20 条）。
 ///

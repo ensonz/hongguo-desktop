@@ -8,9 +8,9 @@ use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
-use crate::error::{AppError, AppResult};
-use crate::utils::json::{check_code, int_field, num_field, str_field};
-use crate::utils::time::beijing_date;
+use hongguo_common::{AppError, AppResult};
+use hongguo_common::utils::json::{check_code, int_field, num_field, str_field};
+use hongguo_common::utils::time::beijing_date;
 
 pub use model::{CalendarItem, CalendarPage};
 
@@ -398,7 +398,7 @@ pub(crate) mod probe {
     async fn probe_calendar_target_date() {
         let device = crate::signer::video_device();
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             cookie: Some(crate::signer::device::anonymous_cookie(&device)),
             device,
             x_tt_token: None,

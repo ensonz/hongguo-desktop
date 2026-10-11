@@ -21,9 +21,9 @@ mod model;
 use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_full_response};
-use crate::error::{AppError, AppResult};
-use crate::utils::json::str_field_paths;
-use crate::utils::url::encode_component;
+use hongguo_common::{AppError, AppResult};
+use hongguo_common::utils::json::str_field_paths;
+use hongguo_common::utils::url::encode_component;
 use mfa::real_upsms_channel;
 
 pub use mfa::{mfa_relogin, upsms_verify};
@@ -553,7 +553,7 @@ mod tests {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_send_code_invalid_number() {
         let mut env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         // 实验分支：HG_LOGIN_DEVICE=random 换随机 device_id/iid（测发码
         // 是否依赖 install 注册/关联）；legacy 用 1694 旧档案。
@@ -577,8 +577,8 @@ mod tests {
         if let Ok(p) = std::env::var("HG_PROXY")
             && !p.is_empty()
         {
-            env.proxy = crate::domain::model::settings::ProxyConfig {
-                mode: crate::domain::model::settings::ProxyMode::Manual,
+            env.proxy = hongguo_common::model::settings::ProxyConfig {
+                mode: hongguo_common::model::settings::ProxyMode::Manual,
                 url: p,
             };
         }
@@ -598,7 +598,7 @@ mod tests {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_sms_login_real() {
         let env0 = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let mobile = std::env::var("HG_LOGIN_MOBILE").expect("HG_LOGIN_MOBILE 必填");
         let Ok(code) = std::env::var("HG_LOGIN_CODE") else {
@@ -660,7 +660,7 @@ mod tests {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_user_info_with_cookies() {
         let mut env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         env.cookie = Some(std::env::var("HG_LOGIN_COOKIES").expect("HG_LOGIN_COOKIES 必填"));
         match user_info(&env).await {
@@ -693,7 +693,7 @@ mod tests {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_sms_login_invalid_number() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         match sms_login(&env, "10000000000", "123456", None).await {
             Ok(outcome) => println!("[probe-sms] 意外成功: {outcome:?}"),
@@ -721,7 +721,7 @@ mod tests {
     /// MFA 响应下发的明文 key），retry_tag 保持明文。
     #[test]
     fn encodes_mfa_retry_params() {
-        use crate::utils::hex::decode;
+        use hongguo_common::utils::hex::decode;
         let key = "fb2825d4c17fad783d28724dd8aebe5e";
         let enc = encode_code(key);
         let dec = |hex: &str| bytes_to_string(&decode(hex));
@@ -879,7 +879,7 @@ mod tests {
         let v: Value = serde_json::from_slice(body).unwrap();
         let err = (|| {
             check_error(&v, "发送验证码失败")?;
-            Ok::<(), crate::error::AppError>(())
+            Ok::<(), hongguo_common::AppError>(())
         })();
         let err = err.unwrap_err();
         assert!(err.to_string().contains("1003"));

@@ -25,7 +25,7 @@ use serde_json::Value;
 
 use super::client::ApiEnv;
 use super::danmaku::LQ_API_ORIGIN;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 const ARTICLE_DO_ACTION_PATH: &str = "/novel/articleapi/do_action/v1/";
 const COMMENT_DO_ACTION_PATH: &str = "/novel/commentapi/comment/do_action/v1/";
@@ -679,7 +679,7 @@ mod tests {
 #[cfg(test)]
 mod probe {
     use super::*;
-    use crate::domain::model::ProxyConfig;
+    use hongguo_common::model::ProxyConfig;
 
     /// 互动操作必须登录态（匿名被服务端静默拒）。probe 从环境变量
     /// `HG_TEST_COOKIE`（`k=v; k=v` 全量会话 cookie）、可选

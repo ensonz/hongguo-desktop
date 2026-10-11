@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::StreamExt;
 
-use crate::domain::model::Settings;
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::Settings;
+use hongguo_common::{AppError, AppResult};
 use crate::service::download_service::events::ProgressThrottle;
 
 /// 下载与解密的进度回调。

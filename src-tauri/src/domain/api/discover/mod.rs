@@ -20,7 +20,7 @@ mod parse;
 use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_full};
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 use crate::signer::API_ORIGIN;
 
 pub use model::{BrowseFilters, FeedItem, FeedPage, SelectorRow};
@@ -32,7 +32,7 @@ pub use model::{BrowseFilters, FeedItem, FeedPage, SelectorRow};
 pub use model::SelectorItem;
 // JSON/字段助手已收敛进 utils::json（P3-C9）；这里再导出，保持
 // `super::discover::X` 的既有跨域引用路径不变（rank/search/… 共 6 域）。
-pub(crate) use crate::utils::json::{check_code, int_field, num_field, parse_tags, str_field};
+pub(crate) use hongguo_common::utils::json::{check_code, int_field, num_field, parse_tags, str_field};
 
 use parse::{parse_browse_panel, parse_feed};
 
@@ -108,7 +108,7 @@ mod probe {
     /// 真实接口探测（不进常规测试套件）：
     /// `cargo test probe_ -- --ignored --nocapture`
     fn anon_env() -> ApiEnv {
-        ApiEnv::anonymous(crate::domain::model::ProxyConfig::default())
+        ApiEnv::anonymous(hongguo_common::model::ProxyConfig::default())
     }
 
     /// 弹幕列表直连验证（抓包形状：vid 在路径里、参数在顶层、
@@ -463,7 +463,7 @@ mod probe_browse {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_panel_and_page() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let rows = fetch_browse_panel(&env).await.expect("面板");
         for r in &rows {
@@ -499,7 +499,7 @@ mod probe_panel_cookie {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_panel_with_cookies() {
         let mut env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let cookies = std::env::var("HG_LOGIN_COOKIES").unwrap_or_default();
         if !cookies.is_empty() {
@@ -523,7 +523,7 @@ mod probe_duration {
     #[ignore = "直连真实接口的探测用例"]
     async fn probe_browse_duration_filter() {
         let env = crate::domain::api::client::ApiEnv::anonymous(
-            crate::domain::model::ProxyConfig::default(),
+            hongguo_common::model::ProxyConfig::default(),
         );
         let filters = BrowseFilters {
             duration: "duration_0_60".into(),

@@ -4,8 +4,8 @@ use tauri::State;
 
 use super::{online, position};
 use crate::app_state::AppState;
-use crate::domain::model::{PlayRequest, PlayResponse};
-use crate::error::{AppError, AppResult};
+use hongguo_common::model::{PlayRequest, PlayResponse};
+use hongguo_common::{AppError, AppResult};
 use crate::store::Store;
 
 /// 解析播放请求。
@@ -141,7 +141,7 @@ pub(crate) fn episode_vid(store: &Store, series_id: &str, vid_index: u32) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::model::{Episode, Series};
+    use hongguo_common::model::{Episode, Series};
 
     fn store_with(episodes: Vec<Episode>) -> Store {
         let store = Store::open_memory().expect("测试内存库");

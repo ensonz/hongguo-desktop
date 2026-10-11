@@ -15,9 +15,9 @@ use serde_json::Value;
 
 use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
-use crate::error::{AppError, AppResult};
-use crate::utils::json::{check_code, str_field};
-use crate::utils::time::now_ms;
+use hongguo_common::{AppError, AppResult};
+use hongguo_common::utils::json::{check_code, str_field};
+use hongguo_common::utils::time::now_ms;
 
 pub const READ_HISTORY_LIST_PATH: &str = "/reading/bookapi/read_history/list/v";
 const READ_HISTORY_UPDATE_PATH: &str = "/reading/bookapi/read_history/update/v";
@@ -342,7 +342,7 @@ pub(crate) mod probe {
         let cookie_raw = hg_cookie.unwrap_or(account_cookie);
         let cookie = cookie_raw.replace(", ", "; ");
         let env = ApiEnv {
-            proxy: crate::domain::model::ProxyConfig::default(),
+            proxy: hongguo_common::model::ProxyConfig::default(),
             device,
             cookie: Some(cookie),
             x_tt_token: hg_token,

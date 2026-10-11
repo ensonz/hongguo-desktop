@@ -21,7 +21,7 @@ pub mod recover;
 
 pub use bridge::Store;
 
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 把下载队列快照写回数据库。
 ///

@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 use super::{TranscodeOptions, YuvFrame, read_range};
 

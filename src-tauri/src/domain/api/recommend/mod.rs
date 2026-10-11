@@ -9,7 +9,7 @@ use super::client::{ApiEnv, api_call_reading};
 use super::danmaku::LQ_API_ORIGIN;
 use super::discover::check_code;
 use super::rank::RANK_CELL_PATH;
-use crate::error::{AppError, AppResult};
+use hongguo_common::{AppError, AppResult};
 
 pub use model::RecommendTabConfig;
 

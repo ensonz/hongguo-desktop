@@ -16,7 +16,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::model::{DownloadTask, MergeTask, PlaybackMap, Series, Settings};
+use hongguo_common::model::{DownloadTask, MergeTask, PlaybackMap, Series, Settings};
 
 /// 旧 data.json 的顶层结构。
 ///
@@ -57,7 +57,7 @@ pub enum MigrationOutcome {
 pub fn run(
     store: &super::bridge::Store,
     json_path: &Path,
-) -> crate::error::AppResult<MigrationOutcome> {
+) -> hongguo_common::AppResult<MigrationOutcome> {
     if !json_path.exists() {
         return Ok(MigrationOutcome::NoLegacyFile);
     }

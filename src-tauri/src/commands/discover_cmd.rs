@@ -7,7 +7,7 @@ use crate::domain::api::discover::{
     BrowseFilters, FeedPage, SelectorRow, fetch_browse, fetch_browse_panel,
 };
 use crate::domain::api::recommend::fetch_recommend_feed;
-use crate::error::AppResult;
+use hongguo_common::AppResult;
 
 /// 拉找剧筛选面板（八行维度选项，选项表随服务端运营变化，不落死）。
 #[tauri::command]

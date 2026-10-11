@@ -22,10 +22,10 @@ use crate::app_state::AppState;
 use crate::domain::api::client::ApiEnv;
 use crate::domain::api::register::register_device;
 use crate::domain::api::search::search_series;
-use crate::error::AppError;
+use hongguo_common::AppError;
 use crate::signer::device::{DeviceProfile, align_app_version, video_device};
 use crate::store::Store;
-use crate::utils::time::now_ms;
+use hongguo_common::utils::time::now_ms;
 
 /// 已被服务端风控清理、必须从库里淘汰的静态档案 install_id（2026-10-04
 /// 实测旧 71332 档案 reading 系整段 0 字节拒）。**今后每次淘汰静态档案，
@@ -465,7 +465,7 @@ mod tests {
 #[cfg(test)]
 mod probe {
     use super::*;
-    use crate::domain::model::ProxyConfig;
+    use hongguo_common::model::ProxyConfig;
 
     /// 全链路试注（预算内 1 次注册）：注册 → 组档案 → 探针验活性。
     /// 注册被风控拒时打印拒绝原文（退避逻辑的真实路径）。

@@ -3,8 +3,8 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::model::{PlayRequest, PlayResponse};
-use crate::error::AppResult;
+use hongguo_common::model::{PlayRequest, PlayResponse};
+use hongguo_common::AppResult;
 
 #[tauri::command]
 pub async fn play_series(
@@ -75,7 +75,7 @@ pub async fn save_playback_position(
         )
     })
     .await
-    .map_err(|e| crate::error::AppError::Internal(format!("保存播放进度失败: {e}")))?
+    .map_err(|e| hongguo_common::AppError::Internal(format!("保存播放进度失败: {e}")))?
 }
 
 /// 一部剧最近看到的那一集（详情页「继续看」的数据源）。
@@ -86,13 +86,13 @@ pub async fn save_playback_position(
 pub async fn series_progress(
     state: State<'_, AppState>,
     series_id: String,
-) -> AppResult<Option<crate::domain::model::SeriesProgress>> {
+) -> AppResult<Option<hongguo_common::model::SeriesProgress>> {
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || store.series_last_position(&series_id))
         .await
-        .map_err(|e| crate::error::AppError::Internal(format!("读取播放进度失败: {e}")))?
+        .map_err(|e| hongguo_common::AppError::Internal(format!("读取播放进度失败: {e}")))?
         .map(|hit| {
-            hit.map(|(vid_index, p)| crate::domain::model::SeriesProgress {
+            hit.map(|(vid_index, p)| hongguo_common::model::SeriesProgress {
                 vid_index,
                 current_time: p.current_time,
                 duration: p.duration,

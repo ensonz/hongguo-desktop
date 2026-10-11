@@ -68,9 +68,6 @@ pub enum AppError {
     /// 未能完成（如 `spawn_blocking` 的 join 失败）。
     #[error("内部错误: {0}")]
     Internal(String),
-
-    #[error(transparent)]
-    Tauri(#[from] tauri::Error),
 }
 
 impl AppError {
@@ -91,7 +88,6 @@ impl AppError {
             AppError::Cancelled => "error.cancelled",
             AppError::Busy(_) => "error.busy",
             AppError::Internal(_) => "error.internal",
-            AppError::Tauri(_) => "error.internal",
         }
     }
 }
