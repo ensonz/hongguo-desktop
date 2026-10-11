@@ -1,0 +1,17 @@
+[package]
+name = "hongguo-stream"
+description = "红果桌面版在线流契约：内存渐进流、按 (vid, 档位) 分条的缓存、Range 应答与进程级流缓存"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 共用底座：档位模型（VideoDefinition）。
+hongguo-common = { path = "../hongguo-common" }
+# 流数据面的下层原语：稀疏密文缓冲 + 惰性解密计划。
+hongguo-mp4 = { path = "../hongguo-mp4" }
+# 条目锁与 LRU 时间戳；本 crate 全程同步，不引异步运行时。
+parking_lot = "0.12"
+log = "0.4"

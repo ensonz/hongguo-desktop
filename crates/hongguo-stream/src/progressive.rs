@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 
-use crate::protocol::range::{ProtocolResponse, RangeSpec, parse_range, partial_headers};
+use crate::range::{ProtocolResponse, RangeSpec, parse_range, partial_headers};
 use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan};
 
 /// 等待数据就绪的最长时间（秒）。超时返回 502，避免请求永久挂起。
@@ -23,7 +23,7 @@ const PROGRESSIVE_WINDOW: u64 = 4 * 1024 * 1024;
 /// `plan` 为 `None` 表示未加密流（官网兜底链路），明文就是密文本身。
 ///
 /// `cdn_url`/`proxy` 供「预取只填头部、转为当前集后续填余下」的恢复填充用
-/// （见 [`super::super::service` 侧 fill]）——没有它们，续填就得把取流表
+/// （见 `service::play_service::online` 侧 fill）——没有它们，续填就得把取流表
 /// 那次接口调用整个重放一遍。
 pub struct ProgressiveStream {
     pub sparse: Arc<SparseBuffer>,
@@ -152,7 +152,7 @@ pub fn serve(
     // 时用 RUST_LOG=debug 打开，日常不刷屏。
     log::debug!("[Stream] 请求 vid={vid} def={definition} range={range_header:?}");
 
-    let c = crate::service::play_service::online::cache();
+    let c = crate::cache();
     // 压根没有这一档：说明它已经被清掉了（或从没起播过）。
     // 这种情况必须立刻报错，不能进等待——等满 30 秒才告诉用户「没这流」，
     // 在切档的语境下就是一次白等。
@@ -385,7 +385,7 @@ fn respond(buffer: &[u8], range: RangeSpec, size: u64) -> ProtocolResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::stream::StreamCache;
+    use crate::StreamCache;
 
     /// 回归：`HONGGUO_STREAM_WINDOW=0` 曾让开放 Range 的 end==start，
     /// `end-1` 在 start=0 时 u64 下溢（debug panic / release 非法头）。
@@ -401,7 +401,7 @@ mod tests {
 
     /// 造一个「已填好 size + 全部字节」的条目。
     fn ready_stream(vid: &str, definition: u32, len: usize) {
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         c.remove(vid, definition);
         c.store(
             vid,
@@ -495,7 +495,7 @@ mod tests {
         // 等待中的条目被逐出/同键重建后，手里那份永远不会有数据（它的填充
         // 已随逐出死亡）——必须立即报错让前端自动重试接手，而不是等满
         // 30s 才把断流交给用户（「视频处理失败」那次事故的收尾半段）。
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         c.remove("v-stale", 1080);
         // 建一个空条目（无明文、无渐进）：serve 会进等待
         c.set_definitions("v-stale", 1080, &[]);
@@ -522,7 +522,7 @@ mod tests {
         // 按 (vid, 档位) 分条目之后，切档对上一档是零影响。
         const FILL_1080: u8 = 0xA1;
         const FILL_720: u8 = 0xB2;
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         c.remove("v-switch", 1080);
         c.remove("v-switch", 720);
         c.store("v-switch", 1080, &[FILL_1080; 512]);
@@ -574,7 +574,7 @@ mod tests {
             cdn_url: "https://cdn/example.mp4".into(),
             proxy: Default::default(),
         };
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         c.remove(vid, def);
         // 渐进注册是非复活式的：fixture 先物化条目（prepare 的 begin_fetch 等价物）
         assert!(c.begin_fetch(vid, def));
@@ -635,7 +635,7 @@ mod tests {
     #[test]
     fn progressive_identity_stream_serves_raw_bytes() {
         // 未加密流（plan = None）：明文就是密文，原样供数
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         let data: Vec<u8> = (0..600u32).map(|i| (i % 251) as u8).collect();
         let sparse = SparseBuffer::new(data.len() as u64);
         sparse.write(0, &data);
@@ -668,7 +668,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(150));
 
         // 还在等的时候：应有读者登记，且第一个需求洞指向缺口的起点
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         let prog = c
             .get("v-prog-demand", 720)
             .and_then(|e| e.progressive.lock().clone())
@@ -691,7 +691,7 @@ mod tests {
     #[test]
     fn progressive_is_reported_ready_before_any_data() {
         // 计划注册即可应答：拉分集与起播两个并发请求不必等整集
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         c.remove("v-prog-ready", 720);
         let sparse = SparseBuffer::new(16);
         let prog = ProgressiveStream {
@@ -712,7 +712,7 @@ mod tests {
     fn progressive_registration_does_not_resurrect_an_evicted_entry() {
         // 条目被逐出 = 用户已切走：渐进注册必须作废（否则填充把没人要的
         // 条目重新插回缓存，白占串行队列——切集黑屏链路的一环）
-        let c = crate::service::play_service::online::cache();
+        let c = crate::cache();
         c.remove("v-prog-gone", 720);
         let prog = ProgressiveStream {
             sparse: SparseBuffer::new(16),

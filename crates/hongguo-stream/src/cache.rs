@@ -12,24 +12,24 @@ use hongguo_mp4::streaming::SparseBuffer;
 /// 一档正在准备的流。
 pub struct StreamEntry {
     /// 已解密的明文缓冲（整集模式）
-    pub(super) buffer: Mutex<Vec<u8>>,
+    pub(crate) buffer: Mutex<Vec<u8>>,
     /// 已填充到的位置（字节数）
-    pub(super) filled: Mutex<u64>,
+    pub(crate) filled: Mutex<u64>,
     /// 总大小
-    pub(super) size: Mutex<u64>,
+    pub(crate) size: Mutex<u64>,
     /// 渐进模式的数据面。注册即代表 plain_len 已知、协议可开始应答
-    pub(super) progressive: Mutex<Option<Arc<ProgressiveStream>>>,
+    pub(crate) progressive: Mutex<Option<Arc<ProgressiveStream>>>,
     /// 本集提供的全部档位，供播放菜单读取
-    pub(super) definitions: Mutex<Vec<VideoDefinition>>,
+    pub(crate) definitions: Mutex<Vec<VideoDefinition>>,
     /// 是否正在取流（接口已发出、数据尚未落盘）。
     ///
     /// 播放页会对同一集发两次 `play_series`（拉分集 + 起播），两次都去下载
     /// 就是白下一整集，所以第二个要转为等待而不是重复发起。
-    pub(super) fetching: Mutex<bool>,
+    pub(crate) fetching: Mutex<bool>,
     /// 最近一次被用到的时刻（LRU 指纹）。`get`/创建即触碰：
     /// 协议层每次 Range 请求都会读条目，这正是「这条流还在被播放器读」
     /// 的最直接证据，逐出策略据此留人。
-    pub(super) last_used: Mutex<std::time::Instant>,
+    pub(crate) last_used: Mutex<std::time::Instant>,
 }
 
 impl Default for StreamEntry {
