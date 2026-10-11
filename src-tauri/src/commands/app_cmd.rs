@@ -14,6 +14,15 @@ use crate::error::AppResult;
 /// 永远没人应答，窗口就关不掉了——没 ready 就放行，宁可不确认也不能困住用户。
 pub type WindowCloseGate = Arc<AtomicBool>;
 
+/// 隐身可见性事件载荷（`incognito-visibility`）：前端据此暂停/恢复音频
+/// （窗口藏起来前要让音频先停）。与前端 `EVENT_PAYLOADS['incognito-visibility']`
+/// 两端镜像，改字段同一 commit 改另一端。
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IncognitoVisibilityEvent {
+    visible: bool,
+}
+
 /// 选择下载目录。
 #[tauri::command]
 pub fn select_folder(app: AppHandle) -> AppResult<Option<String>> {
@@ -314,7 +323,7 @@ pub fn set_incognito(app: AppHandle, enabled: bool) -> AppResult<()> {
             let _ = app.emit_to(
                 w.label(),
                 "incognito-visibility",
-                serde_json::json!({ "visible": true }),
+                IncognitoVisibilityEvent { visible: true },
             );
         }
         return Ok(());
@@ -378,7 +387,7 @@ async fn incognito_watch(app: AppHandle, generation: u64) {
             let _ = app.emit_to(
                 win.label(),
                 "incognito-visibility",
-                serde_json::json!({ "visible": true }),
+                IncognitoVisibilityEvent { visible: true },
             );
         } else {
             // 鼠标走了：先通知前端暂停（音频不能跟着窗口一起消失前还在响），
@@ -386,7 +395,7 @@ async fn incognito_watch(app: AppHandle, generation: u64) {
             let _ = app.emit_to(
                 win.label(),
                 "incognito-visibility",
-                serde_json::json!({ "visible": false }),
+                IncognitoVisibilityEvent { visible: false },
             );
             tokio::time::sleep(std::time::Duration::from_millis(INCOGNITO_PAUSE_GRACE_MS)).await;
             if !INCOGNITO_ON.load(Ordering::Acquire) {

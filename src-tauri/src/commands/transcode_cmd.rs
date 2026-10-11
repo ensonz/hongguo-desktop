@@ -40,6 +40,27 @@ pub struct CompatPlayResult {
     pub elapsed_ms: u128,
 }
 
+/// 兼容转码进度事件的阶段。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CompatPhase {
+    Downloading,
+    Transcoding,
+    Ready,
+}
+
+/// 兼容转码进度事件载荷（`compat-play-progress`）。
+///
+/// 与前端 `compatProgressSchema` 两端镜像，改字段同一 commit 改另一端。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompatProgressEvent {
+    /// 缓存键 `{series_id}:{vid_index}`
+    pub key: String,
+    pub percent: f64,
+    pub phase: CompatPhase,
+}
+
 /// 把一集转成 H.264 供本机解不了的机器播放。
 ///
 /// 播放器确认「有声音没画面」后调它；转好的产物落进兼容缓存，同一集只转一次。
@@ -53,10 +74,14 @@ pub async fn transcode_for_playback(
     vid: Option<String>,
 ) -> AppResult<CompatPlayResult> {
     let key = format!("{series_id}:{vid_index}");
-    let emit = |percent: f64, phase: &str| {
+    let emit = |percent: f64, phase: CompatPhase| {
         let _ = app.emit(
             COMPAT_PROGRESS,
-            serde_json::json!({ "key": key, "percent": percent, "phase": phase }),
+            CompatProgressEvent {
+                key: key.clone(),
+                percent,
+                phase,
+            },
         );
     };
 
@@ -68,7 +93,7 @@ pub async fn transcode_for_playback(
 
     let result = if let Some(p) = local {
         compat_play::ensure_compat(&series_id, vid_index, CompatSource::LocalFile(&p), &|pct| {
-            emit(pct, "transcoding")
+            emit(pct, CompatPhase::Transcoding)
         })
         .await
     } else {
@@ -85,18 +110,18 @@ pub async fn transcode_for_playback(
         )
         .await?;
         // 取流占前 20%，转码占后 80%：两段都动，但用户看到的是一条连续的进度
-        emit(0.0, "downloading");
+        emit(0.0, CompatPhase::Downloading);
         let plain = crate::service::play_service::online::fetch_plain(&play, &settings).await?;
         compat_play::ensure_compat(
             &series_id,
             vid_index,
             CompatSource::PlainBytes(plain),
-            &|pct| emit(20.0 + pct * 0.8, "transcoding"),
+            &|pct| emit(20.0 + pct * 0.8, CompatPhase::Transcoding),
         )
         .await
     };
 
-    emit(100.0, "ready");
+    emit(100.0, CompatPhase::Ready);
     let r = result?;
     Ok(CompatPlayResult {
         url: r.url,

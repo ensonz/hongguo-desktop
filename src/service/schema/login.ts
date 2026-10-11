@@ -19,14 +19,26 @@ export const sendCodeOutcomeSchema = z.object({
 });
 
 /**
- * MFA 后台轮询事件负载（`login-mfa-state`，Rust `login_cmd.rs::LOGIN_MFA_STATE`）：
- * success = 自动登录完成（带昵称）；failed = 验证失败/超时；waiting = 新一轮
- * 上行短信验证提示。三态字段互斥，discriminated union 钉死。
+ * MFA 后台轮询事件负载（`login-mfa-state`，Rust
+ * `login_service::events::LoginMfaStateEvent`）：success = 自动登录完成
+ * （带昵称）；failed = 验证失败/超时（带 i18n key，文案前端渲染）；
+ * waiting = 新一轮上行短信验证提示（serverTip 是服务端下发的展示内容）。
+ * 三态字段互斥，discriminated union 钉死。
  */
 export const loginMfaStateSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('success'), name: z.string() }),
-  z.object({ state: z.literal('failed'), message: z.string() }),
-  z.object({ state: z.literal('waiting'), message: z.string() }),
+  z.object({
+    state: z.literal('failed'),
+    /** 前端 i18n key（`settings.loginMfaTimeout` / `error.*`） */
+    messageKind: z.string(),
+    /** 后端原文（无对应词条时回落展示；超时这类纯业务态为空串） */
+    message: z.string(),
+  }),
+  z.object({
+    state: z.literal('waiting'),
+    /** 服务端下发的回复提示，原样透传 */
+    serverTip: z.string(),
+  }),
 ]);
 
 /** 登录命令返回：成功 / 需要 MFA 上行短信验证 / MFA 等待中 */

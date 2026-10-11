@@ -401,6 +401,7 @@
     "loginPrompt": "Sign in to reserve dramas and sync history",
     "loginMfaBackground": "Verification runs in the background; you can close this window. Sign-in completes automatically after you reply",
     "loginMfaFailed": "Verification failed, please sign in again",
+    "loginMfaTimeout": "Verification timed out, please sign in again",
     "loginBusy": "Signing in…",
     "loginSendCode": "Send code",
     "codeSent": "Code sent, check your SMS (valid for {s}s)",

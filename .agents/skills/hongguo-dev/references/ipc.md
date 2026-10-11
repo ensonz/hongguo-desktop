@@ -52,7 +52,9 @@ export const storage = {
 
 ## 三、事件推送
 
-**Rust 侧**：直接 `app.emit(name, payload)`（`tauri::Emitter`），`let _ =` 忽略失败（前端不在场发不出去无害）；payload 用 `serde_json::json!({...})`。
+**Rust 侧**：直接 `app.emit(name, payload)`（`tauri::Emitter`），`let _ =` 忽略失败（前端不在场发不出去无害）。
+
+**payload 必须是强类型 struct**（`#[derive(Serialize)]` + `#[serde(rename_all = "camelCase")]`），**禁用 `serde_json::json!` 裸拼**——裸拼的字段名拼错、结构增删编译器抓不到，两端契约静默失效。事件 payload struct 与前端 zod schema 是同一契约的两份副本，改一端同一 commit 改另一端（同 IPC 命令纪律）。
 
 ```rust
 // 事件名常量集中在 service/download_service/events.rs 的 names 模块
@@ -60,7 +62,17 @@ pub mod names {
     pub const DOWNLOAD_PROGRESS: &str = "download-progress";
     // ...
 }
+
+// 事件 payload：强类型，与前端 useEvent 泛型/zod schema 对齐
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginMfaStateEvent {
+    pub state: MfaState, // 枚举序列化为 string 字面量，禁裸字符串
+}
 ```
+
+- **用户可见文案不进 payload**：只传状态/错误 kind（i18n key），文字由前端渲染；Rust 侧不硬编码面向用户的文案。
+- 消费端：`useEvent<LoginMfaStateEvent>(EVENTS.loginMfaState, handler)`。
 
 **前端**：`service/tauri/types.ts` 的 `EVENTS` 常量逐条对齐（两端必须同步改），消费用 `useEvent`（自动退订，handler 要 `useCallback`）：
 

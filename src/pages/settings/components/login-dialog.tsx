@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { login as loginApi } from '@/service/commands';
 import { useEvent } from '@/service/tauri/events';
+import { localizedMessage } from '@/service/tauri/invoke';
 import { EVENTS } from '@/service/tauri/types';
 import { useAuthRefresh } from '@/service/queries';
 import { t, tf } from '@/locales';
@@ -67,9 +68,9 @@ export function LoginDialog({
       onSuccess();
     } else if (payload.state === 'failed') {
       setMfaTips(null);
-      toast.error(payload.message);
+      toast.error(localizedMessage(payload.messageKind, payload.message));
     } else {
-      setMfaTips(payload.message);
+      setMfaTips(payload.serverTip);
     }
   });
 

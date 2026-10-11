@@ -401,6 +401,7 @@
     "loginPrompt": "登录后可预约新剧、同步观看记录",
     "loginMfaBackground": "验证在后台进行，关闭此窗口不影响；回复短信后将自动登录",
     "loginMfaFailed": "验证失败，请重新登录",
+    "loginMfaTimeout": "验证超时，请重新登录",
     "loginBusy": "登录中…",
     "loginSendCode": "发送验证码",
     "codeSent": "验证码已发送，请查收短信（{s}s 内有效）",

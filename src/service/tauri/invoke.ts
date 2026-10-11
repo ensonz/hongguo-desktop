@@ -35,10 +35,7 @@ function toError(e: unknown): Error {
   if (e && typeof e === 'object' && 'kind' in e && 'message' in e) {
     const parsed = appErrorSchema.safeParse(e);
     if (parsed.success) {
-      // kind 的键集由 Rust 侧各命令的 AppError 变体定义，跨命令聚合
-      // 无法静态枚举才 cast；查不到词条时回落 message 原文
-      const localized = t(parsed.data.kind as MessageKey);
-      const error = new Error(localized === parsed.data.kind ? parsed.data.message : localized);
+      const error = new Error(localizedMessage(parsed.data.kind, parsed.data.message));
       error.cause = parsed.data.message;
       return error;
     }
@@ -48,4 +45,16 @@ function toError(e: unknown): Error {
   // 认不出来的抛出物：文案只说「操作失败」，command 名属于内部信息，
   // 原始载荷留给 cause。
   return new Error(t('error.internal'), { cause: e });
+}
+
+/**
+ * 错误文案归一：kind 有对应词条用译文，否则回落 message 原文。
+ *
+ * 命令错误（`toError`）与事件失败载荷（如 `login-mfa-state` 的 failed）
+ * 共用同一策略——kind 的键集由 Rust 侧 AppError 变体定义，跨命令聚合
+ * 无法静态枚举，才 cast。
+ */
+export function localizedMessage(kind: string, message: string): string {
+  const localized = t(kind as MessageKey);
+  return localized === kind ? message : localized;
 }
