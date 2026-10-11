@@ -6,6 +6,70 @@
 
 use serde_json::{Value, json};
 
+/// commentapi 互动体系的枚举值。
+///
+/// ⚠️ 这些值是抓包锁定的服务端契约：错一个数字，服务端就回
+/// `103008「无社区功能」` 或 `100103 PARAM_INVALID`——而且**三套体系
+/// （评论 / 剧评 / 弹幕）互相只差一两个数字**。历史上它们散落为字面量，
+/// 被「顺手统一」的风险很高，所以集中声明，使用点只引用。
+///
+/// 字段速查：
+/// - `object_type`（do_action 互动对象）：视频 6 / 剧评 2 / 评论 8
+/// - `comment_type`（内容类型）：弹幕 20 / 评论 4 / 剧评 2；**发送剧评是 0**
+/// - `commit_source`（发送来源）：弹幕 1500 / 评论 3 / 评论回复 9 /
+///   剧评发送 12 / 剧评回复 13
+/// - `data_type`（负载类型）：弹幕 20 / 评论 4 / 剧评 2；删除恒 9
+/// - `group_type`（会话维度）：剧评 1 / 评论·弹幕 30
+/// - `server_channel`（列表通道）：弹幕 1000 / 评论 18 / 剧评 34
+/// - `service_id`（删除的内容类型）：剧评 2 / 评论·回复 4
+/// - 列表侧 `comment_source`（与发送侧 `commit_source` 是**两个不同枚举**）：
+///   弹幕 601 / 评论 4 / 剧评 1 / 剧评回复 501 / 评论回复 504
+pub mod interaction {
+    /// `object_type`：互动对象类型。
+    pub const OBJECT_TYPE_VIDEO: i64 = 6;
+    pub const OBJECT_TYPE_REVIEW: i64 = 2;
+    pub const OBJECT_TYPE_COMMENT: i64 = 8;
+
+    /// `comment_type`：内容类型（剧评**发送**时是 0，列表 / 点赞是 2）。
+    pub const COMMENT_TYPE_DANMAKU: i64 = 20;
+    pub const COMMENT_TYPE_COMMENT: i64 = 4;
+    pub const COMMENT_TYPE_REVIEW: i64 = 2;
+    pub const COMMENT_TYPE_REVIEW_SEND: i64 = 0;
+
+    /// `commit_source`：发送来源。
+    pub const COMMIT_SOURCE_DANMAKU: i64 = 1500;
+    pub const COMMIT_SOURCE_COMMENT: i64 = 3;
+    pub const COMMIT_SOURCE_COMMENT_REPLY: i64 = 9;
+    pub const COMMIT_SOURCE_REVIEW: i64 = 12;
+    pub const COMMIT_SOURCE_REVIEW_REPLY: i64 = 13;
+
+    /// `data_type`：负载类型（删除语义恒 9，与发送侧无关）。
+    pub const DATA_TYPE_DANMAKU: i64 = 20;
+    pub const DATA_TYPE_COMMENT: i64 = 4;
+    pub const DATA_TYPE_REVIEW: i64 = 2;
+    pub const DATA_TYPE_DELETE: i64 = 9;
+
+    /// `group_type`：会话维度。
+    pub const GROUP_TYPE_REVIEW: i64 = 1;
+    pub const GROUP_TYPE_COMMENT: i64 = 30;
+
+    /// `server_channel`：列表查询的服务端通道。
+    pub const SERVER_CHANNEL_DANMAKU: i64 = 1000;
+    pub const SERVER_CHANNEL_COMMENT: i64 = 18;
+    pub const SERVER_CHANNEL_REVIEW: i64 = 34;
+
+    /// `service_id`：删除接口的内容类型。
+    pub const SERVICE_ID_REVIEW: i64 = 2;
+    pub const SERVICE_ID_COMMENT: i64 = 4;
+
+    /// 列表查询侧的 `comment_source`（与发送侧 `commit_source` 是两个枚举）。
+    pub const LIST_SOURCE_DANMAKU: i64 = 601;
+    pub const LIST_SOURCE_COMMENT: i64 = 4;
+    pub const LIST_SOURCE_REVIEW: i64 = 1;
+    pub const LIST_SOURCE_REVIEW_REPLIES: i64 = 501;
+    pub const LIST_SOURCE_COMMENT_REPLIES: i64 = 504;
+}
+
 /// 分集详情接口路径。
 pub const DETAIL_PATH: &str = "/novel/player/multi_video_detail/preload/v1";
 
