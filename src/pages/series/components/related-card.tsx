@@ -39,7 +39,7 @@ export function RelatedCard({ item, onOpen }: { item: RelatedItem; onOpen: (id: 
           </span>
         )}
         {item.score > 0 && (
-          <span className="absolute right-1 bottom-1 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none text-amber-300">
+          <span className="text-star absolute right-1 bottom-1 rounded bg-black/60 px-1 py-0.5 text-[10px] leading-none">
             {item.score.toFixed(1)}分
           </span>
         )}

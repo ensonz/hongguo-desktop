@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { Bell, Check, Flame, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { SeriesRowCard } from '@/components/series-row-card';
@@ -68,7 +69,7 @@ export function RankRow({ item }: { item: RankItem }) {
           <span
             className={cn(
               'w-8 shrink-0 text-center text-2xl font-black tabular-nums',
-              rankNo <= 3 ? 'text-amber-500' : 'text-muted-foreground/50',
+              rankNo <= 3 ? 'text-star' : 'text-muted-foreground/50',
             )}
             aria-hidden
           >
@@ -78,9 +79,12 @@ export function RankRow({ item }: { item: RankItem }) {
       }
       titleExtra={
         item.season !== '' ? (
-          <span className="text-muted-foreground shrink-0 rounded border px-1 text-[10px] leading-4">
+          <Badge
+            variant="outline"
+            className="text-muted-foreground shrink-0 rounded px-1 text-[10px] leading-4"
+          >
             {item.season}
-          </span>
+          </Badge>
         ) : undefined
       }
       metaLine={
@@ -91,7 +95,7 @@ export function RankRow({ item }: { item: RankItem }) {
         rec !== '' || secondary.length > 0 ? (
           <p className="flex items-center gap-2 text-xs">
             {rec !== '' && (
-              <span className="flex shrink-0 items-center gap-0.5 text-orange-400">
+              <span className="text-warm flex shrink-0 items-center gap-0.5">
                 <Flame className="size-3" aria-hidden />
                 {rec}
               </span>

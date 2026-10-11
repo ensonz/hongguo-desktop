@@ -222,7 +222,7 @@ export function SeriesDetailPage({
               <div className="text-muted-foreground mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 {reviewScore && (
                   <span className="flex items-baseline gap-1.5">
-                    <span className="text-xl leading-none font-bold text-amber-400">
+                    <span className="text-star text-xl leading-none font-bold">
                       {Number(reviewScore).toFixed(1)}
                     </span>
                     <span>
@@ -233,7 +233,7 @@ export function SeriesDetailPage({
                 )}
                 {meta && meta.hotScore > 0 && (
                   <span className="flex items-center gap-1">
-                    <Flame className="size-4 text-red-500" aria-hidden />
+                    <Flame className="text-hot size-4" aria-hidden />
                     <span>
                       {tf('detail.heatValue', { count: formatCountPrecise(meta.hotScore) })}
                     </span>
@@ -259,14 +259,14 @@ export function SeriesDetailPage({
               upcoming ? (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {meta?.season && (
-                    <Badge variant="default" className="text-primary-foreground bg-red-500">
+                    <Badge variant="default" className="bg-hot text-primary-foreground">
                       {meta.season}
                     </Badge>
                   )}
                   {(upcoming || activeSeries.episodes.length > 0) && (
                     <Badge
                       variant={upcoming ? 'default' : 'secondary'}
-                      className={upcoming ? 'text-primary-foreground bg-red-500' : ''}
+                      className={upcoming ? 'bg-hot text-primary-foreground' : ''}
                     >
                       {tf('detail.allEpisodesBadge', { count: activeSeries.episodes.length })}
                     </Badge>
@@ -289,7 +289,7 @@ export function SeriesDetailPage({
                   /* 未上线：动作行换「⏳ 即将上线 + 预约」（hgplayer 同款），
                      播放/收藏/点赞无从谈起 */
                   <>
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-red-500">
+                    <span className="text-hot flex items-center gap-1.5 text-sm font-medium">
                       <Hourglass className="size-4" aria-hidden />
                       {t('player.comingSoon')}
                     </span>
@@ -307,10 +307,10 @@ export function SeriesDetailPage({
                       size="sm"
                       variant="outline"
                       onClick={onCollect}
-                      className={cn(collected && 'text-amber-500')}
+                      className={cn(collected && 'text-star')}
                     >
                       <Star
-                        className={cn('size-4', collected && 'fill-amber-400 text-amber-400')}
+                        className={cn('size-4', collected && 'fill-star text-star')}
                         aria-hidden
                       />
                       {t(collected ? 'detail.collected' : 'detail.collect')}
@@ -319,12 +319,9 @@ export function SeriesDetailPage({
                       size="sm"
                       variant="outline"
                       onClick={onDigg}
-                      className={cn(digged && 'text-red-500')}
+                      className={cn(digged && 'text-hot')}
                     >
-                      <Heart
-                        className={cn('size-4', digged && 'fill-red-500 text-red-500')}
-                        aria-hidden
-                      />
+                      <Heart className={cn('size-4', digged && 'fill-hot text-hot')} aria-hidden />
                       {t('player.interact.like')}
                     </Button>
                   </>

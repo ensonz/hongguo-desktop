@@ -322,7 +322,7 @@ function ReservationCard({
           </button>
           {item.score > 0 && (
             <span className="text-muted-foreground flex shrink-0 items-center gap-0.5 text-xs">
-              <Star className="size-3 text-amber-400" aria-hidden />
+              <Star className="text-star size-3" aria-hidden />
               {item.score.toFixed(1)}
             </span>
           )}

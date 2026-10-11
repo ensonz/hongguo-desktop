@@ -244,7 +244,7 @@ function LikedCard({
             {title !== '' ? title : tf('collections.unresolved', { id: item.seriesId.slice(-6) })}
           </p>
           <div className="text-muted-foreground flex items-center gap-1 text-xs">
-            <Heart className="size-3.5 fill-red-400 text-red-400" aria-hidden />
+            <Heart className="fill-hot text-hot size-3.5" aria-hidden />
             <span className="tabular-nums">{item.diggedCount > 0 ? item.diggedCount : ''}</span>
           </div>
         </div>

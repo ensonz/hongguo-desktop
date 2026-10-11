@@ -67,11 +67,11 @@ export function CalendarRow({ item }: { item: CalendarItem }) {
       metaLine={
         heat !== '' || item.category !== '' || item.score > 0 || item.episodeCnt > 0 ? (
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            {heat !== '' && <span className="font-semibold text-red-500">{heat}</span>}
+            {heat !== '' && <span className="text-hot font-semibold">{heat}</span>}
             {item.category !== '' && <span className="text-muted-foreground">{item.category}</span>}
             {item.score > 0 && (
               <span className="text-muted-foreground flex items-center gap-0.5">
-                <Star className="size-3 text-amber-400" aria-hidden />
+                <Star className="text-star size-3" aria-hidden />
                 {item.score.toFixed(1)}
               </span>
             )}

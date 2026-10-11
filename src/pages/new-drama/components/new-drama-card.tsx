@@ -52,7 +52,7 @@ export function NewDramaCard({
         )}
         {/* 官方同款封面角标：左下热度（黄）、右下总集数 */}
         {item.recText !== '' && (
-          <span className="absolute bottom-1 left-1 flex items-center gap-0.5 text-[10px] font-semibold text-amber-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+          <span className="text-star absolute bottom-1 left-1 flex items-center gap-0.5 text-[10px] font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
             <Flame className="size-3" aria-hidden />
             {item.recText}
           </span>
@@ -85,7 +85,7 @@ export function NewDramaCard({
         </p>
         {item.score > 0 && (
           <p className="flex items-center gap-1 text-xs font-semibold">
-            <Star className="size-3.5 text-amber-400" aria-hidden />
+            <Star className="text-star size-3.5" aria-hidden />
             {item.score.toFixed(1)}
             {t('newDrama.scoreSuffix')}
           </p>

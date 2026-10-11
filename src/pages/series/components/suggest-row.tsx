@@ -51,7 +51,7 @@ export function SuggestRow({
           {item.parts.length > 0
             ? item.parts.map((part, i) =>
                 part.hl ? (
-                  <span key={i} className="text-orange-500">
+                  <span key={i} className="text-warm">
                     {part.text}
                   </span>
                 ) : (
