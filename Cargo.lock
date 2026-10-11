@@ -2327,6 +2327,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hongguo-common",
+ "hongguo-signer",
  "jpeg-encoder",
  "log",
  "md-5",
@@ -2361,6 +2362,20 @@ dependencies = [
  "urlencoding",
  "uuid",
  "windows",
+]
+
+[[package]]
+name = "hongguo-signer"
+version = "0.4.3"
+dependencies = [
+ "base64 0.23.1",
+ "chrono",
+ "hex",
+ "md-5",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "sm3",
 ]
 
 [[package]]
