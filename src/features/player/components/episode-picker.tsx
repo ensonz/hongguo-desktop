@@ -25,6 +25,7 @@ import {
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
 import { t, tf } from '@/locales';
+import { seasonNoFromTag } from '../season';
 import type { RelatedItem } from '@/service/schema';
 
 interface Props {
@@ -38,12 +39,6 @@ interface Props {
 
 /** 每个范围段的集数（hgplayer 同款 30 个一段）。 */
 const GROUP_SIZE = 30;
-
-/** 同系列各季的判定：角标是「第N季」形态（plan/v 响应里同 IP 作品不带季角标）。 */
-function seasonNo(tag: string): number | null {
-  const m = /^第(\d{1,2})季$/.exec(tag);
-  return m ? Number(m[1]) : null;
-}
 
 export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose }: Props) {
   const [tab, setTab] = useState<'grid' | 'series'>('grid');
@@ -81,7 +76,7 @@ export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose 
   const { data: offlineReservations } = useReservations(false);
   const { mutate: reserve, isPending: reserving } = useReserveSeries();
   const seasons = useMemo(() => {
-    const list = (related?.works ?? []).filter((w) => seasonNo(w.tag) != null);
+    const list = (related?.works ?? []).filter((w) => seasonNoFromTag(w.tag) != null);
     // plan/v 只回其他季，不回正在播的这部——hgplayer 的系列剧列表里
     // 当前季也在（红框 + 播放中），缺的从剧集档案合成一份补进头部。
     // 档案没有 tag/playCnt，卡片副标题留空即可，「播放中」就是它的说明。
@@ -97,7 +92,7 @@ export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose 
         videoDesc: '',
       });
     }
-    list.sort((a, b) => (seasonNo(a.tag) ?? 0) - (seasonNo(b.tag) ?? 0));
+    list.sort((a, b) => (seasonNoFromTag(a.tag) ?? 0) - (seasonNoFromTag(b.tag) ?? 0));
     return list;
   }, [related?.works, series]);
   const reservedIds = useMemo(
