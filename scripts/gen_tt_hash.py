@@ -11,8 +11,11 @@ import io
 import re
 import tempfile
 
+# ⚠️ 参考实现 ttencrypt.py 未入库（曾是临时文件）：重跑本脚本前需自备该文件放到
+# 此路径，否则 open(SRC) 直接失败。产物 tt_hash.rs 已入库，是当前唯一事实源。
 SRC = tempfile.gettempdir() + '/ttencrypt.py'
-OUT = 'src-tauri/src/signer/tt_hash.rs'
+# 产物位置随 signer 迁出 src-tauri 而更新（workspace 成员 crates/hongguo-signer）。
+OUT = 'crates/hongguo-signer/src/tt_hash.rs'
 TAB = chr(9)
 NL = chr(10)
 
@@ -514,7 +517,7 @@ mod tests {
     /// 924 字节（8 块）真实 gz 输入的对拍。
     #[test]
     fn calculate_multi_block_924() {
-        let gz_hex = include_str!("../../tests/fixtures/py_gz.hex");
+        let gz_hex = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/py_gz.hex"));
         let gz: Vec<u8> = (0..gz_hex.trim().len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&gz_hex.trim()[i..i + 2], 16).unwrap())
