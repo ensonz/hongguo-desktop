@@ -2341,7 +2341,6 @@ dependencies = [
  "chrono",
  "ctr 0.10.1",
  "digest 0.11.3",
- "dirs",
  "env_logger",
  "flate2",
  "futures-util",
@@ -2350,6 +2349,7 @@ dependencies = [
  "hongguo-common",
  "hongguo-mp4",
  "hongguo-signer",
+ "hongguo-store",
  "jpeg-encoder",
  "log",
  "md-5",
@@ -2380,7 +2380,6 @@ dependencies = [
  "time",
  "tokio",
  "tokio-util",
- "turso",
  "urlencoding",
  "uuid",
  "windows",
@@ -2410,6 +2409,22 @@ dependencies = [
  "serde",
  "serde_json",
  "sm3",
+]
+
+[[package]]
+name = "hongguo-store"
+version = "0.4.3"
+dependencies = [
+ "chrono",
+ "dirs",
+ "futures-util",
+ "hongguo-common",
+ "hongguo-signer",
+ "log",
+ "serde",
+ "serde_json",
+ "tokio",
+ "turso",
 ]
 
 [[package]]
