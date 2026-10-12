@@ -220,6 +220,10 @@ pub struct HomeView {
 
     wheel_at: Option<Instant>,
     last_save: Instant,
+    /// 播放快捷键的焦点锚：键盘事件只派发给焦点子树，舞台持有一个
+    /// FocusHandle（见 render_stage），首次渲染播种、点舞台带回。
+    focus: gpui_kit::FocusHandle,
+    focus_seeded: bool,
     /// 已流预取（每部一次，失败不算数允许重试）。
     stream_prefetched: HashSet<String>,
     /// 已预取过分集档案的剧。
@@ -288,6 +292,8 @@ impl HomeView {
             progress_bounds: Rc::new(Cell::new(None)),
             wheel_at: None,
             last_save: Instant::now(),
+            focus: cx.focus_handle(),
+            focus_seeded: false,
             stream_prefetched: HashSet::new(),
             archives_prefetched: HashSet::new(),
             history: None,
@@ -1183,6 +1189,18 @@ impl HomeView {
         cx.notify();
     }
 
+    /// 键盘相对 seek（秒，可负）：钳到 [0, 时长]，唤醒控制条。
+    fn seek_by(&mut self, secs: f64, cx: &mut Context<Self>) {
+        let Some(player) = &self.player else {
+            return;
+        };
+        let dur = player.duration_secs();
+        let target = (player.position_secs() + secs).clamp(0.0, dur.max(0.0));
+        player.seek(target);
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
     /// `m:ss`（与 Tauri 版时间格式一致）。
     fn fmt_secs(secs: f64) -> String {
         let s = secs.max(0.0) as u64;
@@ -1560,7 +1578,12 @@ impl HomeView {
                 .absolute()
                 .size_full()
                 .id("stage-video")
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx)))
+                // 点画面切暂停（对齐 Tauri）；顺手把焦点带回舞台锚——弹层
+                // 菜单收走焦点后，这是用户最自然的「回到播放操作」路径
+                .on_click(cx.listener(|this, _, window, cx| {
+                    window.focus(&this.focus, cx);
+                    this.toggle_pause(cx);
+                }))
                 .child({
                     #[cfg(target_os = "macos")]
                     {
@@ -1619,6 +1642,23 @@ impl HomeView {
             .bg(gpui_kit::rgb(0x000000))
             .relative()
             .overflow_hidden()
+            // 播放快捷键（对齐 Tauri use-player-interactions 默认映射）：空格
+            // 暂停/继续、←→ 快退/快进 5 秒、↑↓ 切上一部/下一部剧（沉浸流与
+            // 滚轮同语义）。键盘事件只派发给焦点子树，焦点锚就在本元素上。
+            .key_context("HomeStage")
+            .track_focus(&self.focus)
+            .on_key_down(
+                cx.listener(|this, ev: &gpui_kit::KeyDownEvent, _window, cx| {
+                    match ev.keystroke.key.as_str() {
+                        "space" => this.toggle_pause(cx),
+                        "left" => this.seek_by(-5.0, cx),
+                        "right" => this.seek_by(5.0, cx),
+                        "down" => this.step(1, cx),
+                        "up" => this.step(-1, cx),
+                        _ => {}
+                    }
+                }),
+            )
             .child(cover)
             .child(if video_ready {
                 video
@@ -1968,6 +2008,14 @@ impl gpui_kit::Render for HomeView {
         }
         // render_tabs 要 &mut cx，先取（theme 借的是 cx 的不可变引用）
         let tabs = self.render_tabs(cx);
+        // 播放快捷键的焦点种子：键盘事件只派发给焦点子树，舞台的
+        // FocusHandle 得在首次渲染时拿到焦点（只播种一次——之后焦点可能
+        // 在弹层菜单里，每帧强抢会打架；点舞台会带回焦点）。
+        // 放在 theme 借用之前：focus 要可变借 cx。
+        if !self.focus_seeded && !self.focus.is_focused(window) {
+            self.focus_seeded = true;
+            window.focus(&self.focus, cx);
+        }
         let theme = cx.theme();
         let feed = self.feeds.get(&self.active).expect("源已初始化");
         let notice: Option<String> = if let Some(err) = &feed.failed {
@@ -2014,12 +2062,13 @@ impl gpui_kit::Render for HomeView {
                     }))
                     .on_scroll_wheel(cx.listener(
                         |this, ev: &gpui_kit::ScrollWheelEvent, window, cx| {
-                            // Tauri 同参：|Δy|<15 忽略，400ms 冷却在 step 里
+                            // Tauri 同参：|Δy|<15 忽略，400ms 冷却在 step 里；
+                            // 方向同 Tauri（deltaY>0=下滚=下一部，y<0 即下一部）
                             let y = ev.delta.pixel_delta(window.line_height()).y.to_f64();
                             if y.abs() < 15.0 {
                                 return;
                             }
-                            this.step(if y > 0.0 { 1 } else { -1 }, cx);
+                            this.step(if y < 0.0 { 1 } else { -1 }, cx);
                         },
                     ))
                     .into_any_element(),
