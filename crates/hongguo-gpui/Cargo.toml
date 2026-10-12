@@ -30,7 +30,8 @@ hongguo-api = { path = "../hongguo-api" }
 hongguo-protocol = { path = "../hongguo-protocol" }
 hongguo-common = { path = "../hongguo-common" }
 hongguo-store = { path = "../hongguo-store" }
-# §5.3 spike：进程内取流（serve）+ 参数集提取 + VT 逐帧解码出口。
+# §5.3 spike：播放引擎（解码/音频/同步）+ 取流编排面。
+hongguo-playback = { path = "../hongguo-playback" }
 hongguo-stream = { path = "../hongguo-stream" }
 hongguo-media = { path = "../hongguo-media" }
 hongguo-media-platform = { path = "../hongguo-media-platform" }

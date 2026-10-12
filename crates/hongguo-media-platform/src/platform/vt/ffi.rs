@@ -232,6 +232,7 @@ unsafe extern "C" {
         pixelBufferOut: *mut CVPixelBufferRef,
     ) -> OSStatus;
     pub fn CVPixelBufferGetWidth(pixelBuffer: CVPixelBufferRef) -> usize;
+    pub fn CVPixelBufferGetPixelFormatType(pixelBuffer: CVPixelBufferRef) -> OSType;
     pub fn CVPixelBufferGetHeight(pixelBuffer: CVPixelBufferRef) -> usize;
     pub fn CVPixelBufferLockBaseAddress(pixelBuffer: CVPixelBufferRef, flags: u32) -> OSStatus;
     pub fn CVPixelBufferUnlockBaseAddress(pixelBuffer: CVPixelBufferRef, flags: u32) -> OSStatus;

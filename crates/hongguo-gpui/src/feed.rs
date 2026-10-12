@@ -95,9 +95,14 @@ impl FeedView {
                         view.session = page.session_id;
                         view.load_covers(&page.items, cx);
                         // §5.3 spike 脚手架：HONGGUO_SPIKE_AUTO=1 时自动试播
-                        // 第一部（无头验证整条解码链；阶段 3 随 spike 一并拆除）
+                        // 第一部（HONGGUO_SPIKE_INDEX 选第 N 部，复现不同片源；
+                        // 阶段 3 随 spike 一并拆除）
                         let auto = if std::env::var_os("HONGGUO_SPIKE_AUTO").is_some() {
-                            page.items.first().map(|i| (i.series_id.clone(), i.title.clone()))
+                            let idx: usize = std::env::var("HONGGUO_SPIKE_INDEX")
+                                .ok()
+                                .and_then(|v| v.parse().ok())
+                                .unwrap_or(0);
+                            page.items.get(idx).map(|i| (i.series_id.clone(), i.title.clone()))
                         } else {
                             None
                         };

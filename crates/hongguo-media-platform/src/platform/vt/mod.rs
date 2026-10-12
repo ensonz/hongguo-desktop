@@ -165,6 +165,16 @@ unsafe fn make_test_frame(width: usize) -> AppResult<Pb> {
 struct Pb(ffi::CVPixelBufferRef);
 unsafe impl Send for Pb {}
 
+impl Clone for Pb {
+    fn clone(&self) -> Self {
+        if self.0.is_null() {
+            return Pb(std::ptr::null_mut());
+        }
+        unsafe { ffi::CFRetain(self.0 as ffi::CFTypeRef) };
+        Pb(self.0)
+    }
+}
+
 impl Pb {
     fn dims(&self) -> (usize, usize) {
         unsafe {
@@ -485,6 +495,15 @@ impl DecodedFrame {
     }
 }
 
+impl Clone for DecodedFrame {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            pts_secs: self.pts_secs,
+        }
+    }
+}
+
 /// HEVC 逐帧解码器（播放末端；转码链走 [`transcode_h264`]，不经这里）。
 ///
 /// 同步解码：[`HevcFrameDecoder::decode`] 返回即该样本的全部输出已就绪。
@@ -495,6 +514,10 @@ impl DecodedFrame {
 /// YCbCr shader 断言全区间；转码链保持 '420v' 不受影响。
 pub struct HevcFrameDecoder {
     inner: Decompressor,
+    /// 420f 转换会话：VT 对部分片源不理会 FullRange 请求（输出仍 '420v'），
+    /// 而 GPU 合成器断言全区间——首帧发现格式不符时按需建会话转换。
+    full_range_transfer: Option<Transfer>,
+    actual_format_logged: bool,
 }
 
 // VT 解码会话与格式描述都是 CF 对象，CoreFoundation 引用计数线程安全，
@@ -507,6 +530,8 @@ impl HevcFrameDecoder {
     pub fn open(parameter_sets: &[Vec<u8>], full_range: bool) -> AppResult<Self> {
         Ok(Self {
             inner: unsafe { Decompressor::new(parameter_sets, full_range)? },
+            full_range_transfer: None,
+            actual_format_logged: false,
         })
     }
 
@@ -514,13 +539,26 @@ impl HevcFrameDecoder {
     /// 各自带 PTS）。无输出（如先行参考帧还没喂够）返回空表。
     pub fn decode(&mut self, sample: &[u8], pts_secs: f64, duration_secs: f64) -> AppResult<Vec<DecodedFrame>> {
         unsafe { self.inner.decode(sample, pts_secs, duration_secs)? };
-        Ok(self.take_ready())
+        let ready = self.take_ready();
+        // GPU 合成器（gpui surface）断言 FullRange NV12；VT 对部分片源不理会
+        // 请求仍吐 '420v'——发现即经 VTPixelTransferSession 转全区间，绝不把
+        // 非全区间帧递给渲染端（那里是硬断言，panic 会把主循环打成僵尸）。
+        let mut out = Vec::with_capacity(ready.len());
+        for frame in ready {
+            out.push(self.enforce_full_range(frame));
+        }
+        Ok(out)
     }
 
     /// 冲尾帧并返回遗留输出。会话随即不再可用。
     pub fn finish(&mut self) -> AppResult<Vec<DecodedFrame>> {
         unsafe { self.inner.finish()? };
-        Ok(self.take_ready())
+        let ready = self.take_ready();
+        let mut out = Vec::with_capacity(ready.len());
+        for frame in ready {
+            out.push(self.enforce_full_range(frame));
+        }
+        Ok(out)
     }
 
     fn take_ready(&self) -> Vec<DecodedFrame> {
@@ -529,6 +567,38 @@ impl HevcFrameDecoder {
         raw.into_iter()
             .map(|(inner, pts_secs)| DecodedFrame { inner, pts_secs })
             .collect()
+    }
+
+    fn enforce_full_range(&mut self, frame: DecodedFrame) -> DecodedFrame {
+        let fmt = unsafe { ffi::CVPixelBufferGetPixelFormatType(frame.inner.0) };
+        if !self.actual_format_logged {
+            self.actual_format_logged = true;
+            log::info!(
+                "[Platform/vt] 解码输出像素格式: {}",
+                if fmt == ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
+                    "420f（全区间，直上屏）"
+                } else {
+                    "非 420f，走全区间转换"
+                }
+            );
+        }
+        if fmt == ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
+            return frame;
+        }
+        let DecodedFrame { inner, pts_secs } = frame;
+        let (w, h) = inner.dims();
+        let transfer = self.full_range_transfer.get_or_insert_with(|| {
+            // 转换会话只可能因系统资源建不出来；这里失败等于无法渲染，报错终止
+            unsafe { Transfer::new(w, h).expect("建全区间转换会话") }
+        });
+        let converted = unsafe { transfer.transfer_to(&inner, ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) };
+        match converted {
+            Ok(pb) => DecodedFrame { inner: pb, pts_secs },
+            Err(e) => {
+                log::warn!("[Platform/vt] 全区间转换失败，保留原帧（渲染端可能拒绝）: {e}");
+                DecodedFrame { inner, pts_secs }
+            }
+        }
     }
 }
 
@@ -894,8 +964,9 @@ impl Transfer {
         }
     }
 
-    /// 缩到目标分辨率（NV12 → NV12，GPU 上完成）。
-    unsafe fn scale(&self, src: &Pb) -> AppResult<Pb> {
+    /// 搬到目标分辨率/格式的缓冲（NV12 → NV12，GPU 上完成；区间转换
+    /// VideoRange → FullRange 也由会话承担）。
+    unsafe fn transfer_to(&self, src: &Pb, pixel_format: ffi::OSType) -> AppResult<Pb> {
         unsafe {
             let mut dst: ffi::CVPixelBufferRef = std::ptr::null_mut();
             let attrs = iosurface_attrs();
@@ -903,18 +974,25 @@ impl Transfer {
                 ffi::kCFAllocatorDefault,
                 self.width,
                 self.height,
-                ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                pixel_format,
                 attrs,
                 &mut dst,
             );
             ffi::CFRelease(attrs as ffi::CFTypeRef);
-            os(st, "建缩放目标缓冲")?;
+            os(st, "建搬移目标缓冲")?;
             let dst = Pb(dst);
             os(
                 ffi::VTPixelTransferSessionTransferImage(self.session, src.0, dst.0),
-                "缩放帧",
+                "搬移帧",
             )?;
             Ok(dst)
+        }
+    }
+
+    /// 缩到目标分辨率（转码链既有路径，'420v'）。
+    unsafe fn scale(&self, src: &Pb) -> AppResult<Pb> {
+        unsafe {
+            self.transfer_to(src, ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
         }
     }
 }

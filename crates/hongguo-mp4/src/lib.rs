@@ -9,6 +9,7 @@
 //! - [`decrypt_buffer`]：内存解密（在线播放用）
 //! - [`streaming`]：流式解密（按 Range 惰性解，不整集等待）
 //! - [`crypto`]：CENC-AES-CTR 与密钥派生原语
+//! - [`esds`]：`esds` → AudioSpecificConfig（AAC 解码器的 extradata）
 //!
 //! `fixtures` 只在测试构建里存在：解析层的测试要造 MP4 时共用同一份字节构造。
 
@@ -20,6 +21,7 @@ pub mod chunk_map;
 pub mod decrypt_buffer;
 pub mod decrypt_file;
 pub mod deprotect;
+pub mod esds;
 pub mod sample_table;
 pub mod streaming;
 pub mod timing;

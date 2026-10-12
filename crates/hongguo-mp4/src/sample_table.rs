@@ -56,6 +56,9 @@ pub struct TrackInfo {
     pub media_timescale: u32,
     /// `mdhd` 的媒体时长（单位是 media_timescale）
     pub media_duration: u64,
+    /// 音频轨的 AudioSpecificConfig（`esds` → DecoderSpecificInfo，AAC 解码
+    /// 器的 extradata）；视频轨与非 AAC 音频轨为空。
+    pub decoder_config: Vec<u8>,
 }
 
 /// 收集轨道信息。
@@ -180,6 +183,11 @@ fn read_stsd(data: &[u8], start: usize, size: usize, info: &mut TrackInfo) {
         // entry+24 是 16.16 定点的 samplerate，整数部分在高 16 位
         if start + 42 <= start + size {
             info.sample_rate = u16::from_be_bytes([data[start + 40], data[start + 41]]) as u32;
+        }
+        // AAC 的 AudioSpecificConfig 藏在 entry 的 `esds` 子 box 里——纯
+        // Rust 解码器（不经过 MP4 demuxer）没有它无法初始化
+        if let Some(asc) = crate::esds::decoder_config_from_stsd(data, start, size) {
+            info.decoder_config = asc;
         }
     }
 }
