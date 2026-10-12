@@ -42,6 +42,9 @@ pub(crate) fn tokio() -> &'static tokio::runtime::Runtime {
 }
 
 fn main() {
+    // 独立数据域最先声明：GPUI 壳与 Tauri 客户端各占一个数据子目录，
+    // 互不锁库（实测并存时后启动者因库锁直接退出）。
+    hongguo_store::paths::set_shell_scope("hongguo-gpui");
     // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let state = build_app_state();
@@ -84,7 +87,7 @@ fn build_app_state() -> Arc<AppStateInner> {
         Err(AppError::StoreLocked(e)) => {
             log::error!(
                 "[Store] 数据库被占用，终止启动: {e}\n\
-                 另一个实例可能还在运行（Tauri 客户端隐身模式会把窗口整个藏掉）。"
+                 另一个 GPUI 壳实例可能还在运行（隐身时窗口整个藏掉，注意杀进程）。"
             );
             std::process::exit(1);
         }

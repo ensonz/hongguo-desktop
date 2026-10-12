@@ -2,17 +2,34 @@
 //!
 //! 沿用 Electron 版的路径（`%APPDATA%/hongguo-downloader`），便于用户平滑迁移
 //! 下载记录与设置，不因为换了框架就丢数据。
+//!
+//! 多壳并存：壳可在启动最先声明自己的数据域（[`set_shell_scope`]），根目录
+//! 下各占一个子目录——库、缓存互不混用，也互不锁库（GPUI 壳与 Tauri 客户端
+//! 并存实录：两边抢同一把库锁，后启动的直接拒绝启动）。Tauri 壳不声明，
+//! 维持根目录不变（存量用户数据不动）。
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+static SHELL_SCOPE: OnceLock<String> = OnceLock::new();
+
+/// 声明本进程的壳数据域（子目录名）。必须在任何路径解析前调用，一次为准。
+pub fn set_shell_scope(scope: &str) {
+    let _ = SHELL_SCOPE.set(scope.to_string());
+}
 
 /// 应用数据目录。
 pub fn data_dir() -> PathBuf {
     if let Ok(explicit) = std::env::var("HONGGUO_DATA_DIR") {
         return PathBuf::from(explicit);
     }
-    dirs::data_dir()
+    let base = dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join("hongguo-downloader")
+        .join("hongguo-downloader");
+    match SHELL_SCOPE.get() {
+        Some(scope) => base.join(scope),
+        None => base,
+    }
 }
 
 /// 数据文件名。
