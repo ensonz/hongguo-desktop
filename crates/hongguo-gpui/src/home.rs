@@ -226,6 +226,13 @@ pub struct HomeView {
     /// 用户显式选择的清晰度（None = 自动/沿用）：跨集保留（Tauri 的
     /// definition 会话态同语义），传给后续每次起播的 prepare。
     preferred_definition: Option<u32>,
+    /// 剧集简介（video_detail 的 series_intro，Tauri useSeriesDetailMeta
+    /// 同源同语义）：按剧缓存（装饰性信息，失败静默降级）。
+    intros: HashMap<String, String>,
+    /// 简介拉取中的剧（去重）。
+    intros_pending: HashSet<String>,
+    /// 简介展开态（Tauri introExpanded：超过 40 字可展开/收起）。
+    intro_expanded: bool,
     /// 音量悬停弹层开着（Tauri VolumePopup 同款，随 wrapper hover 开合）。
     volume_popup_open: bool,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
@@ -309,6 +316,9 @@ impl HomeView {
             picker_open: false,
             picker_group_override: None,
             preferred_definition: None,
+            intros: HashMap::new(),
+            intros_pending: HashSet::new(),
+            intro_expanded: false,
             volume_popup_open: false,
             buffering: false,
             controls_until: None,
@@ -786,6 +796,7 @@ impl HomeView {
                         if view.binge.as_deref() != Some(now.series_id.as_str()) {
                             view.binge = None;
                         }
+                        view.load_intro(now.series_id.clone(), cx);
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
@@ -920,6 +931,40 @@ impl HomeView {
                 definition: prepared.definition,
             },
         ))
+    }
+
+    /// 拉当前剧的简介（video_detail 的 series_intro，Tauri
+    /// useSeriesDetailMeta 同源）：装饰性信息，失败静默降级、允许重试；
+    /// 每剧只拉一次（Tauri staleTime 10 分钟同语义的会话内缓存）。
+    fn load_intro(&mut self, series_id: String, cx: &mut Context<Self>) {
+        if self.intros.contains_key(&series_id) || !self.intros_pending.insert(series_id.clone()) {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            let sid = series_id.clone();
+            hongguo_api::detail::fetch_series_meta(&sid, &env)
+                .await
+                .map(|meta| (sid.clone(), meta.intro))
+                .map_err(|_| sid)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| match result {
+                Ok((sid, intro)) => {
+                    view.intros_pending.remove(&sid);
+                    if !intro.is_empty() {
+                        view.intros.insert(sid, intro);
+                    }
+                }
+                Err(sid) => {
+                    // 失败不算数：允许下次起播重试
+                    view.intros_pending.remove(&sid);
+                }
+            });
+        })
+        .detach();
     }
 
     /// 引擎事件循环（每个引擎一个，epoch 封口：换剧后陈旧事件自然断流）。
@@ -1797,8 +1842,9 @@ impl HomeView {
         // 控制条（底部悬浮，鼠标活动时可见）
         let controls =
             (self.player.is_some() && self.controls_visible()).then(|| self.render_controls(cx));
-        // 信息叠加层（左下）：剧名 + 集数 + 热度/角标
-        let overlay = self.render_overlay(cx);
+        // 信息叠加层（左下）：剧名/集数/热度/简介——闲置淡出与控制条
+        // 同时机（Tauri chromeShown 同款，静默期不亮）
+        let overlay = self.controls_visible().then(|| self.render_overlay(cx));
         let rects = Rc::clone(&self.stage_rects);
         v_flex()
             .flex_1()
@@ -1842,7 +1888,7 @@ impl HomeView {
                 // 会让日志恒报「视频层 0」，哨兵就成了假警报源
                 div().absolute().size_full().into_any_element()
             })
-            .child(overlay)
+            .children(overlay)
             .children(buffering_badge)
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
             // 「< 第N集」，点它解除锁定；显隐跟随控制条）
@@ -1941,8 +1987,10 @@ impl HomeView {
             })
     }
 
+    /// 信息叠加层（Tauri immersive-info-overlay 对齐）：热度/剧名/集数/
+    /// 简介压在画面左下，控制条弹出时抬到其上沿（bottom_12），闲置淡出
+    /// 由调用方按 controls_visible 决定渲染。
     fn render_overlay(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme();
         let Some(now) = &self.now else {
             return div().into_any_element();
         };
@@ -1951,67 +1999,122 @@ impl HomeView {
         let badge = (!now.badge.is_empty()).then(|| now.badge.clone());
         let season = (!now.season_tag.is_empty()).then(|| now.season_tag.clone());
         let heat = (!now.heat_text.is_empty()).then(|| now.heat_text.clone());
+        let intro = self.intros.get(&now.series_id).cloned();
+        let intro_expandable = intro.as_ref().is_some_and(|i| i.chars().count() > 40);
         v_flex()
             .absolute()
-            .bottom_4()
-            .left_4()
-            .max_w_96()
+            .bottom_12()
+            .left_3()
+            .max_w(gpui_kit::relative(0.62))
             .gap_1()
+            .children(heat.map(|h| {
+                // 热度行（hgplayer 同款：剧名上方，琥珀色）
+                div()
+                    .text_xs()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .text_color(gpui_kit::rgba(0xfcd34de6))
+                    .child(SharedString::from(h))
+            }))
             .child(
                 h_flex()
-                    .gap_2()
+                    .items_center()
+                    .gap_1p5()
+                    .children(badge.map(|b| {
+                        div()
+                            .px_1()
+                            .rounded(gpui_kit::px(2.0))
+                            .bg(gpui_kit::rgba(0xef4444e6))
+                            .child(
+                                div()
+                                    .text_size(gpui_kit::px(10.0))
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .child(SharedString::from(b)),
+                            )
+                    }))
                     .children(season.map(|s| {
                         div()
                             .px_1()
-                            .rounded(theme.radius)
-                            .bg(gpui_kit::rgba(0xffffff26))
+                            .rounded(gpui_kit::px(2.0))
+                            .bg(gpui_kit::rgba(0xffffff33))
                             .child(
                                 div()
-                                    .text_xs()
+                                    .text_size(gpui_kit::px(10.0))
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                                     .text_color(gpui_kit::rgb(0xffffff))
                                     .child(SharedString::from(s)),
                             )
                     }))
                     .children((!now.title.is_empty()).then(|| {
+                        // Tauri 的剧名可点跳详情页；GPUI 壳尚无该路由，
+                        // 先按纯文本展示（交互随详情页对齐补）
                         div()
-                            .text_lg()
-                            .font_weight(gpui_kit::FontWeight::BOLD)
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                             .text_color(gpui_kit::rgb(0xffffff))
                             .truncate()
-                            .child(SharedString::from(now.title.clone()))
-                    }))
-                    .children(badge.map(|b| {
-                        div()
-                            .px_1()
-                            .rounded(theme.radius)
-                            .bg(gpui_kit::rgba(0xef4444cc))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(gpui_kit::rgb(0xffffff))
-                                    .child(SharedString::from(b)),
-                            )
+                            .child(SharedString::from(format!("@{}", now.title)))
                     })),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .child(
+                div()
+                    .mt_0p5()
+                    .text_xs()
+                    .text_color(gpui_kit::rgba(0xffffffd9))
+                    .child(format!("第{}集", now.vid_index))
+                    .children((now.episode_count > 0).then(|| {
                         div()
-                            .text_sm()
-                            .text_color(gpui_kit::rgba(0xffffffcc))
-                            .child(format!(
-                                "第 {} 集 / 共 {} 集",
-                                now.vid_index, now.episode_count
-                            )),
-                    )
-                    .children(heat.map(|h| {
-                        div()
-                            .text_sm()
-                            .text_color(gpui_kit::rgba(0xffffff99))
-                            .child(SharedString::from(format!("🔥 {h}")))
+                            .text_color(gpui_kit::rgba(0xffffffb3))
+                            .child(format!(" · 全{}集", now.episode_count))
                     })),
             )
+            .children(intro.map(|intro| {
+                // 简介块只占舞台约三分之一（hgplayer 同款量级）；块内点击
+                // 不落回舞台（防触发暂停/继续），展开交互只在按钮上
+                let expanded = self.intro_expanded;
+                h_flex()
+                    .id("overlay-intro")
+                    .mt_1()
+                    .max_w(gpui_kit::relative(0.58))
+                    .items_end()
+                    .gap_2()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .line_height(gpui_kit::relative(1.6))
+                            .text_color(gpui_kit::rgba(0xffffffb3))
+                            .when(!expanded, |s| s.h(gpui_kit::px(32.0)).overflow_hidden())
+                            .child(SharedString::from(intro.clone())),
+                    )
+                    .children((intro_expandable).then(|| {
+                        div()
+                            .id("intro-toggle")
+                            .flex_shrink_0()
+                            .pb(gpui_kit::px(2.0))
+                            .text_xs()
+                            .cursor_pointer()
+                            .text_color(gpui_kit::rgba(0xffffff99))
+                            .hover(|s| s.text_color(gpui_kit::rgb(0xffffff)))
+                            .when(expanded, |s| {
+                                s.on_click(cx.listener(|this, _, _, cx| {
+                                    this.intro_expanded = false;
+                                    cx.notify();
+                                }))
+                            })
+                            .when(!expanded, |s| {
+                                s.on_click(cx.listener(|this, _, _, cx| {
+                                    this.intro_expanded = true;
+                                    cx.notify();
+                                }))
+                            })
+                            .child(if expanded { "收起" } else { "展开" })
+                    }))
+            }))
             .into_any_element()
     }
 
