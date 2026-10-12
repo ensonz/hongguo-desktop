@@ -4,6 +4,9 @@
 > `x86_64-pc-windows-msvc` 完成**类型检查**；gpui 壳的 Windows 编译只能在真机做
 > （`aws-lc-sys` 的 C 构建需要 MSVC 工具链）。本文是 Windows 设备上的接入步骤
 > 与已知风险清单。
+>
+> 进度与遗留（含 2026-10-13 的封面/视频颜色根因定案）见
+> [`gpui-shell-progress.md`](./gpui-shell-progress.md)。
 
 ## 平台布局（本轮落定的结构）
 
