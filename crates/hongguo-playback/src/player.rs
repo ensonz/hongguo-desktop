@@ -32,7 +32,7 @@ pub enum PlayerEvent {
     /// 宿主在「引擎就位」时清一次帧槽，首帧事件若先于就位到达，清空就把
     /// 「已出画」的事实抹掉了，封面永远收不掉。帧跟着事件走，宿主只认事件
     /// 里的帧，顺序天然正确。
-    Frame(hongguo_media_platform::platform::vt::DecodedFrame),
+    Frame(hongguo_media_platform::platform::video::VideoFrame),
     /// 缓冲断流：设备已暂停、时钟冻结（水位见 [`BUFFER_LOW_SECS`]）。
     Buffering,
     /// 断流恢复：设备重新起跑。
@@ -67,7 +67,7 @@ pub(crate) struct Shared {
     /// 接管时的初值来源。
     pub volume: AtomicU32,
     pub muted: AtomicBool,
-    pub latest: parking_lot::Mutex<Option<hongguo_media_platform::platform::vt::DecodedFrame>>,
+    pub latest: parking_lot::Mutex<Option<hongguo_media_platform::platform::video::VideoFrame>>,
     pub dims: parking_lot::Mutex<(usize, usize)>,
     pub duration_secs: parking_lot::Mutex<f64>,
     pub events: mpsc::Sender<PlayerEvent>,
@@ -127,7 +127,9 @@ pub const MAX_RATE: f64 = 4.0;
 
 impl PlayerHandle {
     /// 当前上屏帧（NV12 CVPixelBuffer，引用计数克隆）。渲染线程调用。
-    pub fn latest_frame(&self) -> Option<hongguo_media_platform::platform::vt::DecodedFrame> {
+    /// 当前上屏帧（macOS NV12 CVPixelBuffer / Windows NV12 系统内存，引用
+    /// 计数克隆）。渲染线程调用。
+    pub fn latest_frame(&self) -> Option<hongguo_media_platform::platform::video::VideoFrame> {
         self.shared.latest.lock().clone()
     }
 
@@ -337,15 +339,22 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
         }
     }
 
-    // 视频循环：VT 解码 → 帧槽，节奏对主时钟
+    // 视频循环：平台解码（macOS VT / Windows MF，见 platform::video）→ 帧槽，
+    // 节奏对主时钟
     {
         let shared = Arc::clone(&shared);
         let info = video_info.clone();
-        let parameter_sets = meta.video_parameter_sets.clone();
+        let decoder_init = video::DecoderInitOwned {
+            parameter_sets: meta.video_parameter_sets.clone(),
+            hvcc: meta.video_hvcc.clone(),
+            length_size: meta.video_length_size,
+            width: info.width as usize,
+            height: info.height as usize,
+        };
         let source = SampleSource::new(&opts.vid, opts.definition, Arc::new(info.samples.clone()));
         let start = opts.start_secs;
         tasks.push(tokio::spawn(async move {
-            video::run(shared, source, info, parameter_sets, start).await;
+            video::run(shared, source, info, decoder_init, start).await;
         }));
     }
 

@@ -30,15 +30,17 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue}
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme, IconName, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
+#[cfg(target_os = "macos")]
+use gpui_kit::surface;
 use gpui_kit::{
-    ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img, surface,
+    ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
 };
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
 use hongguo_api::interact::fetch_bookshelf;
 use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_common::AppResult;
-use hongguo_media_platform::platform::vt::DecodedFrame;
+use hongguo_media_platform::platform::video::{FrameBuffer, VideoFrame};
 use hongguo_playback::{OpenOptions, PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
 use hongguo_service::play_service::online::{PlayRuntime, prefetch_stream, prepare};
@@ -172,7 +174,12 @@ pub struct HomeView {
     /// 出画与否**只认这一处**：曾经另立过 `frame_ready` 标志，和「引擎就位」
     /// 更新互相抢时序——首帧先到置 true、就位后到又清 false，封面从此永远
     /// 收不掉（画面上封面与视频叠着）。帧直接来自事件，没有第二处状态。
-    frame: Option<DecodedFrame>,
+    frame: Option<VideoFrame>,
+    /// Windows 的渲染产物：NV12 → RGBA（BT.709 limited）在事件任务里转换
+    /// （不占 UI 线程），渲染按普通图像上传——gpui 的视频 surface 只有
+    /// Apple 目标（CVPixelBuffer），Windows 走这条等价路径。
+    #[cfg(target_os = "windows")]
+    frame_image: Option<Arc<RenderImage>>,
     /// 切换目标（switching 时 overlay 显示它的封面与标题）。
     pending_title: Option<String>,
 
@@ -245,6 +252,8 @@ impl HomeView {
             now: None,
             switching: false,
             frame: None,
+            #[cfg(target_os = "windows")]
+            frame_image: None,
             pending_title: None,
             rate: prefs.rate,
             volume: prefs.volume,
@@ -600,6 +609,10 @@ impl HomeView {
         self.switching = true;
         // 旧的帧立即退场：切换期间画面上是新目标的封面，不是上一部的残帧
         self.frame = None;
+        #[cfg(target_os = "windows")]
+        {
+            self.frame_image = None;
+        }
         self.pending_title = Some(if item.title.is_empty() {
             "正在准备…".to_string()
         } else {
@@ -767,10 +780,21 @@ impl HomeView {
     ) {
         cx.spawn(async move |this, cx| {
             while let Some(event) = events.recv().await {
+                // Windows：NV12→RGBA 在事件任务里转换（每帧几毫秒，不占
+                // UI 线程）；macOS 是 CVPixelBuffer 零拷贝，无需转换
+                #[cfg(target_os = "windows")]
+                let converted = match &event {
+                    PlayerEvent::Frame(frame) => Self::render_image_of(frame),
+                    _ => None,
+                };
                 let ok = this
                     .update(cx, |view, cx| {
                         if view.epoch != epoch {
                             return;
+                        }
+                        #[cfg(target_os = "windows")]
+                        if let Some(image) = converted {
+                            view.frame_image = Some(image);
                         }
                         view.on_player_event(event, cx);
                     })
@@ -781,6 +805,25 @@ impl HomeView {
             }
         })
         .detach();
+    }
+
+    /// Windows 渲染转换：NV12（BT.709 limited）→ RGBA 图像。转换跑在本
+    /// 事件任务线程，渲染只按普通图像上传。
+    #[cfg(target_os = "windows")]
+    fn render_image_of(frame: &VideoFrame) -> Option<Arc<RenderImage>> {
+        let FrameBuffer::Nv12(nv12) = &frame.buffer else {
+            return None;
+        };
+        let rgba = hongguo_media::nv12_rgba::nv12_to_rgba_bt709(
+            &nv12.data,
+            nv12.stride,
+            nv12.width,
+            nv12.height,
+        );
+        let buf = image::RgbaImage::from_raw(nv12.width as u32, nv12.height as u32, rgba)?;
+        Some(Arc::new(RenderImage::new(smallvec::smallvec![
+            image::Frame::new(buf)
+        ])))
     }
 
     fn on_player_event(&mut self, event: PlayerEvent, cx: &mut Context<Self>) {
@@ -977,6 +1020,10 @@ impl HomeView {
     /// 连播：下一集；末集接流内下一部（剧终接力的跨季/换批语义后续对齐）。
     fn advance_after_end(&mut self, cx: &mut Context<Self>) {
         self.frame = None;
+        #[cfg(target_os = "windows")]
+        {
+            self.frame_image = None;
+        }
         // 防重入：Ended 只在时钟走完才发，但引擎收尾、通道重连都可能让同一集
         // 的 Ended 再来一次——那时 vid_index 还停在旧值，会把刚起播的下一集
         // 又推进一格（连着跳集，看着就是「内容来回变」）。切换途中直接吞掉。
@@ -1240,24 +1287,54 @@ impl HomeView {
                 .into_any_element(),
             None => div().absolute().size_full().into_any_element(),
         };
-        // 视频层：surface 是**无 measure 函数的布局叶子**，尺寸全靠样式给——
-        // 不给 size 就是 0×0 盒子（taffy 对无上下文的叶子返回零尺寸），
-        // paint_surface 画了个寂寞：解码、音频、封面全正常，唯独画面不见。
-        // Tauri 侧同款写法是 `absolute inset-0 size-full object-contain`。
+        // 视频层：两端不同的像素载体，同一张布局皮。
+        // - macOS：surface 是**无 measure 函数的布局叶子**，尺寸全靠样式给
+        //   ——不给 size 就是 0×0 盒子（taffy 对无上下文的叶子返回零尺寸），
+        //   paint_surface 画了个寂寞。Tauri 侧同款 `absolute inset-0
+        //   size-full object-contain`，零拷贝上屏。
+        // - Windows：gpui 的视频 surface 只有 Apple 目标，NV12 在事件任务里
+        //   转成 RGBA 后按普通图像渲染（img 同款 object-contain）。
         // 外层 div 接点击切暂停（对齐 Tauri 点击画面暂停/继续）：控制条是
         // 兄弟层，点它不会冒泡到这里。
+        #[cfg(target_os = "macos")]
+        let video_layer = |frame: &VideoFrame| -> gpui_kit::AnyElement {
+            // Apple 目标上 FrameBuffer 只有 CVPixelBuffer 一个变体（可驳尽）
+            let FrameBuffer::CVPixelBuffer(buffer) = &frame.buffer;
+            surface(buffer.clone())
+                .absolute()
+                .size_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element()
+        };
+        #[cfg(target_os = "windows")]
+        let video_layer = |image: &Arc<RenderImage>| -> gpui_kit::AnyElement {
+            img(ImageSource::Render(Arc::clone(image)))
+                .absolute()
+                .size_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element()
+        };
         let video: gpui_kit::AnyElement = match (&self.frame, video_ready) {
             (Some(frame), true) => div()
                 .absolute()
                 .size_full()
                 .id("stage-video")
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx)))
-                .child(
-                    surface(frame.buffer())
-                        .absolute()
-                        .size_full()
-                        .object_fit(ObjectFit::Contain),
-                )
+                .child({
+                    #[cfg(target_os = "macos")]
+                    {
+                        video_layer(frame)
+                    }
+                    #[cfg(target_os = "windows")]
+                    {
+                        match &self.frame_image {
+                            Some(image) => video_layer(image),
+                            // 转换产物还没到（首帧事件与转换同拍到达，这里
+                            // 只是防御）：画黑，下一帧事件就补上
+                            None => div().into_any_element(),
+                        }
+                    }
+                })
                 .into_any_element(),
             _ => h_flex()
                 .absolute()

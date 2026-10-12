@@ -37,6 +37,10 @@
 // 命名，出现在 match 模式里会触发 non_upper_case_globals。
 #![allow(non_upper_case_globals)]
 
+mod playback;
+
+pub(crate) use playback::{AacMftDecoder, HevcMftDecoder};
+
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 

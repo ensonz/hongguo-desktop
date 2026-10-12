@@ -17,6 +17,10 @@ pub(crate) struct StreamMeta {
     pub video: TrackInfo,
     pub audio: Option<TrackInfo>,
     pub video_parameter_sets: Vec<Vec<u8>>,
+    /// hvcC 原始载荷（Windows MF 的序列头形态；macOS 不用）。
+    pub video_hvcc: Option<Vec<u8>>,
+    /// 样本 NAL 长度前缀字节数（带内参数集前插用）。
+    pub video_length_size: usize,
 }
 
 /// 从缓存流里读头部直到样本表完整（moov 落在头部，渐进注册已保证就绪）。
@@ -39,20 +43,29 @@ pub(crate) async fn open_stream(vid: &str, definition: u32) -> AppResult<StreamM
         if let Ok(demuxed) = hongguo_media::demux::demux_bytes(&head)
             && let Some(video) = demuxed.video_track()
         {
-            let parameter_sets = if hongguo_media::hevc::is_hevc(&video.info.codec) {
-                let (nalus, _) = hongguo_media::hevc::param_nalus_from_head(&head, &video.info)?;
-                nalus
-            } else {
-                return Err(AppError::Media(format!(
-                    "播放引擎只接 HEVC 轨（codec = {}）",
-                    video.info.codec
-                )));
-            };
-            return Ok(StreamMeta {
-                audio: demuxed.audio_track().map(|t| t.info.clone()),
-                video_parameter_sets: parameter_sets,
-                video: video.info.clone(),
-            });
+            if hongguo_media::hevc::is_hevc(&video.info.codec) {
+                let (nalus, length_size) =
+                    hongguo_media::hevc::param_nalus_from_head(&head, &video.info)?;
+                // hvcC 原始载荷尽力而为：Windows MF 走它做序列头，取不到
+                // 时解码端有带内参数集兜底
+                let hvcc = hongguo_media::hevc::hvcc_payload_from_head(&head, &video.info)
+                    .map_err(|e| {
+                        log::debug!("[Playback] hvcC 载荷取不到（走带内兜底）: {e}");
+                        e
+                    })
+                    .ok();
+                return Ok(StreamMeta {
+                    audio: demuxed.audio_track().map(|t| t.info.clone()),
+                    video_parameter_sets: nalus,
+                    video_hvcc: hvcc,
+                    video_length_size: length_size,
+                    video: video.info.clone(),
+                });
+            }
+            return Err(AppError::Media(format!(
+                "播放引擎只接 HEVC 轨（codec = {}）",
+                video.info.codec
+            )));
         }
     }
     Err(AppError::Media("头部拿不到完整样本表（moov）".into()))

@@ -106,6 +106,25 @@ pub fn param_nalus_from_head(head: &[u8], track: &TrackInfo) -> AppResult<(Vec<V
     )
 }
 
+/// hvcC 的**原始载荷**（box header 之后、未拆装的整体记录）。
+///
+/// Media Foundation 的解码 MFT 经 `MF_MT_MPEG_SEQUENCE_HEADER` 吃的就是
+/// 这份容器原始形态（VT 要裸 NAL 数组、MF 要整条记录，两个出口各取所需）。
+pub fn hvcc_payload_from_head(head: &[u8], track: &TrackInfo) -> AppResult<Vec<u8>> {
+    if !is_hevc(&track.codec) {
+        return Err(AppError::Media(format!(
+            "不是 HEVC 轨（codec = {}）",
+            track.codec
+        )));
+    }
+    let (offset, size) = find_hvc_c_in(head, track)?;
+    let start = offset as usize;
+    let end = start + size as usize;
+    head.get(start..end)
+        .map(<[u8]>::to_vec)
+        .ok_or_else(|| AppError::Media("hvcC 越出头部字节范围（moov 不完整）".into()))
+}
+
 /// 解析 hvcC **载荷**（box header 之后的部分）：参数集 NAL 数组 + 长度前缀字节数。
 ///
 /// MP4（stsd sample entry）与 HEIF（ipco 属性）里的 hvcC 载荷布局完全一致，

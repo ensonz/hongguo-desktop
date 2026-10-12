@@ -14,7 +14,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use hongguo_media_platform::platform::vt::{DecodedFrame, HevcFrameDecoder};
+use hongguo_common::AppResult;
+use hongguo_media_platform::platform::video::{DecoderInit, HevcDecoder, VideoFrame};
 use hongguo_mp4::sample_table::TrackInfo;
 
 use crate::player::{PlayerEvent, Shared};
@@ -49,16 +50,41 @@ pub(crate) fn start_index(info: &TrackInfo, start_secs: f64) -> usize {
     }
 }
 
+/// 平台解码器初始化参数的 owned 形态（视频任务跨执行器搬运；借用形态见
+/// `platform::video::DecoderInit`）。
+pub(crate) struct DecoderInitOwned {
+    pub(crate) parameter_sets: Vec<Vec<u8>>,
+    pub(crate) hvcc: Option<Vec<u8>>,
+    pub(crate) length_size: usize,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+}
+
+impl DecoderInitOwned {
+    fn open(&self) -> AppResult<HevcDecoder> {
+        HevcDecoder::open(DecoderInit {
+            parameter_sets: &self.parameter_sets,
+            hvcc: self.hvcc.as_deref(),
+            length_size: self.length_size,
+            width: self.width,
+            height: self.height,
+            // FullRange 请求是 macOS VT 的语义；MF 输出恒 limited，由渲染
+            // 转换端按 BT.709 limited 处理——两端观感一致
+            full_range: true,
+        })
+    }
+}
+
 /// 重排缓冲装得下的东西：能读出显示时间即可。
 ///
-/// 抽成 trait 是为了让重排逻辑可单测——`DecodedFrame` 只能从解码器出来
-///（没有公开构造器），测试里造不出真帧，但重排的正确性（显示序单调）
-/// 必须能脱离解码器验证。
+/// 抽成 trait 是为了让重排逻辑可单测——真帧只能从解码器出来（没有公开
+/// 构造器），测试里造不出真帧，但重排的正确性（显示序单调）必须能脱离
+/// 解码器验证。
 pub(crate) trait HasDisplayTime {
     fn display_secs(&self) -> f64;
 }
 
-impl HasDisplayTime for DecodedFrame {
+impl HasDisplayTime for VideoFrame {
     fn display_secs(&self) -> f64 {
         self.pts_secs
     }
@@ -86,14 +112,14 @@ pub(crate) fn commit_ready<F: HasDisplayTime>(
 
 /// 上屏一帧（进帧槽 + 发事件）。`first_sent` 只在第一次翻开。
 async fn present(
-    frame: DecodedFrame,
+    frame: VideoFrame,
     shared: &Shared,
     first_sent: &mut bool,
     shown_frames: &AtomicU64,
 ) {
-    let (w, h) = frame.dims();
+    let (w, h) = frame.dims;
     // 帧槽留给「随手取最新帧」的调用方；事件里带一份给事件驱动的宿主
-    //（CVPixelBuffer 克隆只是引用计数 +1，不搬数据）
+    //（克隆只是引用计数 +1，不搬数据：macOS CVPixelBuffer / Windows Arc）
     *shared.latest.lock() = Some(frame.clone());
     if !*first_sent {
         *first_sent = true;
@@ -139,7 +165,7 @@ async fn present(
 /// 同一条时间轴对齐，只是这一段播放变慢（像直播进缓冲），绝不跳过内容。
 /// 真实瓶颈（解码 46.5ms/帧 > 33ms 实时线）另行解决，慢播只是兜底。
 async fn emit_due(
-    ready: &mut VecDeque<DecodedFrame>,
+    ready: &mut VecDeque<VideoFrame>,
     shared: &Shared,
     first_sent: &mut bool,
     shown_frames: &AtomicU64,
@@ -162,7 +188,7 @@ async fn emit_due(
 /// 等到队首帧到期并发出去（解码跑太快时的节拍闸门）。
 /// 返回 `false` = 收到停机信号。
 async fn wait_front_due(
-    ready: &mut VecDeque<DecodedFrame>,
+    ready: &mut VecDeque<VideoFrame>,
     shared: &Shared,
     first_sent: &mut bool,
     shown_frames: &AtomicU64,
@@ -187,11 +213,11 @@ pub(crate) async fn run(
     shared: Arc<Shared>,
     mut source: SampleSource,
     info: TrackInfo,
-    parameter_sets: Vec<Vec<u8>>,
+    init: DecoderInitOwned,
     start_secs: f64,
 ) {
     let mut start_secs = start_secs;
-    let mut decoder = match HevcFrameDecoder::open(&parameter_sets, true) {
+    let mut decoder = match init.open() {
         Ok(d) => d,
         Err(e) => {
             shared.fail(format!("解码器初始化失败: {e}")).await;
@@ -222,8 +248,8 @@ pub(crate) async fn run(
     let mut first_sent = false;
     let shown_frames = AtomicU64::new(0);
     // 重排缓冲（显示序升序）与已定稿待上屏队列（显示序升序）
-    let mut pending: Vec<DecodedFrame> = Vec::new();
-    let mut ready: VecDeque<DecodedFrame> = VecDeque::new();
+    let mut pending: Vec<VideoFrame> = Vec::new();
+    let mut ready: VecDeque<VideoFrame> = VecDeque::new();
     // 解码前瞻：`ready` 里备着这么多秒的画面就停手等时钟。
     //
     // 不能「等到该显示才开始解码」——那样每帧都要先付解码耗时（1080p 数
@@ -242,7 +268,7 @@ pub(crate) async fn run(
         // 时钟已被句柄侧即时换轴，这里的重定位让解码供给跟上新时间轴。
         if let Some(target) = shared.take_seek() {
             let _ = decoder.finish();
-            decoder = match HevcFrameDecoder::open(&parameter_sets, true) {
+            decoder = match init.open() {
                 Ok(d) => d,
                 Err(e) => {
                     shared.fail(format!("seek 重建解码器失败: {e}")).await;
@@ -357,7 +383,7 @@ pub(crate) async fn run(
 mod tests {
     use super::*;
 
-    /// 轻量帧载体：`DecodedFrame` 只能从解码器出来，重排逻辑本身不需要它。
+    /// 轻量帧载体：真帧只能从解码器出来，重排逻辑本身不需要它。
     #[derive(Debug, Clone, PartialEq)]
     struct Fake(f64);
     impl HasDisplayTime for Fake {

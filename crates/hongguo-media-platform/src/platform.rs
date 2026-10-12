@@ -11,12 +11,15 @@
 //! 任何探测失败都安静地返回不可用，让分流链落到 ffmpeg/软解。
 
 // AAC 解码：macOS AudioToolbox（AudioConverter，mpv 的 coreaudio AAC 解码同款）
-#[cfg(target_os = "macos")]
+// / Windows Media Foundation（解码 MFT）——同一接口，见 platform::audio。
 pub mod audio;
 #[cfg(target_os = "windows")]
 pub mod mf;
 #[cfg(target_os = "macos")]
 pub mod vt;
+// 视频解码出口：macOS VT（零拷贝 CVPixelBuffer）/ Windows MF（NV12 系统内存）
+// 的中立门面，引擎与壳只认这一层。
+pub mod video;
 // WIC：Windows 的封面平台级静图解码（HEIF/HEIC 扩展在则走系统解码器）
 #[cfg(target_os = "windows")]
 pub mod wic;
