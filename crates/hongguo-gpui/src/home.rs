@@ -206,6 +206,10 @@ pub struct HomeView {
     volume_slider: Entity<SliderState>,
     /// 进度拖动中的目标秒（None = 跟随播放位置显示）。
     scrubbing: Option<f64>,
+    /// 上一次真正下发给引擎的 scrub seek 时刻：拖动中的连续 seek 按它节流
+    ///（Tauri 的 `<video>` 每次赋值 currentTime 浏览器会自行合并，引擎这侧
+    /// 每发一次就是冲流 + 解码器重建，必须限频；松手的那次不受限）。
+    last_scrub_seek: Cell<Instant>,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
     buffering: bool,
     /// 控制条可见截止时刻；拖动中/暂停时常显。
@@ -278,6 +282,7 @@ impl HomeView {
             muted: prefs.muted,
             volume_slider,
             scrubbing: None,
+            last_scrub_seek: Cell::new(Instant::now() - Duration::from_secs(10)),
             buffering: false,
             controls_until: None,
             progress_bounds: Rc::new(Cell::new(None)),
@@ -1027,6 +1032,9 @@ impl HomeView {
     const RATES: [f64; 6] = [0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
     /// 控制条可见时长：鼠标静止/无操作后自动隐藏。
     const CONTROLS_VISIBLE: Duration = Duration::from_secs(3);
+    /// 拖动中实时 seek 的最小间隔：引擎一次 seek = 冲流 + 解码器重建，
+    /// 250ms 限频跟手又不拖垮供给（Tauri 侧浏览器自行合并，这里显式限）。
+    const SCRUB_SEEK_MIN_INTERVAL: Duration = Duration::from_millis(250);
 
     fn subscribe_controls(&mut self, cx: &mut Context<Self>) {
         // subscribe 的处理器签名与 listener 不同（实体 + 事件，无 window），
@@ -1140,11 +1148,35 @@ impl HomeView {
         Some(ratio * dur)
     }
 
-    /// 收口拖动：松手（轨道内/外都算）把预览位置交给引擎。
+    /// 收口拖动：松手（轨道内/外都算）把预览位置交给引擎。松手的这次是
+    /// 权威定位，**不受节流**——节流窗口内也要照发。
     fn commit_scrub(&mut self, cx: &mut Context<Self>) {
-        if let Some(target) = self.scrubbing.take()
-            && let Some(player) = &self.player
-        {
+        if let Some(target) = self.scrubbing.take() {
+            self.scrub_seek_now(target, cx);
+        }
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    /// 立即定位（不受节流）：按下即跳与松手收口共用。
+    fn scrub_seek_now(&mut self, target: f64, cx: &mut Context<Self>) {
+        self.last_scrub_seek.set(Instant::now());
+        if let Some(player) = &self.player {
+            player.seek(target);
+        }
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    /// 拖动中的实时定位（对齐 Tauri ScrubBar 的 pointermove 即 seek）。节流
+    /// 窗口内的重复请求直接跳过——预览位置由 `scrubbing` 承载，不受影响；
+    /// 松手收口走 [`Self::commit_scrub`]，不受此限。
+    fn scrub_seek_throttled(&mut self, target: f64, cx: &mut Context<Self>) {
+        if self.last_scrub_seek.get().elapsed() < Self::SCRUB_SEEK_MIN_INTERVAL {
+            return;
+        }
+        self.last_scrub_seek.set(Instant::now());
+        if let Some(player) = &self.player {
             player.seek(target);
         }
         self.wake_controls(cx);
@@ -1765,6 +1797,22 @@ impl HomeView {
             .px_4()
             .py_2()
             .bg(gpui_kit::rgba(0x000000aa))
+            // 控制条悬浮在舞台之上：点击这里的任何控件都**不能**再落到舞台
+            //（gpui 对重叠 bounds 的兄弟分支都会派发鼠标事件，不拦的话点
+            // 进度条/按钮会同时触发舞台的点击暂停——「点了进度条却暂停了」
+            // 的来源；Tauri 里控件层天然挡住指针，这里必须显式拦）。
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _: &gpui_kit::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _: &gpui_kit::MouseUpEvent, _, cx| {
+                    cx.stop_propagation();
+                }),
+            )
             .child(
                 Button::new("stage-toggle-play")
                     .icon(play_icon)
@@ -1862,9 +1910,11 @@ impl HomeView {
             .on_mouse_down(
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, ev: &gpui_kit::MouseDownEvent, _window, cx| {
+                    // 对齐 Tauri ScrubBar 的 pointerdown：按下即定位（不是只
+                    // 起预览），随后拖动持续跟手
                     if let Some(target) = this.scrub_target_at(ev.position.x) {
                         this.scrubbing = Some(target);
-                        this.commit_scrub(cx);
+                        this.scrub_seek_now(target, cx);
                     }
                 }),
             )
@@ -1873,7 +1923,8 @@ impl HomeView {
                 |this, ev: &gpui_kit::DragMoveEvent<ScrubDrag>, _window, cx| {
                     if let Some(target) = this.scrub_target_at(ev.event.position.x) {
                         this.scrubbing = Some(target);
-                        cx.notify();
+                        // 实时 scrub：拖到哪放到哪（引擎侧节流限频）
+                        this.scrub_seek_throttled(target, cx);
                     }
                 },
             ))

@@ -148,6 +148,31 @@ pub fn serve(
     definition: u32,
     range_header: Option<&str>,
 ) -> Result<ProtocolResponse, String> {
+    serve_inner(vid, definition, range_header, &|| false)
+}
+
+/// [`serve`] 的可取消变体：等待区间就绪期间逐片检查 `cancelled`，命中即
+/// 注销读者登记并立即报错返回。
+///
+/// 播放引擎 seek 之后，还堵在旧位置上的读取必须尽快退场：读者登记不注销，
+/// 填充调度器会按 FIFO 先把旧区间的字节下完才轮到新位置——白耗一路带宽，
+/// 还把 seek 的就绪时间拖长一个区间。整集模式数据全在内存、从不等待，
+/// 取消对它无意义（等都不等）。
+pub fn serve_cancellable(
+    vid: &str,
+    definition: u32,
+    range_header: Option<&str>,
+    cancelled: impl Fn() -> bool,
+) -> Result<ProtocolResponse, String> {
+    serve_inner(vid, definition, range_header, &cancelled)
+}
+
+fn serve_inner(
+    vid: &str,
+    definition: u32,
+    range_header: Option<&str>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<ProtocolResponse, String> {
     // 一集会打十几条，所以放 debug：排查「WebView 到底有没有请求这条协议」
     // 时用 RUST_LOG=debug 打开，日常不刷屏。
     log::debug!("[Stream] 请求 vid={vid} def={definition} range={range_header:?}");
@@ -183,6 +208,10 @@ pub fn serve(
     // 取流失败回落整集时，两条都可能出现，谁先就绪走谁。
     let deadline = std::time::Instant::now() + Duration::from_secs(WAIT_TIMEOUT_SECS);
     let mode = loop {
+        if cancelled() {
+            log::info!("[Stream] {vid}@{definition} 等待就绪前已被取消（seek 重定位）");
+            return Err("读取已取消（seek 重定位）".to_string());
+        }
         if !still_current() {
             log::warn!("[Stream] {vid}@{definition} 等待就绪时条目已被逐出/重建，立即放弃");
             return Err("在线流已被替换，请重试".to_string());
@@ -208,7 +237,7 @@ pub fn serve(
             let buffer = entry.buffer.lock();
             Ok(respond(&buffer, parse_range(range_header, size), size))
         }
-        Some(prog) => serve_progressive(&prog, range_header, &still_current),
+        Some(prog) => serve_progressive(&prog, range_header, &still_current, cancelled),
     }
 }
 
@@ -216,10 +245,12 @@ pub fn serve(
 ///
 /// `still_current` 为假（条目被逐出/同键重建）时立即放弃等待——手里的
 /// 渐进流已经没人喂了，等满超时只是把断流拖长成 30 秒黑屏。
+/// `cancelled` 命中（播放端 seek 重定位）时同样立即放弃，注销读者登记。
 fn serve_progressive(
     prog: &Arc<ProgressiveStream>,
     range_header: Option<&str>,
     still_current: &impl Fn() -> bool,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<ProtocolResponse, String> {
     let plain_len = prog.plain_len;
     let (start, end) = match parse_range(range_header, plain_len) {
@@ -258,6 +289,12 @@ fn serve_progressive(
         let outcome = loop {
             if prog.sparse.wait_cover(&needed, WAIT_SLICE) {
                 break Ok(());
+            }
+            if cancelled() {
+                log::info!(
+                    "[Stream] 等待明文区间 {start}-{end} 期间被取消（seek 重定位），注销读者登记退场"
+                );
+                break Err("读取已取消（seek 重定位）".to_string());
             }
             if !still_current() {
                 log::warn!(
@@ -386,6 +423,7 @@ fn respond(buffer: &[u8], range: RangeSpec, size: u64) -> ProtocolResponse {
 mod tests {
     use super::*;
     use crate::StreamCache;
+    use std::sync::atomic::AtomicBool;
 
     /// 回归：`HONGGUO_STREAM_WINDOW=0` 曾让开放 Range 的 end==start，
     /// `end-1` 在 start=0 时 u64 下溢（debug panic / release 非法头）。
@@ -686,6 +724,48 @@ mod tests {
         assert_eq!(len, 10);
         // 应答完成后登记销掉：残留的登记会占住调度优先级
         assert!(!prog.demand.has_waiters(), "应答完成后登记应注销");
+    }
+
+    #[test]
+    fn cancellable_serve_exits_promptly_and_unregisters_demand() {
+        // seek 重定位后，堵在旧位置上的读取必须尽快退场：登记不注销，填充
+        // 调度器会按 FIFO 先把旧区间下完才轮到新位置（白耗带宽拖慢 seek）。
+        let (sparse, cipher, _reference, _len) = progressive_fixture("v-prog-cancel", 720);
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_cb = Arc::clone(&cancel);
+        let server = std::thread::spawn(move || {
+            serve_cancellable("v-prog-cancel", 720, Some("bytes=10-19"), || {
+                cancel_cb.load(Ordering::Relaxed)
+            })
+        });
+        std::thread::sleep(Duration::from_millis(150));
+        let c = crate::cache();
+        let prog = c
+            .get("v-prog-cancel", 720)
+            .and_then(|e| e.progressive.lock().clone())
+            .expect("渐进条目应在");
+        assert!(prog.demand.has_waiters(), "等待期间应留下需求登记");
+
+        // 取消：应在远小于 30s 超时的时间内报错退场
+        let started = std::time::Instant::now();
+        cancel.store(true, Ordering::Relaxed);
+        let result = server.join().expect("serve 线程不应 panic");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "取消应快速生效，实际 {:?}",
+            started.elapsed()
+        );
+        assert!(result.is_err(), "取消的读取应报错而不是返回数据");
+
+        // 登记已注销：填充调度器不再被旧需求占住优先级
+        assert!(!prog.demand.has_waiters(), "取消后读者登记应注销");
+
+        // 同一条流取消后仍可正常读取（数据随后补齐）
+        sparse.write(0, &cipher);
+        let (status, _, body) = serve("v-prog-cancel", 720, Some("bytes=10-19")).expect("应成功");
+        assert_eq!(status, 206);
+        assert_eq!(body, &cipher[10..20]);
     }
 
     #[test]

@@ -51,6 +51,16 @@ fn main() {
     hongguo_store::paths::set_shell_data_root("hongguo-gpui");
     // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // panic 留痕：音频设备回调等非主线程的 panic 会静默带走整条线程
+    // （实测：回调线程一死，声音原地消失、时钟冻结、界面无限「缓冲中」，
+    // 日志里却一片安静）。钩子让它至少留下现场，然后 abort 显性化。
+    std::panic::set_hook(Box::new(|info| {
+        log::error!(
+            "[Panic] 线程 {:?} panic：{info}",
+            std::thread::current().name().unwrap_or("<unnamed>")
+        );
+        std::process::abort();
+    }));
     let state = build_app_state();
 
     gpui_kit::application().run(move |cx| {

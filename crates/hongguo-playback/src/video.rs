@@ -263,10 +263,12 @@ pub(crate) async fn run(
 
     let total = pts.len().min(source.len());
     let mut idx = start_index(&info, start_secs);
+    // seek 广播的记账位（独立于音频喂送，见 Shared::seek_broadcast）
+    let mut seek_gen = 0u64;
     while idx < total {
         // seek：冲重排与上屏队列、重建解码会话、从目标前的关键帧续播。
         // 时钟已被句柄侧即时换轴，这里的重定位让解码供给跟上新时间轴。
-        if let Some(target) = shared.take_seek() {
+        if let Some(target) = shared.poll_seek(&mut seek_gen) {
             let _ = decoder.finish();
             decoder = match init.open() {
                 Ok(d) => d,
@@ -292,7 +294,7 @@ pub(crate) async fn run(
         // 挤成刚够实时——解码一慢就再也追不回来（实测画面掉到 2/3 速、
         // 音画偏差滚到 -5s）。落后时这里不设闸，解码全速把差距吃掉。
         loop {
-            if shared.shutdown.load(Ordering::Relaxed) || shared.has_seek() {
+            if shared.shutdown.load(Ordering::Relaxed) || shared.seek_pending_since(seek_gen) {
                 break; // seek/停机要及时让路到外层
             }
             let ahead_secs = ready
@@ -308,9 +310,21 @@ pub(crate) async fn run(
             tokio::time::sleep(std::time::Duration::from_millis(3)).await;
         }
         let t_read = std::time::Instant::now();
-        let sample = match source.read(idx).await {
+        // 读样本带读取代次：seek 会抬代次，堵在旧位置上的 serve 请求尽早
+        // 退场并注销读者登记（填充调度器立刻转向新位置）
+        let my_epoch = shared.read_epoch.load(Ordering::Relaxed);
+        let shared_for_read = Arc::clone(&shared);
+        let sample = match source
+            .read_cancellable(idx, move || {
+                shared_for_read.read_epoch.load(Ordering::Relaxed) != my_epoch
+            })
+            .await
+        {
             Ok(s) => s,
             Err(e) => {
+                if shared.seek_pending_since(seek_gen) {
+                    continue; // seek 引起的退场：循环顶上重定位
+                }
                 shared.fail(format!("取视频样本 {idx} 失败: {e}")).await;
                 return;
             }

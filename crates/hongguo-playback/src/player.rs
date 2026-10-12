@@ -61,8 +61,19 @@ pub(crate) struct Shared {
     /// 主时钟，**可替换**：音频设备迟到接管、音频播完切挂钟，都会换它，
     /// 画面与进度读数自动跟上。
     pub clock: parking_lot::Mutex<Arc<Clock>>,
-    /// seek 请求（媒体秒）。视频/音频循环各自取走后重新定位。
-    pub seek_request: parking_lot::Mutex<Option<f64>>,
+    /// seek 广播：(代次, 目标媒体秒)。代次单调递增；每个消费者（视频循环/
+    /// 音频喂送）各自记住处理到的代次。**不能是单槽 take**——先到的消费者
+    /// 会把请求「抢走」，另一位永远不知道：音频不重定位、它名下的冲流也
+    /// 永远收不了口（回调一直丢弃 → 环刚填满就被清空 → 水位无限抖动、
+    /// 时钟冻结，用户看到的就是「拖进度一直缓冲中」）。
+    pub seek_broadcast: parking_lot::Mutex<(u64, f64)>,
+    /// 读取代次：seek 时 +1，堵在旧位置上的 serve 读取据此尽早退场
+    /// （注销读者登记，让填充调度器立刻转向新位置）。
+    pub read_epoch: AtomicU64,
+    /// 缓冲徽标的 UI 态（Buffering/Ready 事件只按它翻转发）。与设备的
+    /// starved 位解耦：seek 会先解除 starved 让回调跑起来收冲流的口，
+    /// 若靠 starved 翻转发事件，这条路径上 Ready 会永远丢。
+    pub buffered_ui: AtomicBool,
     /// 音量（f32 位型存储，0–1）与静音：喂给设备回调，同时是音频设备迟到
     /// 接管时的初值来源。
     pub volume: AtomicU32,
@@ -85,16 +96,22 @@ impl Shared {
         *self.clock.lock() = clock;
     }
 
-    /// 取走 pending 的 seek 目标（无则 `None`）。
-    pub(crate) fn take_seek(&self) -> Option<f64> {
-        self.seek_request.lock().take()
+    /// 消费者视角取新 seek：代次比 `last_gen` 新则返回目标并就地记账。
+    /// 每个消费者独立记账（单槽 take 会被先到者抢走，见 seek_broadcast）。
+    pub(crate) fn poll_seek(&self, last_gen: &mut u64) -> Option<f64> {
+        let (current, target) = *self.seek_broadcast.lock();
+        if current != *last_gen {
+            *last_gen = current;
+            Some(target)
+        } else {
+            None
+        }
     }
 
-    /// 是否有未处理的 seek（视频前瞻闸门用它及时让路）。
-    pub(crate) fn has_seek(&self) -> bool {
-        self.seek_request.lock().is_some()
+    /// 是否有比 `last_gen` 新的 seek 未处理（视频前瞻闸门用它及时让路）。
+    pub(crate) fn seek_pending_since(&self, last_gen: u64) -> bool {
+        self.seek_broadcast.lock().0 != last_gen
     }
-
     pub(crate) fn rate(&self) -> f64 {
         self.clock.lock().rate()
     }
@@ -208,14 +225,22 @@ impl PlayerHandle {
 
     /// 跳到目标媒体时间：时钟立即换轴，音频设备进入冲流（丢弃旧缓冲），
     /// 视频/音频循环取到请求后各自冲解码器、从目标前的关键帧/首个样本续播。
+    ///
+    /// 堵在旧位置上的流读取会收到代次变更信号尽快退场（注销读者登记，
+    /// 填充调度器立刻转向新位置）；水位暂停会被解除——冲流的丢弃收口要靠
+    /// 设备回调跑起来，暂停着的设备会让冲流永远收不了口（三方互等 = 永久
+    /// 缓冲）。徽标的 Buffering 事件由喂送循环在处理 seek 时发出。
     pub fn seek(&self, secs: f64) {
         let dur = (*self.shared.duration_secs.lock()).max(0.0);
         let target = secs.clamp(0.0, dur);
+        self.shared.read_epoch.fetch_add(1, Ordering::Relaxed);
         self.shared.clock.lock().reset(target);
         if let Some(audio) = self.audio.lock().as_ref() {
             audio.begin_flush();
         }
-        *self.shared.seek_request.lock() = Some(target);
+        let mut broadcast = self.shared.seek_broadcast.lock();
+        broadcast.0 += 1;
+        broadcast.1 = target;
     }
 }
 
@@ -262,7 +287,9 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
         paused: AtomicBool::new(false),
         shutdown: AtomicBool::new(false),
         clock: parking_lot::Mutex::new(Arc::clone(&wall)),
-        seek_request: parking_lot::Mutex::new(None),
+        seek_broadcast: parking_lot::Mutex::new((0, 0.0)),
+        read_epoch: AtomicU64::new(0),
+        buffered_ui: AtomicBool::new(false),
         volume: AtomicU32::new(1.0f32.to_bits()),
         muted: AtomicBool::new(false),
         latest: parking_lot::Mutex::new(None),
@@ -296,7 +323,7 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
                 adopt_audio(
                     &shared,
                     &audio_slot,
-                    pair,
+                    *pair,
                     &opts.vid,
                     opts.definition,
                     info,
@@ -473,8 +500,9 @@ fn now_millis() -> u64 {
 
 /// 音频设备尝试的结果。
 enum AudioAttempt {
-    /// 在超时内建好：直接接上。
-    Ready((AudioOut, RingFeed)),
+    /// 在超时内建好：直接接上（Box 抹平与 Pending 的尺寸差，别让这个
+    /// 枚举在栈上按最大变体展开）。
+    Ready(Box<(AudioOut, RingFeed)>),
     /// 设备/音轨不可用（没有音轨、设备打不开、上次尝试还在冷却）。
     Unusable,
     /// 还没回来：视频先走，这个接收端等结果，到了就接管。
@@ -523,7 +551,7 @@ fn audio_attempt(audio: Option<&TrackInfo>, shared: &Shared) -> AudioAttempt {
             Ok(Some(pair)) => {
                 // 建流成功：冷却重置，后续集数立刻可用
                 AUDIO_LAST_ATTEMPT_MS.store(0, Ordering::Release);
-                return AudioAttempt::Ready(pair);
+                return AudioAttempt::Ready(Box::new(pair));
             }
             Ok(None) => {
                 log::warn!("[Playback] 音频设备不可用，退化为无声播放（挂钟）");
@@ -560,6 +588,48 @@ const BUFFER_LOW_SECS: f64 = 0.25;
 
 /// 缓冲高水位：回填到这个秒数才恢复播放（滞回避免抖动）。
 const BUFFER_HIGH_SECS: f64 = 0.6;
+
+/// 喂送循环的游标账本：冲流收口状态（重预填包计数 + 是否在冲流中）与
+/// 样本游标。seek 重定位一次改写全部三样，收拢一处免得散参乱序。
+struct FeederCursor {
+    idx: usize,
+    pushed: usize,
+    flush_pending: bool,
+}
+
+/// 喂送侧的 seek 重定位：冲解码器与适配器相位、开冲流、登记重预填。
+///
+/// 附带两件联动：徽标置缓冲态并发 Buffering（seek 后必然要重新缓冲）；
+/// 解除水位暂停——冲流的丢弃收口要靠设备回调跑起来，暂停着的设备回调
+/// 不来，凭证永远拿不到，冲流收不了口，水位重判又被冲流闸着，三方互等
+/// 就是「拖进度一直缓冲中」的死局。用户暂停位不受影响（该静着还是静着）。
+async fn feeder_relocate(
+    shared: &Arc<Shared>,
+    feed: &mut RingFeed,
+    decoder: &mut hongguo_media_platform::platform::audio::AacDecoder,
+    pts: &[f64],
+    target: f64,
+    cursor: &mut FeederCursor,
+) {
+    decoder.reset();
+    feed.begin_flush();
+    cursor.flush_pending = true;
+    cursor.pushed = 0;
+    cursor.idx = pts.partition_point(|&p| p < target - 1e-6);
+    // 徽标只在**播放中**置缓冲态：暂停里 seek 的是静止画面（Tauri 同款
+    // 语义——新位置的首帧立即可见），没有「在缓冲」这回事；恢复播放后
+    // 水位状态机会按实际情况补发边沿。
+    if !shared.paused.load(Ordering::Relaxed) {
+        shared.buffered_ui.store(true, Ordering::Relaxed);
+        shared.emit(PlayerEvent::Buffering).await;
+    }
+    feed.unstarve();
+    log::info!(
+        "[Playback] 音频 seek 重定位到 {target:.1}s（样本 {}/{}，冲流收口待重预填）",
+        cursor.idx,
+        pts.len()
+    );
+}
 
 /// 音频喂送循环：样本 → 平台 AAC 解码 → WSOLA 倍速 → 环形缓冲。
 ///
@@ -619,45 +689,75 @@ async fn audio_feeder(
             .collect();
     }
     // 起点对齐：第一个 PTS ≥ 起点的样本（elst 修剪后，priming 样本已在 0 前）
-    let mut idx = pts.partition_point(|&p| p < start_secs - 1e-6);
+    let mut cursor = FeederCursor {
+        idx: pts.partition_point(|&p| p < start_secs - 1e-6),
+        pushed: 0,
+        flush_pending: false,
+    };
     let total = pts.len().min(source.len());
 
     let mut primed = primed;
-    let mut pushed = 0usize;
-    // seek 后重预填未收口：预填够且设备跑过至少一个丢弃周期才解除冲流
-    let mut flush_pending = false;
+    // seek 广播的记账位（独立于视频循环，见 Shared::seek_broadcast）
+    let mut seek_gen = 0u64;
+    // 临时诊断累计：解码入量 / WSOLA 出量 / 冲流丢弃量（解码域帧）
+    let mut diag_in = 0u64;
+    let mut diag_out = 0u64;
+    let mut diag_drop = 0u64;
 
-    while idx < total {
+    while cursor.idx < total {
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
         }
         // 暂停 = 停喂（设备也停消费，时钟冻结）；seek 仍然处理（暂停中拖
         // 进度条：恢复后必须从新位置走）
         while shared.paused.load(Ordering::Relaxed) && !shared.shutdown.load(Ordering::Relaxed) {
-            if let Some(t) = shared.take_seek() {
-                decoder.reset();
-                feed.begin_flush();
-                flush_pending = true;
-                pushed = 0;
-                idx = pts.partition_point(|&p| p < t - 1e-6);
+            if let Some(t) = shared.poll_seek(&mut seek_gen) {
+                feeder_relocate(
+                    &shared,
+                    &mut feed,
+                    &mut decoder,
+                    pts.as_slice(),
+                    t,
+                    &mut cursor,
+                )
+                .await;
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
         }
-        if let Some(t) = shared.take_seek() {
-            decoder.reset();
-            feed.begin_flush();
-            flush_pending = true;
-            pushed = 0;
-            idx = pts.partition_point(|&p| p < t - 1e-6);
+        if let Some(t) = shared.poll_seek(&mut seek_gen) {
+            feeder_relocate(
+                &shared,
+                &mut feed,
+                &mut decoder,
+                pts.as_slice(),
+                t,
+                &mut cursor,
+            )
+            .await;
             continue;
         }
-        let sample = match source.read(idx).await {
+        // 读样本带读取代次：seek 会抬代次，堵在旧位置上的 serve 请求尽早
+        // 退场（注销读者登记，填充调度器立刻转向新位置）——干等旧数据的话
+        // seek 的就绪被白白拖后一个区间。
+        let my_epoch = shared.read_epoch.load(Ordering::Relaxed);
+        let shared_for_read = Arc::clone(&shared);
+        let sample = match source
+            .read_cancellable(cursor.idx, move || {
+                shared_for_read.read_epoch.load(Ordering::Relaxed) != my_epoch
+            })
+            .await
+        {
             Ok(s) => s,
             Err(e) => {
-                shared.fail(format!("取音频样本 {idx} 失败: {e}")).await;
+                if shared.seek_pending_since(seek_gen) {
+                    continue; // seek 引起的退场：循环顶上重定位
+                }
+                shared
+                    .fail(format!("取音频样本 {} 失败: {e}", cursor.idx))
+                    .await;
                 return;
             }
         };
@@ -667,7 +767,7 @@ async fn audio_feeder(
                 // 单包解不出来不该整场静音，但也**不能跳过**：跳过等于把这段
                 // 时间从音频里抹掉，音轨比画面短一截——每跳一包就多攒一份
                 // 音画差。补一包等长静音，时间轴严丝合缝。
-                log::warn!("[Playback] 音频样本 {idx} 解码失败（补静音）: {e}");
+                log::warn!("[Playback] 音频样本 {} 解码失败（补静音）: {e}", cursor.idx);
                 vec![0f32; 1024 * ch]
             }
         };
@@ -675,37 +775,84 @@ async fn audio_feeder(
         let rate = shared.rate();
         let mut stretched = Vec::with_capacity(decoded.len() / 2);
         wsola.process(&decoded, rate, &mut stretched);
-        if !stretched.is_empty() && !feed.push(&stretched, &shared.shutdown).await {
-            return;
+        diag_in += (decoded.len() / ch) as u64;
+        diag_out += (stretched.len() / ch) as u64;
+        if !stretched.is_empty() {
+            // 冲流期环放不下就丢这包：老数据还没被回调丢完、设备又暂停着时
+            //（用户暂停/水位暂停），等在 push 上会让喂送任务连同冲流收口、
+            // 水位重判一起卡死——「拖进度一直缓冲中」的根因。冲流边界本来
+            // 就是要丢的内容；时间轴的连续由时钟换轴负责，不靠这包撑着。
+            let need_secs = stretched.len() as f64 / ch as f64 / f64::from(sample_rate);
+            if cursor.flush_pending && feed.vacant_secs() < need_secs {
+                diag_drop += (stretched.len() / ch) as u64;
+                log::debug!("[Playback] 冲流期环满，丢一包等回调腾位");
+            } else if !feed
+                .push(&stretched, &shared.shutdown, &shared.paused)
+                .await
+            {
+                return;
+            } else {
+                cursor.pushed += 1;
+            }
         }
-        pushed += 1;
         // 冲流收口：预填够 + 设备确实跑过丢弃周期（设备暂停时回调不来，
         // 宁可等恢复也别让旧声音漏出去）
-        if flush_pending && pushed >= AUDIO_PRIME_PACKETS && feed.end_flush_if_seen() {
-            flush_pending = false;
+        if cursor.flush_pending && cursor.pushed >= AUDIO_PRIME_PACKETS && feed.end_flush_if_seen()
+        {
+            cursor.flush_pending = false;
         }
         // 预填够一截就放行设备（见 AUDIO_PRIME_PACKETS）
         if let Some(tx) = primed.take()
-            && pushed >= AUDIO_PRIME_PACKETS
+            && cursor.pushed >= AUDIO_PRIME_PACKETS
         {
             let _ = tx.send(());
         }
-        // rebuffer 水位（冲流期间不判：环里混着待丢弃的旧数据）
-        if !flush_pending {
+        // 水位状态机（冲流期间不判：环里混着待丢弃的旧数据）
+        if !cursor.flush_pending {
             let ring_secs = feed.buffered_secs();
             if ring_secs <= BUFFER_LOW_SECS && feed.set_starved(true) {
                 log::info!("[Playback] 缓冲低水位（{ring_secs:.2}s），暂停设备等填充");
-                shared.emit(PlayerEvent::Buffering).await;
             } else if ring_secs >= BUFFER_HIGH_SECS && feed.set_starved(false) {
                 log::info!("[Playback] 缓冲回填（{ring_secs:.2}s），恢复播放");
+            }
+            // UI 徽标边沿只按 buffered_ui 翻转：seek 路径上 starved 被提前
+            // 解除（收冲流的口），靠它的翻转沿发事件会把 Ready 永远丢掉。
+            if ring_secs <= BUFFER_LOW_SECS && !shared.buffered_ui.swap(true, Ordering::Relaxed) {
+                shared.emit(PlayerEvent::Buffering).await;
+            } else if ring_secs >= BUFFER_HIGH_SECS
+                && shared.buffered_ui.swap(false, Ordering::Relaxed)
+            {
                 shared.emit(PlayerEvent::Ready).await;
             }
         }
-        idx += 1;
+        cursor.idx += 1;
+        // 喂送心跳（debug）：喂到哪、环多满、各状态位——排「喂送卡死/失聪」
+        // 类问题的第一现场
+        if cursor.idx.is_multiple_of(200) {
+            log::debug!(
+                "[Playback][feeder] idx {}/{} 环 {:.2}s paused={} flush={} gen={} 入{diag_in} 出{diag_out} 丢{diag_drop}",
+                cursor.idx,
+                total,
+                feed.buffered_secs(),
+                shared.paused.load(Ordering::Relaxed),
+                cursor.flush_pending,
+                seek_gen
+            );
+        }
     }
     // 流很短或一直没喂满：别让调用方等满超时，直接放行
     if let Some(tx) = primed.take() {
         let _ = tx.send(());
+    }
+
+    // 喂完：水位暂停就此作废——后面不会再有数据，「等填充」永远等不到，
+    // 设备必须跑起来把环里最后一段放干，下面的放干等待才有尽头（否则
+    // 尾段一次低水位就能把设备暂停在残量上：环放不干、挂钟接不了、
+    // 时钟冻结、徽标常亮——seek 到音频轨末尾尤其必现）。
+    feed.unstarve();
+    // 徽标若还亮着就此收口：不会再有回填沿了
+    if shared.buffered_ui.swap(false, Ordering::Relaxed) {
+        shared.emit(PlayerEvent::Ready).await;
     }
 
     // 喂完：等设备把环形缓冲放干，再把主时钟切到挂钟——音频时钟在缓冲

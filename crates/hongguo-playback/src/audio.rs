@@ -141,8 +141,20 @@ impl AudioDevice {
         let Some(stream) = guard.as_ref() else {
             return;
         };
-        let should_play =
-            !self.user_paused.load(Ordering::Relaxed) && !self.starved.load(Ordering::Relaxed);
+        let user_paused = self.user_paused.load(Ordering::Relaxed);
+        let starved = self.starved.load(Ordering::Relaxed);
+        let should_play = !user_paused && !starved;
+        // 设备起停留痕：用户暂停是唯一没有别处记录的位（starved 翻转有
+        // 水位日志），只在它参与时升到 info，纯水位翻转让给水位日志
+        log::log!(
+            if user_paused {
+                log::Level::Info
+            } else {
+                log::Level::Debug
+            },
+            "[Playback] 音频设备 {}（user_paused={user_paused} starved={starved}）",
+            if should_play { "启动" } else { "暂停" }
+        );
         // pause/play 的错误类型不同，分支各自消化
         let result = if should_play {
             stream.0.play().map_err(|e| e.to_string())
@@ -344,6 +356,7 @@ impl AudioOut {
             },
             RingFeed {
                 producer: prod,
+                pending: Vec::new(),
                 discarding: cb_discard_feed,
                 discard_seen: cb_seen,
                 device,
@@ -380,6 +393,9 @@ impl Drop for AudioOut {
 /// 解码域 PCM 适配成设备混音格式（[`crate::resample::PcmAdapter`]）。
 pub(crate) struct RingFeed {
     producer: ringbuf::HeapProd<f32>,
+    /// 上次投放的未写完余量（设备域）。用户暂停中断投放时留这里，恢复后
+    /// 的下一次调用先续投它——旧包必须排在新包前面（保序）。
+    pending: Vec<f32>,
     discarding: Arc<AtomicBool>,
     discard_seen: Arc<AtomicBool>,
     device: Arc<AudioDevice>,
@@ -389,27 +405,61 @@ pub(crate) struct RingFeed {
 impl RingFeed {
     /// 投放一段交错 PCM（解码域）；缓冲满时让出任务等设备消费（消费速率
     /// 由硬件决定）。返回 false = 已收到停机信号。
-    pub(crate) async fn push(&mut self, samples: &[f32], shutdown: &AtomicBool) -> bool {
-        let adapted = self.adapter.process(samples);
+    /// 投放一段交错 PCM（解码域）；缓冲满时让出任务等设备消费（消费速率
+    /// 由硬件决定）。返回 `false` = 停机。
+    ///
+    /// **用户暂停（`paused` 命中）时把已适配余量留在 [`Self::pending`]
+    /// 立即返回 `true`**：环满 + 设备暂停时没人消费，原地等下去会让喂送
+    /// 任务对 seek 全部失聪——它该回暂停等待循环去，那里才轮得到 poll。
+    /// 恢复后的下一次调用先续投余量再处理新输入（保序）。
+    pub(crate) async fn push(
+        &mut self,
+        samples: &[f32],
+        shutdown: &AtomicBool,
+        paused: &AtomicBool,
+    ) -> bool {
+        if self.pending.is_empty() {
+            self.pending = self.adapter.process(samples).to_vec();
+        }
         let mut done = 0usize;
-        while done < adapted.len() {
+        while done < self.pending.len() {
             if shutdown.load(Ordering::Relaxed) {
                 return false;
             }
-            done += self.producer.push_slice(&adapted[done..]);
-            if done < adapted.len() {
+            if paused.load(Ordering::Relaxed) {
+                self.pending.drain(..done);
+                return true;
+            }
+            done += self.producer.push_slice(&self.pending[done..]);
+            if done < self.pending.len() {
                 tokio::time::sleep(std::time::Duration::from_millis(4)).await;
             }
         }
+        self.pending.clear();
         true
     }
 
+    /// 环空位时长（秒，设备域）。冲流期的投放决策用它：放不下就丢包，
+    /// 绝不等在 push 上（设备暂停时没人消费，等 = 卡死喂送任务）。
+    pub(crate) fn vacant_secs(&self) -> f64 {
+        let (dst_ch, dst_rate) = self.adapter.dst_format();
+        let frames = self.producer.vacant_len() / usize::from(dst_ch.max(1));
+        frames as f64 / f64::from(dst_rate.max(1))
+    }
+
+    /// 解除缓冲断流暂停（转发给设备；seek 冲流收口依赖回调跑起来）。
+    pub(crate) fn unstarve(&self) {
+        self.device.set_starved(false);
+    }
+
     /// 开始冲流（与 [`AudioOut::begin_flush`] 同一协议，喂送端视角）。
-    /// 适配器相位一并清（新旧位置不连续）。
+    /// 适配器相位一并清（新旧位置不连续）；未投放的余量作废（旧位置的
+    /// 声音不该再进环）。
     pub(crate) fn begin_flush(&mut self) {
         self.discard_seen.store(false, Ordering::Relaxed);
         self.discarding.store(true, Ordering::Relaxed);
         self.adapter.reset();
+        self.pending.clear();
     }
 
     /// 结束冲流：**仅当**回调真跑过丢弃周期才放行（设备暂停时回调不来，

@@ -40,7 +40,7 @@ mod progressive;
 pub mod range;
 
 pub use cache::StreamCache;
-pub use progressive::{ProgressiveStream, ReaderDemand, serve};
+pub use progressive::{ProgressiveStream, ReaderDemand, serve, serve_cancellable};
 
 use std::sync::OnceLock;
 
