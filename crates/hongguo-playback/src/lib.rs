@@ -23,6 +23,7 @@
 
 mod audio;
 pub mod player;
+mod resample;
 mod source;
 mod video;
 mod wsola;

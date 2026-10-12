@@ -196,7 +196,10 @@ pub(crate) struct AudioOut {
 }
 
 impl AudioOut {
-    /// 建输出流。`channels`/`sample_rate` 是解码侧格式；音量/静音取当前值。
+    /// 建输出流。`channels`/`sample_rate` 是**解码侧**格式；音量/静音取当前值。
+    /// 流按**设备混音格式**开（Windows 共享模式不转换任意采样率——解码
+    /// 44100Hz 打到只收 48000Hz 的设备直接建流失败），喂送侧经
+    /// [`PcmAdapter`] 适配；环形缓冲/回调/时钟/音量全部统一在设备域。
     /// 不在这里启动设备：调用方先预填（见 player::adopt_audio）。
     pub(crate) fn open(
         channels: u16,
@@ -204,16 +207,31 @@ impl AudioOut {
         volume: f32,
         muted: bool,
     ) -> Option<(Self, RingFeed)> {
-        let device = cpal::default_host().default_output_device()?;
-        let ring = ringbuf::HeapRb::<f32>::new(usize::from(channels) * sample_rate as usize); // 1 秒
+        let device = cpal::default_host().default_output_device().or_else(|| {
+            log::warn!("[Playback] 没有默认音频输出设备");
+            None
+        })?;
+        let dev_cfg = device
+            .default_output_config()
+            .map_err(|e| {
+                log::warn!("[Playback] 读音频设备混音格式失败: {e}");
+                e
+            })
+            .ok()?;
+        let dst_rate = dev_cfg.sample_rate().0;
+        let dst_channels = dev_cfg.channels();
+        let adapter =
+            crate::resample::PcmAdapter::new(channels, sample_rate, dst_channels, dst_rate);
+        let ring = ringbuf::HeapRb::<f32>::new(usize::from(dst_channels) * dst_rate as usize); // 1 秒（设备域）
         let (prod, mut cons) = ring.split();
 
         let config = cpal::StreamConfig {
-            channels,
-            sample_rate: cpal::SampleRate(sample_rate),
+            channels: dst_channels,
+            sample_rate: cpal::SampleRate(dst_rate),
             buffer_size: cpal::BufferSize::Default,
         };
-        let clock = Arc::new(Clock::audio(sample_rate));
+        // 时钟计数设备域帧：设备帧数 ÷ 设备采样率 = 媒体秒（重采样保持时长）
+        let clock = Arc::new(Clock::audio(dst_rate));
         let cb_clock = Arc::clone(&clock);
         let cb_calls = Arc::new(AtomicU64::new(0));
         // 欠载（缓冲空、只能出静音）累计帧数。
@@ -235,7 +253,7 @@ impl AudioOut {
         let cb_seen = Arc::new(AtomicBool::new(false));
         let cb_seen_w = Arc::clone(&cb_seen);
         let cb_seen_out = Arc::clone(&cb_seen);
-        let channels_cb = usize::from(channels);
+        let channels_cb = usize::from(dst_channels);
         // 累计已消费帧数与引线都在时钟里，回调只管报数
         let err = move |e| log::warn!("[Playback] 音频设备回调错误: {e}");
         let stream = device
@@ -260,7 +278,7 @@ impl AudioOut {
                         .timestamp()
                         .playback
                         .duration_since(&info.timestamp().callback)
-                        .map(|d| d.as_secs_f64() * sample_rate as f64)
+                        .map(|d| d.as_secs_f64() * dst_rate as f64)
                         .unwrap_or(0.0);
                     let frames = filled / channels_cb;
                     if cb_muted.load(Ordering::Relaxed) {
@@ -288,15 +306,27 @@ impl AudioOut {
                             "[Playback][cb] 第 {n} 次回调，clock={:.2}s，引线 {:.0} 帧，欠载 {:.1}s（累计）",
                             cb_clock.now(),
                             lead,
-                            (silence + silent_frames) as f64 / f64::from(sample_rate)
+                            (silence + silent_frames) as f64 / f64::from(dst_rate)
                         );
                     }
                 },
                 err,
                 None,
             )
+            .map_err(|e| {
+                log::warn!(
+                    "[Playback] 音频建流失败（解码 {channels}ch {sample_rate}Hz → 设备 {dst_channels}ch {dst_rate}Hz）: {e}"
+                );
+                e
+            })
             .ok()?;
-        log::info!("[Playback] 音频设备已建（{channels}ch {sample_rate}Hz）");
+        if channels != dst_channels || sample_rate != dst_rate {
+            log::info!(
+                "[Playback] 音频设备已建（{dst_channels}ch {dst_rate}Hz，解码侧 {channels}ch {sample_rate}Hz 已适配）"
+            );
+        } else {
+            log::info!("[Playback] 音频设备已建（{channels}ch {sample_rate}Hz）");
+        }
         let device = Arc::new(AudioDevice {
             stream: Mutex::new(Some(SendStream(stream))),
             user_paused: AtomicBool::new(false),
@@ -317,6 +347,7 @@ impl AudioOut {
                 discarding: cb_discard_feed,
                 discard_seen: cb_seen,
                 device,
+                adapter,
             },
         ))
     }
@@ -345,25 +376,28 @@ impl Drop for AudioOut {
     }
 }
 
-/// 音频解码循环往环形缓冲投放的把手，兼带冲流协议的收口端。
+/// 音频解码循环往环形缓冲投放的把手，兼带冲流协议的收口端。投放前先把
+/// 解码域 PCM 适配成设备混音格式（[`crate::resample::PcmAdapter`]）。
 pub(crate) struct RingFeed {
     producer: ringbuf::HeapProd<f32>,
     discarding: Arc<AtomicBool>,
     discard_seen: Arc<AtomicBool>,
     device: Arc<AudioDevice>,
+    adapter: crate::resample::PcmAdapter,
 }
 
 impl RingFeed {
-    /// 投放一段交错 PCM；缓冲满时让出任务等设备消费（消费速率由硬件决定）。
-    /// 返回 false = 已收到停机信号。
+    /// 投放一段交错 PCM（解码域）；缓冲满时让出任务等设备消费（消费速率
+    /// 由硬件决定）。返回 false = 已收到停机信号。
     pub(crate) async fn push(&mut self, samples: &[f32], shutdown: &AtomicBool) -> bool {
+        let adapted = self.adapter.process(samples);
         let mut done = 0usize;
-        while done < samples.len() {
+        while done < adapted.len() {
             if shutdown.load(Ordering::Relaxed) {
                 return false;
             }
-            done += self.producer.push_slice(&samples[done..]);
-            if done < samples.len() {
+            done += self.producer.push_slice(&adapted[done..]);
+            if done < adapted.len() {
                 tokio::time::sleep(std::time::Duration::from_millis(4)).await;
             }
         }
@@ -371,9 +405,11 @@ impl RingFeed {
     }
 
     /// 开始冲流（与 [`AudioOut::begin_flush`] 同一协议，喂送端视角）。
-    pub(crate) fn begin_flush(&self) {
+    /// 适配器相位一并清（新旧位置不连续）。
+    pub(crate) fn begin_flush(&mut self) {
         self.discard_seen.store(false, Ordering::Relaxed);
         self.discarding.store(true, Ordering::Relaxed);
+        self.adapter.reset();
     }
 
     /// 结束冲流：**仅当**回调真跑过丢弃周期才放行（设备暂停时回调不来，
@@ -387,9 +423,11 @@ impl RingFeed {
         }
     }
 
-    /// 环内滞留样本数（rebuffer 水位判断用）。
-    pub(crate) fn buffered_frames(&self) -> usize {
-        self.producer.occupied_len()
+    /// 环内滞留时长（秒，设备域——环里是适配后的设备样本）。
+    pub(crate) fn buffered_secs(&self) -> f64 {
+        let (dst_ch, dst_rate) = self.adapter.dst_format();
+        let frames = self.producer.occupied_len() / usize::from(dst_ch.max(1));
+        frames as f64 / f64::from(dst_rate.max(1))
     }
 
     /// 缓冲断流暂停（见 AudioDevice::set_starved）。

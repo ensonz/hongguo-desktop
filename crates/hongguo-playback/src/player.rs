@@ -692,7 +692,7 @@ async fn audio_feeder(
         }
         // rebuffer 水位（冲流期间不判：环里混着待丢弃的旧数据）
         if !flush_pending {
-            let ring_secs = feed.buffered_frames() as f64 / (ch as f64 * f64::from(sample_rate));
+            let ring_secs = feed.buffered_secs();
             if ring_secs <= BUFFER_LOW_SECS && feed.set_starved(true) {
                 log::info!("[Playback] 缓冲低水位（{ring_secs:.2}s），暂停设备等填充");
                 shared.emit(PlayerEvent::Buffering).await;
@@ -710,7 +710,7 @@ async fn audio_feeder(
 
     // 喂完：等设备把环形缓冲放干，再把主时钟切到挂钟——音频时钟在缓冲
     // 放干后不再推进，视频尾巴（比音轨长时）会被冻住，Ended 也到不了。
-    while feed.buffered_frames() > 0 && !shared.shutdown.load(Ordering::Relaxed) {
+    while feed.buffered_secs() > 0.0 && !shared.shutdown.load(Ordering::Relaxed) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let at = shared.now();

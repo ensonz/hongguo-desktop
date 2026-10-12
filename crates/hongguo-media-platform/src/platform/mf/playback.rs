@@ -5,11 +5,17 @@
 //! 驱动、MFT 枚举/激活与样本工具）。每个解码器一条常驻线程：COM/MTA 状态
 //! 不落在 tokio 工作线程上，请求-应答式阻塞调用与 macOS 侧 VT 的异步回调
 //! 等价（调用方都在引擎的解码循环里串行推进）。
+//!
+//! 两个本机实证的契约（详见各函数头注释）：HEVC 解码器只吃 **Annex-B 起始码**
+//! 样本（长度前缀被无声吞掉）；AAC 的 `MF_MT_USER_DATA` 是 **12 字节
+//! HEAACWAVEINFO 尾巴 + ASC**（裸 ASC 被拒），输入/输出类型都要从解码器
+//! 枚举的**可用类型**里选完整形态。
 
 use std::sync::mpsc;
 
 use windows::Win32::Media::MediaFoundation::*;
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
+use windows::core::PWSTR;
 
 use hongguo_common::{AppError, AppResult};
 
@@ -30,8 +36,7 @@ fn session_init_once() {
     });
 }
 
-/// 喂入字节数据 → IMFSample（压缩样本共用的构造：锁缓冲、拷贝、定时戳）。
-/// 流程对齐 super 的 nv12_sample，只是源是裸字节不是 NV12 平面。
+/// 喂入字节数据 → IMFSample（压缩样本共用的构造：锁缓冲、拷贝、定时戳）。/// 流程对齐 super 的 nv12_sample，只是源是裸字节不是 NV12 平面。
 unsafe fn bytes_sample(data: &[u8], pts_100ns: i64, dur_100ns: i64) -> AppResult<IMFSample> {
     unsafe {
         let sample = hr(MFCreateSample(), "建样本")?;
@@ -51,6 +56,35 @@ unsafe fn bytes_sample(data: &[u8], pts_100ns: i64, dur_100ns: i64) -> AppResult
         }
         Ok(sample)
     }
+}
+
+/// 长度前缀样本流 → Annex-B：每个 NALU 的 `length_size` 前缀换成
+/// `00 00 00 01` 起始码。**HEVC 扩展解码器实测只吃 Annex-B 形态**——
+/// `MFVideoFormat_HEVC` 的文档口径是长度前缀，但本机（HEVCVideoExtension
+/// 2.5.x）直驱 `IMFTransform` 时长度前缀样本被无声吞掉（喂 244 个零输出），
+/// 起始码形态立即出帧（与 H.264 时代 mf 解码器只认 Annex-B 同款脾气）。
+/// 解析不出合法长度（首 4 字节超出总长/长度为 0）时原样返回，交给解码器
+/// 报错而不是在这里猜。
+fn annexb_from_length_prefixed(data: &[u8], length_size: usize) -> Vec<u8> {
+    let n = length_size.clamp(1, 4);
+    let mut out = Vec::with_capacity(data.len());
+    let mut pos = 0usize;
+    while pos + n <= data.len() {
+        let mut len = 0usize;
+        for b in &data[pos..pos + n] {
+            len = (len << 8) | *b as usize;
+        }
+        if len == 0 || pos + n + len > data.len() {
+            return data.to_vec();
+        }
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(&data[pos + n..pos + n + len]);
+        pos += n + len;
+    }
+    if pos != data.len() {
+        return data.to_vec();
+    }
+    out
 }
 
 /// 一个解码出的 NV12 帧（系统内存，带字节行距）。
@@ -183,36 +217,66 @@ impl Drop for HevcMftDecoder {
     }
 }
 
-/// 视频会话主体：建 MFT、协商类型、循环应答。返回 Err = 建会话失败
-/// （由调用侧回放给所有未决请求）。
-fn video_session(
-    hvcc: &Option<Vec<u8>>,
-    parameter_sets: &[Vec<u8>],
-    length_size: usize,
+/// 设 NV12 输出类型。优先用解码器**自己枚举的可用类型**（属性齐全——
+/// 手工构造的裸 major+subtype 在个别硬解 MFT 上被 `MF_E_ATTRIBUTENOTFOUND`
+/// 拒收，它要的类型属性我们没有）；枚举不出 NV12 再回落自建类型（带帧
+/// 尺寸，软件 MFT 接受这种形态）。
+unsafe fn negotiate_nv12_output(
+    xform: &IMFTransform,
     width: usize,
     height: usize,
-    rx: &mpsc::Receiver<Req>,
-    tx: &mpsc::Sender<Rsp>,
 ) -> AppResult<()> {
     unsafe {
-        let decoders = enum_activates(
-            MFT_CATEGORY_VIDEO_DECODER,
-            MFT_ENUM_FLAG_SYNCMFT
-                | MFT_ENUM_FLAG_ASYNCMFT
-                | MFT_ENUM_FLAG_HARDWARE
-                | MFT_ENUM_FLAG_SORTANDFILTER,
-            Some(&type_info(MFMediaType_Video, MFVideoFormat_HEVC)),
-            Some(&type_info(MFMediaType_Video, MFVideoFormat_NV12)),
+        let mut idx = 0u32;
+        while let Ok(t) = xform.GetOutputAvailableType(0, idx) {
+            if t.GetGUID(&MF_MT_SUBTYPE)
+                .is_ok_and(|g| g == MFVideoFormat_NV12)
+            {
+                return hr(xform.SetOutputType(0, &t, 0), "设 NV12 解码输出");
+            }
+            idx += 1;
+        }
+        let out_t = video_type(MFVideoFormat_NV12)?;
+        hr(
+            out_t.SetUINT64(&MF_MT_FRAME_SIZE, (width as u64) << 32 | height as u64),
+            "设解码帧尺寸",
         )?;
-        let Some(activate) = decoders.first() else {
-            return Err(AppError::Media(
-                "没有 HEVC 解码 MFT（装系统的「HEVC 视频扩展」后重试）".into(),
-            ));
-        };
-        let (mut driver, xform) = Driver::new(activate)?;
+        hr(xform.SetOutputType(0, &out_t, 0), "设 NV12 解码输出")
+    }
+}
 
-        // 输入类型：HEVC + 帧尺寸 + hvcC 序列头（被拒时去 blob 重试，
-        // 带内参数集兜底——见首样本前插）
+/// MFT 的友好名（诊断日志用：候选迭代时能看出走的是硬解还是扩展解码器）。
+fn activate_name(activate: &IMFActivate) -> String {
+    unsafe {
+        let mut name = PWSTR::null();
+        let mut len = 0u32;
+        let got = activate
+            .GetAllocatedString(&MFT_FRIENDLY_NAME_Attribute, &mut name, &mut len)
+            .is_ok()
+            && !name.is_null();
+        let out = if got {
+            name.to_string().unwrap_or_else(|_| "未命名解码器".into())
+        } else {
+            "未命名解码器".into()
+        };
+        if got {
+            CoTaskMemFree(Some(name.as_ptr() as *const _));
+        }
+        out
+    }
+}
+
+/// 与一个 HEVC 解码 MFT 建立完整会话：输入类型（hvcC 被拒时去 blob 重试，
+/// 带内参数集兜底——见首样本前插）→ NV12 输出 → 开流，返回
+/// `(驱动, 变换, 宽, 高, 行距)`。任何一步被拒即失败，由调用侧换下一候选。
+unsafe fn open_hevc_decoder(
+    activate: &IMFActivate,
+    hvcc: &Option<Vec<u8>>,
+    width: usize,
+    height: usize,
+) -> AppResult<(Driver, IMFTransform, usize, usize, usize)> {
+    unsafe {
+        let (mut driver, xform) = Driver::new(activate)?;
         let in_t = video_type(MFVideoFormat_HEVC)?;
         let frame_size = (width as u64) << 32 | height as u64;
         hr(
@@ -240,12 +304,70 @@ fn video_session(
                 )));
             }
         }
-        let out_t = video_type(MFVideoFormat_NV12)?;
-        hr(xform.SetOutputType(0, &out_t, 0), "设 NV12 解码输出")?;
+        negotiate_nv12_output(&xform, width, height)?;
         let cur = hr(xform.GetOutputCurrentType(0), "读解码输出类型")?;
-        let (mut w, mut h) = frame_size_of(&cur)?;
-        let mut stride = type_stride(&cur, w);
+        let (w, h) = frame_size_of(&cur)?;
+        let stride = type_stride(&cur, w);
         driver.begin_streaming()?;
+        Ok((driver, xform, w, h, stride))
+    }
+}
+
+/// 视频会话主体：建 MFT、协商类型、循环应答。返回 Err = 建会话失败
+/// （由调用侧回放给所有未决请求）。
+fn video_session(
+    hvcc: &Option<Vec<u8>>,
+    parameter_sets: &[Vec<u8>],
+    length_size: usize,
+    width: usize,
+    height: usize,
+    rx: &mpsc::Receiver<Req>,
+    tx: &mpsc::Sender<Rsp>,
+) -> AppResult<()> {
+    unsafe {
+        let decoders = enum_activates(
+            MFT_CATEGORY_VIDEO_DECODER,
+            MFT_ENUM_FLAG_SYNCMFT
+                | MFT_ENUM_FLAG_ASYNCMFT
+                | MFT_ENUM_FLAG_HARDWARE
+                | MFT_ENUM_FLAG_SORTANDFILTER,
+            Some(&type_info(MFMediaType_Video, MFVideoFormat_HEVC)),
+            Some(&type_info(MFMediaType_Video, MFVideoFormat_NV12)),
+        )?;
+        if decoders.is_empty() {
+            return Err(AppError::Media(
+                "没有 HEVC 解码 MFT（装系统的「HEVC 视频扩展」后重试）".into(),
+            ));
+        }
+        // 候选逐个协商，第一个全程谈下来的用（SORTANDFILTER 把硬解排前，
+        // 但个别硬解 MFT 对类型形态挑剔/驱动态不稳，谈崩就落到扩展软解）
+        let mut last_err = String::new();
+        let mut opened: Option<(Driver, IMFTransform, usize, usize, usize)> = None;
+        for activate in &decoders {
+            match open_hevc_decoder(activate, hvcc, width, height) {
+                Ok((driver, xform, w, h, stride)) => {
+                    log::info!(
+                        "[Platform/mf] 选中 HEVC 解码器「{}」（候选 {} 个）",
+                        activate_name(activate),
+                        decoders.len()
+                    );
+                    opened = Some((driver, xform, w, h, stride));
+                    break;
+                }
+                Err(e) => {
+                    log::info!(
+                        "[Platform/mf] 解码器「{}」协商失败（{e}），试下一个候选",
+                        activate_name(activate)
+                    );
+                    last_err = e.to_string();
+                }
+            }
+        }
+        let Some((mut driver, xform, mut w, mut h, mut stride)) = opened else {
+            return Err(AppError::Media(format!(
+                "HEVC 解码 MFT 全部协商失败（{last_err}）"
+            )));
+        };
         log::info!("[Platform/mf] HEVC 解码会话就绪（{w}x{h}，stride {stride}）");
 
         // 首样本前插带内参数集（MP4 样本自身不带 VPS/SPS/PPS）；前缀长度
@@ -258,6 +380,9 @@ fn video_session(
             inband_params.extend_from_slice(&len[skip..]);
             inband_params.extend_from_slice(nalu);
         }
+        // 吞吐哨兵：喂进/产出计数（首帧迟迟不出现时一眼看出是「只进不出」）
+        let mut fed = 0usize;
+        let mut out_total = 0usize;
 
         while let Ok(req) = rx.recv() {
             match req {
@@ -287,6 +412,12 @@ fn video_session(
                         first_sample = false;
                     }
                     data.extend_from_slice(&sample);
+                    fed += 1;
+                    if fed.is_multiple_of(100) {
+                        log::debug!("[Platform/mf] HEVC 已喂 {fed} 样本，累计出帧 {out_total}");
+                    }
+                    // 长度前缀 → Annex-B（解码器只认起始码形态，见转换函数头注释）
+                    let data = annexb_from_length_prefixed(&data, length_size);
                     let input = match bytes_sample(&data, secs_to_hns(pts), secs_to_hns(dur)) {
                         Ok(s) => s,
                         Err(e) => {
@@ -295,13 +426,20 @@ fn video_session(
                         }
                     };
                     if let Err(e) = driver.push(input) {
+                        // 失败样本取证：长度 + 首部字节 + 时刻（对照样本表定位
+                        // 是数据问题还是解码器状态问题）
+                        log::warn!(
+                            "[Platform/mf] HEVC 样本 {fed}（{}B，首 {:02x?}，pts {pts:.3}s）解码被拒",
+                            data.len(),
+                            &data[..data.len().min(12)],
+                        );
                         let _ = tx.send(Rsp::Err(e));
                         continue;
                     }
                     if driver.stream_changed {
-                        // 输出类型重谈（分辨率/行距变化）：再设一次 NV12 后刷新
-                        let out_t = video_type(MFVideoFormat_NV12)?;
-                        if let Err(e) = xform.SetOutputType(0, &out_t, 0) {
+                        // 输出类型重谈（分辨率/行距变化）：与建会话同一条协商
+                        // 路径（可用类型里挑 NV12），成功后刷新几何
+                        if let Err(e) = negotiate_nv12_output(&xform, w, h) {
                             let _ = tx.send(Rsp::Err(AppError::Media(format!(
                                 "Media Foundation 重设输出类型失败（{e}）"
                             ))));
@@ -324,6 +462,7 @@ fn video_session(
                             Err(e) => log::warn!("[Platform/mf] 丢一帧无法解析的输出: {e}"),
                         }
                     }
+                    out_total += frames.len();
                     let _ = tx.send(Rsp::Frames(frames));
                 }
             }
@@ -332,8 +471,10 @@ fn video_session(
     }
 }
 
-/// 输出样本 → NV12 帧。PTS 读样本自带的 100ns 时间戳（喂进去的媒体时间）；
-/// 缺失（-1）按 0 处理——引擎侧重排缓冲只认我们自己喂的 pts 序。
+/// 输出样本 → NV12 帧。MF 按 NV12 契约输出（Y 平面后跟 U,V 交错），这里直通
+/// 即可——**不做色度交换**（颜色问题的归属在渲染上传侧，见 hongguo-gpui 的
+/// `image_upload::render_image`）。PTS 读样本自带的 100ns 时间戳（喂进去的
+/// 媒体时间）；缺失（-1）按 0 处理——引擎侧重排缓冲只认我们自己喂的 pts 序。
 unsafe fn nv12_of(s: &IMFSample, stride: usize, width: usize, height: usize) -> AppResult<Nv12Out> {
     let (data, t, _) = sample_to_bytes(s)?;
     let need = stride * height * 3 / 2;
@@ -352,8 +493,6 @@ unsafe fn nv12_of(s: &IMFSample, stride: usize, width: usize, height: usize) -> 
     })
 }
 
-// ————————————————————————————————————————————————————————————
-// AAC 音频
 // ————————————————————————————————————————————————————————————
 
 /// 播放用 AAC 解码器：in-box 软件 MFT（同步），输出交错 f32。
@@ -457,29 +596,61 @@ fn audio_session(
         if let Err(e) = in_t.SetUINT32(&MF_MT_AAC_PAYLOAD_TYPE, 0) {
             log::debug!("[Platform/mf] 设 AAC payload type 被拒（按默认）: {e}");
         }
-        if let Err(e) = in_t.SetBlob(&MF_MT_USER_DATA, asc) {
+        // MF_MT_USER_DATA 的形态是「12 字节 HEAACWAVEINFO 尾巴 + ASC」：
+        // dwElementType/wPayloadType/profile/wStructType/保留位全 0 =
+        // raw / 未指定，ASC 接在 12 字节之后。**裸 ASC 会被
+        // MF_E_INVALIDMEDIATYPE 拒收**（Win11 26200 的 MS AAC 解码器实测，
+        // 解码器自己枚举的可用类型也是 12 字节尾巴形态）。
+        let user_data = [vec![0u8; 12], asc.to_vec()].concat();
+        if let Err(e) = in_t.SetBlob(&MF_MT_USER_DATA, &user_data) {
             log::debug!("[Platform/mf] 设 ASC 被拒（按默认）: {e}");
         }
         hr(xform.SetInputType(0, &in_t, 0), "设音频输入类型")?;
 
-        let out_t = hr(MFCreateMediaType(), "建音频输出类型")?;
-        hr(
-            out_t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio),
-            "设音频 major type",
-        )?;
-        hr(
-            out_t.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float),
-            "设 f32 subtype",
-        )?;
-        hr(
-            out_t.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate),
-            "设输出采样率",
-        )?;
-        hr(
-            out_t.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels as u32),
-            "设输出声道数",
-        )?;
-        hr(xform.SetOutputType(0, &out_t, 0), "设音频输出类型")?;
+        // 输出类型同样从解码器枚举的**可用类型**里选：手工最小类型缺
+        // bits-per-sample/block-alignment，本机 MS AAC 解码器直接
+        // MF_E_INVALIDMEDIATYPE（可用类型是完整形态，实测接受）。
+        let mut out_set = false;
+        let mut idx = 0u32;
+        while let Ok(t) = xform.GetOutputAvailableType(0, idx) {
+            if t.GetGUID(&MF_MT_SUBTYPE)
+                .is_ok_and(|g| g == MFAudioFormat_Float)
+            {
+                hr(xform.SetOutputType(0, &t, 0), "设音频输出类型")?;
+                out_set = true;
+                break;
+            }
+            idx += 1;
+        }
+        if !out_set {
+            // 兜底：手工 Float，把解码器校验的字段补全
+            let out_t = hr(MFCreateMediaType(), "建音频输出类型")?;
+            hr(
+                out_t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio),
+                "设音频 major type",
+            )?;
+            hr(
+                out_t.SetGUID(&MF_MT_SUBTYPE, &MFAudioFormat_Float),
+                "设 f32 subtype",
+            )?;
+            hr(
+                out_t.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate),
+                "设输出采样率",
+            )?;
+            hr(
+                out_t.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, channels as u32),
+                "设输出声道数",
+            )?;
+            hr(
+                out_t.SetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE, 32),
+                "设输出位深",
+            )?;
+            hr(
+                out_t.SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, u32::from(channels) * 4),
+                "设输出块对齐",
+            )?;
+            hr(xform.SetOutputType(0, &out_t, 0), "设音频输出类型")?;
+        }
         driver.begin_streaming()?;
 
         while let Ok(req) = rx.recv() {
@@ -509,7 +680,9 @@ fn audio_session(
                         match sample_to_bytes(&s) {
                             Ok((bytes, _, _)) => pcm.extend(
                                 bytes
-                                    .chunks_exact(4)
+                                    .as_chunks::<4>()
+                                    .0
+                                    .iter()
                                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])),
                             ),
                             Err(e) => log::warn!("[Platform/mf] 丢一段音频输出: {e}"),
