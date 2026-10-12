@@ -3,7 +3,7 @@ import { check, type Update } from '@tauri-apps/plugin-updater';
 import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from 'sonner';
-import { t, tf } from '@/locales';
+import { tf } from '@/locales';
 import { UpdateContext, type UpdateContextValue, type UpdatePhase } from './update-context';
 
 /** 「稍后」记到 localStorage：同版本启动检查不再自动弹（对齐 hgplayer） */
@@ -16,6 +16,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const [available, setAvailable] = useState<Update | null>(null);
   const [progress, setProgress] = useState(0);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [upToDateOpen, setUpToDateOpen] = useState(false);
   // 下载中组件可能重挂（关掉弹层再开），进度累计要跨渲染存活
   const receivedRef = useRef(0);
   const totalRef = useRef(0);
@@ -35,24 +36,28 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     return update;
   }, []);
 
+  /** 检查结果落地后的弹层决策：手动检查总要有回执（有新版的走更新弹层、
+   *  没新版的走「已是最新」弹层）；启动检查只对没被「稍后」过的新版弹。 */
+  const presentResult = useCallback((update: Update | null, manual: boolean) => {
+    if (!update) {
+      if (manual) setUpToDateOpen(true);
+      return;
+    }
+    const dismissed = localStorage.getItem(DISMISSED_KEY);
+    if (manual || dismissed !== update.version) setDialogOpen(true);
+  }, []);
+
   const checkForUpdate = useCallback(
     async (manual: boolean) => {
       setPhase('checking');
       try {
-        const update = await runCheck();
-        if (!update) {
-          if (manual) toast.success(t('update.upToDate'));
-          return;
-        }
-        // 手动检查总弹层；启动检查只对没被「稍后」过的版本弹
-        const dismissed = localStorage.getItem(DISMISSED_KEY);
-        if (manual || dismissed !== update.version) setDialogOpen(true);
+        presentResult(await runCheck(), manual);
       } catch (e) {
         setPhase('error');
         if (manual) toast.error(tf('update.checkFailed', { error: String(e) }));
       }
     },
-    [runCheck],
+    [runCheck, presentResult],
   );
 
   // 只下载不安装：装不装、什么时候装，由用户在 downloaded 态点「立即更新」决定
@@ -106,16 +111,19 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       });
   }, [available]);
 
-  // 启动静默检查一次（失败保持安静——还没有 release 时 404 是常态）；
-  // 版本号只用于卡片副行，取不到不挡功能。setState 都发生在网络回调里，
-  // 不是 effect 同步连锁渲染，规则误报这里豁免。
+  // 启动检查一次：查到新版本且用户没对它点过「稍后」就自动弹更新提醒；
+  // 无新版/失败保持安静（还没有 release 时 404 是常态）。版本号只用于卡片
+  // 副行，取不到不挡功能。setState 都发生在网络回调里，不是 effect 同步
+  // 连锁渲染，规则误报这里豁免。
   useEffect(() => {
     getVersion()
       .then((v) => setVersion(v))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 见上
-    runCheck().catch(() => {});
-  }, [runCheck]);
+    runCheck()
+      .then((update) => presentResult(update, false))
+      .catch(() => {});
+  }, [runCheck, presentResult]);
 
   const value = useMemo<UpdateContextValue>(
     () => ({
@@ -126,6 +134,8 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       progress,
       dialogOpen,
       setDialogOpen,
+      upToDateOpen,
+      setUpToDateOpen,
       checkForUpdate,
       startDownload,
       dismiss,
@@ -138,6 +148,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       available,
       progress,
       dialogOpen,
+      upToDateOpen,
       checkForUpdate,
       startDownload,
       dismiss,

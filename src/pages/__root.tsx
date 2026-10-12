@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { AppShell } from '@/components/layout/app-shell';
 import { UpdateDialog } from '@/features/update/update-dialog';
+import { UpdateNoticeDialog } from '@/features/update/update-notice-dialog';
 import { UpdateProvider } from '@/features/update/update-provider';
 import { useDownloadEvents } from '@/service/queries';
 import { useLocaleStore } from '@/stores/locale';
@@ -43,6 +44,7 @@ function RootComponent() {
             <Outlet />
           </AppShell>
           <UpdateDialog />
+          <UpdateNoticeDialog />
         </UpdateProvider>
       )}
       <Toaster />
