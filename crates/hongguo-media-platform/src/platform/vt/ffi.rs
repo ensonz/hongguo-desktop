@@ -95,7 +95,11 @@ pub const kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange: OSType = 0x3432_3076;
 /// `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange`（'420f'，NV12 全区间）——
 /// 播放末端 GPU 合成器的采样格式（gpui surface 断言的就是它）
 pub const kCVPixelFormatType_420YpCbCr8BiPlanarFullRange: OSType = 0x3432_3066;
-/// `kVTDecodeFrameFlags`：不设 EnableAsynchronousDecompression 即同步解码
+/// `kVTDecodeFrameFlags`：请求异步解码。不设即同步——DecodeFrame 阻塞到
+/// 帧出来，VT 无法流水线化（实测 1080p HEVC 46.5ms/帧 > 33ms 实时线），
+/// 播放场景必须设这个标志。
+pub const kVTDecodeFrame_EnableAsynchronousDecompression: u32 = 1 << 0;
+/// 兼容名：转码链等离线场景用同步就够（速度无所谓，同步省一轮回调）。
 pub const kVTDecodeFrame_Synchronous: u32 = 0;
 /// `kCFNumberSInt32Type`
 pub const kCFNumberSInt32Type: CFIndex = 3;
@@ -258,6 +262,14 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub static kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: CFStringRef;
     pub static kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: CFStringRef;
+    /// 解码侧：显式请求硬件解码器。
+    ///
+    /// 不传规格（或传 `null`）时 VideoToolbox **可以自由落软解**——实测本机
+    /// 1080p HEVC 落软解要 46.8ms/帧（30fps 只需 33ms），解码跟不上实时，
+    /// 音画偏差会一直滚大。播放是实时场景，必须点名要走硬解。
+    pub static kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder: CFStringRef;
+    /// 解码会话属性：当前用的到底是不是硬件解码器（建会话后查一次留痕）。
+    pub static kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder: CFStringRef;
     pub static kVTCompressionPropertyKey_AverageBitRate: CFStringRef;
     pub static kVTCompressionPropertyKey_MaxKeyFrameInterval: CFStringRef;
     pub static kVTCompressionPropertyKey_MaxFrameDelayCount: CFStringRef;

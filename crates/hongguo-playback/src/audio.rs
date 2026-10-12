@@ -4,13 +4,13 @@
 //! 不再消费），失真只可能来自设备缓冲漂移，量级远小于画面可察觉阈值。无音
 //! 频轨或设备打不开时退化为挂钟（暂停在该模式下失效——首页场景恒有音轨）。
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::Mutex;
 use ringbuf::traits::{Consumer, Producer, Split};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 /// 主时钟。媒体时间域 = 样本 PTS（秒）。
 pub(crate) struct Clock {
@@ -78,6 +78,10 @@ unsafe impl Send for SendStream {}
 pub(crate) struct AudioOut {
     stream: Mutex<Option<SendStream>>,
     pub(crate) clock_src: Arc<Clock>,
+    /// 欠载静音累计（诊断）：持续增长 = 设备在响但喂送跟不上（此时音画
+    /// 会跟着拖慢，因为时钟只计真实帧）；接近 0 = 喂送健康。
+    #[expect(dead_code, reason = "诊断字段：与 [cb] 日志配套，排障时按需读取")]
+    silence_frames: Arc<AtomicU64>,
 }
 
 impl AudioOut {
@@ -97,6 +101,15 @@ impl AudioOut {
         let consumed_clock = Arc::new(Clock::audio(sample_rate));
         let cb_clock = Arc::clone(&consumed_clock);
         let cb_calls = Arc::new(AtomicU64::new(0));
+        // 欠载（缓冲空、只能出静音）累计帧数。
+        //
+        // **静音不推进时钟**：回调里只把真实取出的帧计入 consumed。设备在
+        // 解码器还没喂上来的那几十毫秒里空转、或中途追不上喂送时，都会往
+        // 喇叭送静音——那些帧要是也计时，音频时钟就跑到真实声音前面去，
+        // 画面跟着这个时钟走就是音画不同步（视频整体落后）。
+        let cb_silence = Arc::new(AtomicU64::new(0));
+        let cb_silence_w = Arc::clone(&cb_silence);
+        let channels_cb = usize::from(channels);
         let err = move |e| log::warn!("[Playback] 音频设备回调错误: {e}");
         let stream = device
             .build_output_stream(
@@ -106,12 +119,16 @@ impl AudioOut {
                     for slot in &mut data[filled..] {
                         *slot = 0.0; // 欠载静音
                     }
-                    cb_clock.consumed((data.len() / usize::from(channels)) as u64);
+                    let silent_frames = (data.len() - filled) / channels_cb;
+                    let silence = cb_silence_w.fetch_add(silent_frames as u64, Ordering::Relaxed);
+                    // 只计真实音频：时钟 =「已经送进设备的真实声音」的位置
+                    cb_clock.consumed((filled / channels_cb) as u64);
                     let n = cb_calls.fetch_add(1, Ordering::Relaxed);
                     if n.is_multiple_of(200) {
                         log::debug!(
-                            "[Playback][cb] 第 {n} 次回调，consumed={}",
-                            cb_clock.now()
+                            "[Playback][cb] 第 {n} 次回调，clock={:.2}s，欠载 {:.1}s（累计）",
+                            cb_clock.now(),
+                            (silence + silent_frames as u64) as f64 / f64::from(sample_rate)
                         );
                     }
                 },
@@ -119,15 +136,26 @@ impl AudioOut {
                 None,
             )
             .ok()?;
-        stream.play().ok()?;
-        log::info!("[Playback] 音频设备已开（{channels}ch {sample_rate}Hz）");
+        // 不在这里 play：调用方先预填一段音频（见 player::adopt_audio），
+        // 设备一启动就有真实数据可取，不放开局静音
+        log::info!("[Playback] 音频设备已建（{channels}ch {sample_rate}Hz）");
         Some((
             Self {
                 stream: Mutex::new(Some(SendStream(stream))),
                 clock_src: consumed_clock,
+                silence_frames: cb_silence,
             },
             RingFeed { producer: prod },
         ))
+    }
+
+    /// 起播设备（预填完成后调用）。重复调用无副作用。
+    pub(crate) fn start(&self) {
+        if let Some(stream) = self.stream.lock().as_ref()
+            && let Err(e) = stream.0.play()
+        {
+            log::warn!("[Playback] 音频设备启动失败: {e}");
+        }
     }
 
     pub(crate) fn set_paused(&self, paused: bool) {
@@ -139,7 +167,10 @@ impl AudioOut {
                 stream.0.play().map_err(|e| e.to_string())
             };
             if let Err(e) = result {
-                log::warn!("[Playback] 音频设备 {}失败: {e}", if paused { "暂停" } else { "恢复" });
+                log::warn!(
+                    "[Playback] 音频设备 {}失败: {e}",
+                    if paused { "暂停" } else { "恢复" }
+                );
             }
         }
     }

@@ -84,55 +84,102 @@ pub(crate) fn commit_ready<F: HasDisplayTime>(
     n
 }
 
-/// 把已定稿的帧按显示序、到点发出去。返回 `false` = 收到停机信号。
-async fn flush_due(
+/// 上屏一帧（进帧槽 + 发事件）。`first_sent` 只在第一次翻开。
+async fn present(
+    frame: DecodedFrame,
+    shared: &Shared,
+    first_sent: &mut bool,
+    shown_frames: &AtomicU64,
+) {
+    let (w, h) = frame.dims();
+    // 帧槽留给「随手取最新帧」的调用方；事件里带一份给事件驱动的宿主
+    //（CVPixelBuffer 克隆只是引用计数 +1，不搬数据）
+    *shared.latest.lock() = Some(frame.clone());
+    if !*first_sent {
+        *first_sent = true;
+        log::info!(
+            "[Playback] 首帧 {w}x{h}（显示时间 {:.2}s，时长 {:.1}s）",
+            frame.pts_secs,
+            *shared.duration_secs.lock()
+        );
+        shared
+            .emit(PlayerEvent::FirstFrame {
+                width: w,
+                height: h,
+            })
+            .await;
+    }
+    let shown = shown_frames.fetch_add(1, Ordering::Relaxed);
+    if shown.is_multiple_of(100) {
+        // skew = 这一帧的显示时间 − 上屏瞬间的时钟：
+        //   负 = 帧迟到（画面内容落后于声音），正 = 超跑。
+        // **这是音画是否对齐的唯一可读指标**——光看「帧在动」分不出对齐。
+        let skew = frame.pts_secs - shared.now();
+        if skew.abs() > 0.15 {
+            log::warn!(
+                "[Playback][sync] 第 {shown} 帧偏差 {skew:+.3}s（画面{}）",
+                if skew < 0.0 { "落后" } else { "超跑" }
+            );
+        } else {
+            log::debug!(
+                "[Playback][video] 已上屏 {shown} 帧（{:.2}s），clock={:.2}，偏差 {skew:+.3}s",
+                frame.pts_secs,
+                shared.now()
+            );
+        }
+    }
+    shared.emit(PlayerEvent::Frame(frame)).await;
+}
+
+/// 把已到期（显示时间 ≤ 时钟）的帧发出去，**一帧都不丢**。
+/// 返回 `false` = 收到停机信号。
+///
+/// 解码追不上时的策略（明确约定：不丢内容，声音视频都一样）：**慢下来播**。
+/// 时钟由音频回调推进（声音不能跳帧），视频追不上就晚点显示——两者仍按
+/// 同一条时间轴对齐，只是这一段播放变慢（像直播进缓冲），绝不跳过内容。
+/// 真实瓶颈（解码 46.5ms/帧 > 33ms 实时线）另行解决，慢播只是兜底。
+async fn emit_due(
     ready: &mut VecDeque<DecodedFrame>,
     shared: &Shared,
     first_sent: &mut bool,
     shown_frames: &AtomicU64,
 ) -> bool {
-    while let Some(front) = ready.front() {
-        let due = front.pts_secs;
-        // 时钟经 shared 取：音频设备迟到接管时会换主时钟，这里自动跟上
-        while shared.now() < due {
-            if shared.shutdown.load(Ordering::Relaxed) {
-                return false;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(3)).await;
-        }
+    loop {
         if shared.shutdown.load(Ordering::Relaxed) {
             return false;
         }
+        let Some(front) = ready.front() else {
+            return true;
+        };
+        if front.pts_secs > shared.now() {
+            return true;
+        }
         let frame = ready.pop_front().expect("front 刚看过");
-        let (w, h) = frame.dims();
-        // 帧槽留给「随手取最新帧」的调用方；事件里带一份给事件驱动的宿主
-        //（CVPixelBuffer 克隆只是引用计数 +1，不搬数据）
-        *shared.latest.lock() = Some(frame.clone());
-        if !*first_sent {
-            *first_sent = true;
-            log::info!(
-                "[Playback] 首帧 {w}x{h}（显示时间 {:.2}s，时长 {:.1}s）",
-                frame.pts_secs,
-                *shared.duration_secs.lock()
-            );
-            shared
-                .emit(PlayerEvent::FirstFrame {
-                    width: w,
-                    height: h,
-                })
-                .await;
-        }
-        let shown = shown_frames.fetch_add(1, Ordering::Relaxed);
-        if shown.is_multiple_of(100) {
-            log::debug!(
-                "[Playback][video] 已上屏 {shown} 帧（{:.2}s），clock={:.2}",
-                frame.pts_secs,
-                shared.now()
-            );
-        }
-        shared.emit(PlayerEvent::Frame(frame)).await;
+        present(frame, shared, first_sent, shown_frames).await;
     }
-    true
+}
+
+/// 等到队首帧到期并发出去（解码跑太快时的节拍闸门）。
+/// 返回 `false` = 收到停机信号。
+async fn wait_front_due(
+    ready: &mut VecDeque<DecodedFrame>,
+    shared: &Shared,
+    first_sent: &mut bool,
+    shown_frames: &AtomicU64,
+) -> bool {
+    loop {
+        if shared.shutdown.load(Ordering::Relaxed) {
+            return false;
+        }
+        let Some(front) = ready.front() else {
+            return true;
+        };
+        if front.pts_secs <= shared.now() {
+            return emit_due(ready, shared, first_sent, shown_frames).await;
+        }
+        // 时钟经 shared 取：音频设备迟到接管时会换主时钟，这里自动跟上
+        tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+    }
 }
 
 /// 视频主循环。返回自然播完（中途退出由停机/事件错误控制）。
@@ -174,11 +221,41 @@ pub(crate) async fn run(
     // 重排缓冲（显示序升序）与已定稿待上屏队列（显示序升序）
     let mut pending: Vec<DecodedFrame> = Vec::new();
     let mut ready: VecDeque<DecodedFrame> = VecDeque::new();
+    // 解码前瞻：`ready` 里备着这么多秒的画面就停手等时钟。
+    //
+    // 不能「等到该显示才开始解码」——那样每帧都要先付解码耗时（1080p 数
+    // 毫秒）加上取样本的等待，帧永远迟到，画面对音频就整体落后一截。
+    // 前瞻让解码跑在显示前面，上屏只等时钟。
+    const LOOKAHEAD_SECS: f64 = 0.4;
+    // 解码耗时观测（排障：画面跟不上音频时，先看是解码慢还是取样本慢）
+    let mut diag_decode = std::time::Duration::ZERO;
+    let mut diag_read = std::time::Duration::ZERO;
+    let mut diag_iters = 0u64;
 
     for (idx, _) in pts.iter().enumerate().skip(begin_at).take(source.len()) {
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
         }
+        // 节拍闸门：**超前**到前瞻上限就等时钟，落后就全速追。
+        //
+        // 基准必须是「最新已解帧相对时钟的超前量」。若拿「队首是否到期」当
+        // 闸门，等队首（0.4s 前解出来的那帧）到期等于每轮只放一帧、把解码
+        // 挤成刚够实时——解码一慢就再也追不回来（实测画面掉到 2/3 速、
+        // 音画偏差滚到 -5s）。落后时这里不设闸，解码全速把差距吃掉。
+        loop {
+            let ahead_secs = ready
+                .back()
+                .map(|f| f.pts_secs - shared.now())
+                .unwrap_or(f64::NEG_INFINITY);
+            if ahead_secs < LOOKAHEAD_SECS {
+                break;
+            }
+            if !emit_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+        }
+        let t_read = std::time::Instant::now();
         let sample = match source.read(idx).await {
             Ok(s) => s,
             Err(e) => {
@@ -186,6 +263,8 @@ pub(crate) async fn run(
                 return;
             }
         };
+        diag_read += t_read.elapsed();
+        let t_dec = std::time::Instant::now();
         let frames = match decoder.decode(&sample, pts[idx], frame_dur) {
             Ok(frames) => frames,
             Err(e) => {
@@ -193,6 +272,19 @@ pub(crate) async fn run(
                 return;
             }
         };
+        diag_decode += t_dec.elapsed();
+        diag_iters += 1;
+        if diag_iters.is_multiple_of(500) {
+            log::debug!(
+                "[Playback][video] 解码 {diag_iters} 样本：取样本均 {:.1}ms、解码均 {:.1}ms，超前 {:.2}s",
+                diag_read.as_secs_f64() * 1000.0 / diag_iters as f64,
+                diag_decode.as_secs_f64() * 1000.0 / diag_iters as f64,
+                ready
+                    .back()
+                    .map(|f| f.pts_secs - shared.now())
+                    .unwrap_or(0.0)
+            );
+        }
         // 起点前的参考帧不入槽（起点对齐由关键帧起步 + 这条过滤共同完成）
         for frame in frames {
             if frame.pts_secs < start_secs - frame_dur {
@@ -204,7 +296,7 @@ pub(crate) async fn run(
         // 显示时间，即逐帧直发）
         let watermark = dts.get(idx).copied().unwrap_or(pts[idx]) - reorder_secs;
         commit_ready(&mut pending, watermark, &mut ready);
-        if !flush_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
+        if !emit_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
             return;
         }
     }
@@ -219,9 +311,10 @@ pub(crate) async fn run(
         }
         Err(e) => log::warn!("[Playback] 解码收尾失败: {e}"),
     }
-    // 流没有更多帧了：剩余全部定稿，按显示序发完
+    // 流没有更多帧了：剩余全部定稿，按显示序到点发完（时钟还没走完的
+    // 尾帧仍按各自的显示时间排队，不抢跑）
     ready.extend(pending.drain(..));
-    if !flush_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
+    if !wait_front_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
         return;
     }
 

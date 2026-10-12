@@ -202,6 +202,9 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
                 t0.elapsed().as_millis()
             );
             if let Some(info) = meta.audio.clone() {
+                // 等预填完成再往下走：视频任务在下面才起，两者从同一媒体
+                // 位置出发（不 await 的话画面先跑、音频时钟后换，中间那截
+                // 就是音画差）
                 adopt_audio(
                     &shared,
                     &audio_slot,
@@ -210,7 +213,8 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
                     opts.definition,
                     info,
                     opts.start_secs,
-                );
+                )
+                .await;
             }
         }
         AudioAttempt::Unusable => {
@@ -242,7 +246,7 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
                 // 接管点 = 当前已经播到的位置：视频先走了，音频从这里接上
                 let at = shared.now();
                 log::info!("[Playback] 音频设备迟到接管（从 {at:.1}s 接上）");
-                adopt_audio(&shared, &slot, pair, &vid, definition, info, at);
+                adopt_audio(&shared, &slot, pair, &vid, definition, info, at).await;
             }));
         }
     }
@@ -266,11 +270,15 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
     })
 }
 
-/// 把一对音频产物接进播放：建时钟 → 换主时钟 → 起喂送任务。
+/// 把一对音频产物接进播放：起喂送 → 预填 → 启动设备 → 换主时钟。
 ///
 /// 立即就绪与迟到接管共用这一段——两者唯一的差别是 `start_secs`：立即就绪
 /// 时是用户要的续播点，迟到接管时是**当前已经播到的位置**（视频先走了）。
-fn adopt_audio(
+///
+/// 顺序很重要：**先喂满一截再启动设备**。反过来的话设备开局先消费空缓冲，
+/// 放出去的是静音；而时钟只计真实帧（见 `audio.rs` 回调），这段静音虽然
+/// 不再推进时钟，但会白白拉长起播——设备在响、画面不动，读起来也是「卡」。
+async fn adopt_audio(
     shared: &Arc<Shared>,
     slot: &Arc<parking_lot::Mutex<Option<AudioOut>>>,
     pair: (AudioOut, RingFeed),
@@ -282,17 +290,39 @@ fn adopt_audio(
     let (out, feed) = pair;
     let clock = Arc::clone(&out.clock_src);
     clock.reset(start_secs);
-    shared.set_clock(clock);
     // 暂停状态要带给刚接上的设备（起播时若已是暂停态）
     out.set_paused(shared.paused.load(Ordering::Relaxed));
+
+    let (prime_tx, prime_rx) = tokio::sync::oneshot::channel();
+    let feeder = {
+        let shared = Arc::clone(shared);
+        let source = SampleSource::new(vid, definition, Arc::new(info.samples.clone()));
+        let start = start_secs;
+        // 喂送任务挂在调用方的运行时上（`open` 的契约）；接管路径同样已在
+        // tokio 上下文内（引擎任务都是），直接 spawn
+        tokio::spawn(async move {
+            audio_feeder(shared, feed, source, info, start, Some(prime_tx)).await;
+        })
+    };
+
+    // 等预填（超时就把设备先启动：时钟只计真实帧，短期欠载不跑偏）
+    if tokio::time::timeout(AUDIO_PRIME_TIMEOUT, prime_rx)
+        .await
+        .is_err()
+    {
+        log::info!(
+            "[Playback] 音频预填 {}s 未就绪（字节还没供上来），先启动设备",
+            AUDIO_PRIME_TIMEOUT.as_secs()
+        );
+    }
+    out.start();
+    // 设备起来了才把主时钟换成音频时钟：起播瞬间到设备就绪之间，画面仍按
+    // 挂钟走（此时本来就还没有声音，不存在对齐对象）
+    shared.set_clock(clock);
     *slot.lock() = Some(out);
-    let shared = Arc::clone(shared);
-    let source = SampleSource::new(vid, definition, Arc::new(info.samples.clone()));
-    // 喂送任务挂在调用方的运行时上（`open` 的契约）；接管路径同样已在
-    // tokio 上下文内（引擎任务都是），直接 spawn
-    tokio::spawn(async move {
-        audio_feeder(shared, feed, source, info, start_secs).await;
-    });
+    // 喂送任务已 spawn（detach），停机由 shared.shutdown 传递——
+    // push 循环每 4ms 检查一次，句柄不需要留在 tasks 里
+    drop(feeder);
 }
 
 /// 轨道的媒体时长（秒）。
@@ -398,16 +428,32 @@ fn audio_attempt(audio: Option<&TrackInfo>) -> AudioAttempt {
     }
 }
 
+/// 音频预填包数：设备启动前先解这么多包推进缓冲（AAC 一包 1024 帧 ≈ 23ms，
+/// 8 包 ≈ 186ms，留在 ¼ 秒环形缓冲的容量内）。
+///
+/// 不预填就启动设备的话，设备开局先消费到一段空缓冲——放出来的是静音，而
+/// 「听过静音」的这段时间在音频时钟上会被记成播放位置（不修的话就是音画
+/// 不同步的头号来源）。
+const AUDIO_PRIME_PACKETS: usize = 8;
+
+/// 预填的等待上界：超时（网络还没把音频字节供上来）就先启动设备——
+/// 时钟只计真实帧，短期欠载不会跑偏，只是画面会等音频一下。
+const AUDIO_PRIME_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// 音频喂送循环：样本 → symphonia → 交错 f32 → 环形缓冲。
 ///
 /// 播放位置不在这里记账——时钟由输出回调按设备消费推进，喂送端只管把解码
 /// 好的 PCM 源源不断放进缓冲。
+///
+/// `primed`：预填够 [`AUDIO_PRIME_PACKETS`] 包时发一记信号（调用方据此启动
+/// 设备，保证设备一响就有真实数据）。
 async fn audio_feeder(
     shared: Arc<Shared>,
     mut feed: RingFeed,
     mut source: SampleSource,
     info: TrackInfo,
     start_secs: f64,
+    primed: Option<tokio::sync::oneshot::Sender<()>>,
 ) {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::{CODEC_TYPE_AAC, CodecParameters, DecoderOptions};
@@ -451,6 +497,9 @@ async fn audio_feeder(
     // 起点对齐：第一个 PTS ≥ 起点的样本
     let begin = pts.partition_point(|&p| p < start_secs - 1e-6);
 
+    let mut primed = primed;
+    let mut pushed = 0usize;
+
     for (idx, &pt) in pts.iter().enumerate().skip(begin).take(source.len()) {
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
@@ -478,22 +527,45 @@ async fn audio_feeder(
         let decoded = match decoder.decode(&packet) {
             Ok(d) => d,
             Err(e) => {
-                // 单包解不出来不该整场静音：跳过记日志
-                log::warn!("[Playback] 音频样本 {idx} 解码失败（跳过）: {e}");
+                // 单包解不出来不该整场静音，但也**不能跳过**：跳过等于把这段
+                // 时间从音频里抹掉，音轨比画面短一截——每跳一包就多攒一份
+                // 音画差。补一包等长静音，时间轴严丝合缝。
+                log::warn!("[Playback] 音频样本 {idx} 解码失败（补静音）: {e}");
+                let silence = vec![0f32; 1024 * usize::from(channels)];
+                if !feed.push(&silence, &shared.shutdown).await {
+                    return;
+                }
                 continue;
             }
         };
-        if idx % 100 == 0 {
-            log::debug!(
-                "[Playback][feed] 样本 {idx}（{:.1}s），clock={:.2}",
-                pt,
-                shared.now()
-            );
-        }
         let mut sbuf = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
         sbuf.copy_interleaved_ref(decoded);
-        if !feed.push(sbuf.samples(), &shared.shutdown).await {
+        let samples = sbuf.samples();
+        // 峰值电平：**能把「喂的是静音」和「设备/音量问题」分开**的唯一
+        // 观测点。全 0 意味着解码/解密没解出波形（此时画面正常但无声，
+        // 只看设备状态会被误导）；有电平则问题在设备或音量侧。
+        if idx % 100 == 0 {
+            let peak = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
+            log::debug!(
+                "[Playback][feed] 样本 {idx}（{:.1}s），clock={:.2}，峰值 {:.4}",
+                pt,
+                shared.now(),
+                peak
+            );
+        }
+        if !feed.push(samples, &shared.shutdown).await {
             return;
         }
+        pushed += 1;
+        // 预填够一截就放行设备（见 AUDIO_PRIME_PACKETS）
+        if let Some(tx) = primed.take()
+            && pushed >= AUDIO_PRIME_PACKETS
+        {
+            let _ = tx.send(());
+        }
+    }
+    // 流很短或一直没喂满：别让调用方等满超时，直接放行
+    if let Some(tx) = primed.take() {
+        let _ = tx.send(());
     }
 }
