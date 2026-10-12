@@ -44,9 +44,10 @@ pub(crate) fn tokio() -> &'static tokio::runtime::Runtime {
 }
 
 fn main() {
-    // 独立数据域最先声明：GPUI 壳与 Tauri 客户端各占一个数据子目录，
+    // 独立数据根最先声明：GPUI 壳用与 Tauri 客户端平级的独立目录
+    // （%APPDATA%\hongguo-gpui，与 hongguo-downloader 无任何交集），
     // 互不锁库（实测并存时后启动者因库锁直接退出）。
-    hongguo_store::paths::set_shell_scope("hongguo-gpui");
+    hongguo_store::paths::set_shell_data_root("hongguo-gpui");
     // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let state = build_app_state();

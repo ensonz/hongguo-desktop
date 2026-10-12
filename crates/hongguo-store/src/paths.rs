@@ -3,19 +3,22 @@
 //! 沿用 Electron 版的路径（`%APPDATA%/hongguo-downloader`），便于用户平滑迁移
 //! 下载记录与设置，不因为换了框架就丢数据。
 //!
-//! 多壳并存：壳可在启动最先声明自己的数据域（[`set_shell_scope`]），根目录
-//! 下各占一个子目录——库、缓存互不混用，也互不锁库（GPUI 壳与 Tauri 客户端
-//! 并存实录：两边抢同一把库锁，后启动的直接拒绝启动）。Tauri 壳不声明，
-//! 维持根目录不变（存量用户数据不动）。
+//! 多壳并存：壳可在启动最先声明自己的数据根（[`set_shell_data_root`]），
+//! 落在**与默认根平级的独立目录**——与 Tauri 客户端不共用任何路径：库、
+//! 缓存互不混用，也互不锁库（GPUI 壳与 Tauri 客户端并存实录：两边抢同一
+//! 把库锁，后启动的直接拒绝启动）。曾用过「默认根下嵌子目录」的形态，
+//! 被明确否决：数据仍落在 Tauri 的根里，清理/卸载/误删会互相波及。Tauri
+//! 壳不声明，维持根目录不变（存量用户数据不动）。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-static SHELL_SCOPE: OnceLock<String> = OnceLock::new();
+static SHELL_DATA_ROOT: OnceLock<String> = OnceLock::new();
 
-/// 声明本进程的壳数据域（子目录名）。必须在任何路径解析前调用，一次为准。
-pub fn set_shell_scope(scope: &str) {
-    let _ = SHELL_SCOPE.set(scope.to_string());
+/// 声明本进程的壳数据根（目录名，与默认根 `hongguo-downloader` 平级）。
+/// 必须在任何路径解析前调用，一次为准。
+pub fn set_shell_data_root(name: &str) {
+    let _ = SHELL_DATA_ROOT.set(name.to_string());
 }
 
 /// 应用数据目录。
@@ -23,12 +26,16 @@ pub fn data_dir() -> PathBuf {
     if let Ok(explicit) = std::env::var("HONGGUO_DATA_DIR") {
         return PathBuf::from(explicit);
     }
-    let base = dirs::data_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("hongguo-downloader");
-    match SHELL_SCOPE.get() {
-        Some(scope) => base.join(scope),
-        None => base,
+    let parent = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
+    resolve_data_root(&parent, SHELL_DATA_ROOT.get().map(String::as_str))
+}
+
+/// 由「系统数据目录 + 壳声明」解析数据根：未声明 = Electron 迁移的默认根；
+/// 声明 = 与默认根**平级**的独立目录（绝不嵌进默认根里）。
+fn resolve_data_root(parent: &Path, declared: Option<&str>) -> PathBuf {
+    match declared {
+        Some(name) => parent.join(name),
+        None => parent.join("hongguo-downloader"),
     }
 }
 
@@ -135,5 +142,18 @@ mod tests {
     #[test]
     fn limits_match_legacy_values() {
         assert_eq!(COMPAT_CACHE_MAX_BYTES, 4_294_967_296);
+    }
+
+    /// 壳声明的数据根必须与默认根**平级**：嵌进 `hongguo-downloader` 里等于
+    /// 还在共用 Tauri 的数据目录（子目录方案被否决过，别改回去）。
+    #[test]
+    fn shell_data_root_is_sibling_not_nested() {
+        let parent = Path::new("/data");
+        let gpui = resolve_data_root(parent, Some("hongguo-gpui"));
+        assert_eq!(gpui, Path::new("/data/hongguo-gpui"));
+        // 与默认根互不包含
+        let tauri = resolve_data_root(parent, None);
+        assert_eq!(tauri, Path::new("/data/hongguo-downloader"));
+        assert!(!gpui.starts_with(&tauri) && !tauri.starts_with(&gpui));
     }
 }

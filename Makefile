@@ -51,8 +51,11 @@ lint:
 	# macOS 双目标交叉：排除 hongguo-gpui——gpui 的依赖（gpui_media 等）在
 	# build script 里 bindgen Apple 框架头文件，Windows 宿主没有 macOS SDK
 	# 生不出来（真 macOS 环境原生 clippy 不受影响，CI 的 macOS job 覆盖）。
-	CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true cargo clippy --workspace --exclude hongguo-gpui --target aarch64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
-	CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true cargo clippy --workspace --exclude hongguo-gpui --target x86_64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
+	# hongguo-playback 同理：cpal → coreaudio-sys 0.2.18 对 Apple 目标无条件
+	# bindgen（要 libclang + macOS SDK），本机生不出来；macOS 覆盖由 Mac 本机
+	# 与 CI 承担，Windows 宿主那条仍全量含它。
+	CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target aarch64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
+	CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target x86_64-apple-darwin --all-targets -- -D warnings -D clippy::allow_attributes
 
 fmt:
 	cargo fmt --all

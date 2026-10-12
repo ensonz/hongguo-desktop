@@ -14,6 +14,9 @@
 # script 要 bindgen Apple 框架头，Windows 宿主没有 macOS SDK 生不出来——
 # 与 Makefile lint 的排除同口径；CI 的 macOS 原生 runner 不受影响。Windows
 # 宿主那条照常全量（gpui 在 Windows 编译无碍）。
+# hongguo-playback 同理排除：cpal → coreaudio-sys 0.2.18 对 Apple 目标无条件
+# bindgen（需 libclang + macOS SDK 头），本机生不出来；macOS 覆盖由 Mac 本机
+# 与 CI 承担，Windows 宿主那条仍全量含它。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -26,10 +29,10 @@ echo '[pre-commit] cargo clippy（Windows 宿主）'
 cargo clippy --workspace --all-targets -- $STRICT
 
 echo '[pre-commit] cargo clippy（macOS aarch64 交叉）'
-cargo clippy --workspace --exclude hongguo-gpui --target aarch64-apple-darwin --all-targets -- $STRICT
+cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target aarch64-apple-darwin --all-targets -- $STRICT
 
 echo '[pre-commit] cargo clippy（macOS x86_64 交叉）'
-cargo clippy --workspace --exclude hongguo-gpui --target x86_64-apple-darwin --all-targets -- $STRICT
+cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target x86_64-apple-darwin --all-targets -- $STRICT
 
 echo '[pre-commit] cargo test（lib）'
 cargo test --workspace --lib --quiet
