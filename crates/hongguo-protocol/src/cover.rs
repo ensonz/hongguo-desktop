@@ -101,6 +101,13 @@ fn headers(ct: &str, len: usize) -> Vec<(String, String)> {
     ]
 }
 
+/// 取回「必定可渲染」的封面字节（给非 WebView 壳的公开入口）：与 [`serve`]
+/// 同一条三级阶梯、同一份磁盘缓存。返回 `(字节, Content-Type)`。
+pub fn acquire_renderable(remote: &str) -> Result<(Vec<u8>, &'static str), String> {
+    let (bytes, _ext, ct) = acquire(remote)?;
+    Ok((bytes, ct))
+}
+
 /// 取回「必定可渲染」的字节：先嗅探透传，不行再进 HEIC 转码阶梯。
 /// 返回 `(字节, 缓存扩展名, Content-Type)`。
 fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String> {

@@ -19,14 +19,26 @@ name = "hongguo-gpui"
 test = false
 
 [dependencies]
-gpui = "0.2"
+# GPUI Kit（longbridge/gpui-kit）：gpui-base + gpui-component 聚合，桌面壳按
+# .agents/skills/gpui-ui-design 的设计/编码规范构建（组件系统 + 主题令牌）。
+gpui-kit = "0.7.1"
 # 与 Tauri 壳同一业务面。
 hongguo-service = { path = "../hongguo-service" }
 hongguo-api = { path = "../hongguo-api" }
+# 封面三级转码阶梯（HEIC → JPEG，含磁盘缓存）——与 Tauri 壳的 hongguo-cover:// 同源。
+hongguo-protocol = { path = "../hongguo-protocol" }
 hongguo-common = { path = "../hongguo-common" }
 hongguo-store = { path = "../hongguo-store" }
 # service 的 async 函数族依赖 tokio 运行时设施（sleep / Semaphore）；GPUI 的
 # 执行器不是 tokio，本壳自带一个运行时线程做桥（oneshot 回传，见 main.rs）。
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+# 封面远程拉取：gpui 图片缓存的 HttpClient 桥（http_client.rs）与 BoxFuture。
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+bytes = "1"
+futures = "0.3"
+anyhow = "1"
+# 封面 HEIC 走协议层转 JPEG 后的位图解码（对齐 gpui 内置的 image 版本）。
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+smallvec = "1"
 log = "0.4"
 env_logger = "0.11"
