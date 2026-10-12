@@ -29,7 +29,7 @@ use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme, IconName, Sizable, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
 #[cfg(target_os = "macos")]
 use gpui_kit::surface;
@@ -210,6 +210,14 @@ pub struct HomeView {
     ///（Tauri 的 `<video>` 每次赋值 currentTime 浏览器会自行合并，引擎这侧
     /// 每发一次就是冲流 + 解码器重建，必须限频；松手的那次不受限）。
     last_scrub_seek: Cell<Instant>,
+    /// 连播锁定（Tauri bingeSeriesId 同款）：信息流里主动选了某集/点了画面
+    /// = 要追这部，锁定后滚轮/↑↓ 切集而不是跟随换剧；Esc/点返回解除。
+    binge: Option<String>,
+    /// 选集浮层开着（贴控制栏向上弹，见 [`Self::render_picker`]）。
+    picker_open: bool,
+    /// 手动翻到的范围段（每段 30 集）：记设置时的当前集——当前集变了
+    /// （连播/点选）覆盖作废，自动跟回当前集所在段（Tauri groupOverride）。
+    picker_group_override: Option<(usize, u32)>,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
     buffering: bool,
     /// 控制条可见截止时刻；拖动中/暂停时常显。
@@ -287,6 +295,9 @@ impl HomeView {
             volume_slider,
             scrubbing: None,
             last_scrub_seek: Cell::new(Instant::now() - Duration::from_secs(10)),
+            binge: None,
+            picker_open: false,
+            picker_group_override: None,
             buffering: false,
             controls_until: None,
             progress_bounds: Rc::new(Cell::new(None)),
@@ -599,8 +610,48 @@ impl HomeView {
         *self.indexes.get_mut(&self.active).expect("游标已初始化") = idx;
     }
 
-    /// 滚轮切剧（Tauri 同参：400ms 冷却 + 小位移忽略）。
+    /// 连播锁定中（binge 命中当前剧）。
+    fn in_binge(&self) -> bool {
+        let Some(sid) = &self.binge else {
+            return false;
+        };
+        self.now.as_ref().is_some_and(|n| &n.series_id == sid)
+    }
+
+    /// 连播锁定内的切集（滚轮/↑↓，Tauri useBingeRelay 的 stepEpisode 同款）：
+    /// 越过第 1 集原地不动；滚过末集 = 剧终，跟随宿主刷下一部（本实现无
+    /// 下一季接力，与信息流回落路径一致）。
+    fn step_episode(&mut self, dir: i32, cx: &mut Context<Self>) {
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        let next = now.vid_index as i64 + dir as i64;
+        if next < 1 {
+            return;
+        }
+        if next as usize > now.episode_count {
+            self.step(1, cx);
+            return;
+        }
+        if let Some(item) = self
+            .display_items()
+            .iter()
+            .find(|i| i.series_id == now.series_id)
+            .cloned()
+        {
+            self.play_target(item, Some(next as u32), cx);
+        }
+    }
+
+    /// 滚轮切剧（Tauri 同参：400ms 冷却 + 小位移忽略）。连播锁定时语义
+    /// 变为切集，不跟随换剧。
     fn step(&mut self, dir: i32, cx: &mut Context<Self>) {
+        if self.in_binge() {
+            // Tauri 同款：滚轮也是「用户在场」，切集时唤醒悬浮层
+            self.wake_controls(cx);
+            self.step_episode(dir, cx);
+            return;
+        }
         let now = Instant::now();
         if self
             .wheel_at
@@ -714,6 +765,11 @@ impl HomeView {
                         handle.set_volume(view.volume);
                         handle.set_muted(view.muted);
                         view.player = Some(handle);
+                        // 连播锁定跟着目标走（Tauri setTarget 同款）：切到
+                        // 别的剧即解除，同剧连播保持
+                        if view.binge.as_deref() != Some(now.series_id.as_str()) {
+                            view.binge = None;
+                        }
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
@@ -1137,8 +1193,38 @@ impl HomeView {
 
     fn controls_visible(&self) -> bool {
         self.scrubbing.is_some()
+            || self.picker_open
             || self.player.as_ref().is_some_and(|p| p.is_paused())
             || self.controls_until.is_some_and(|t| Instant::now() < t)
+    }
+
+    /// 开关选集浮层（连选连跳：选中不关，关闭走 Esc/收起/点外部）。
+    fn toggle_picker(&mut self, cx: &mut Context<Self>) {
+        self.picker_open = !self.picker_open;
+        // 重开跟回当前集所在段（覆盖作废，Tauri groupOverride 同语义）
+        self.picker_group_override = None;
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    /// 选集浮层里点某一集：跳集，**不关浮层**（hgplayer 同款连选连跳）；
+    /// 信息流里主动选集 = 锁定本剧连播（Tauri onPickEpisode 同款）。
+    fn pick_episode(&mut self, vid_index: u32, cx: &mut Context<Self>) {
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        if vid_index != now.vid_index
+            && let Some(item) = self
+                .display_items()
+                .iter()
+                .find(|i| i.series_id == now.series_id)
+                .cloned()
+        {
+            self.binge = Some(now.series_id.clone());
+            self.play_target(item, Some(vid_index), cx);
+        }
+        self.wake_controls(cx);
+        cx.notify();
     }
 
     /// 进度轨道的指针位置 → 目标秒。轨道矩形缺失（首帧前）返回 `None`。
@@ -1578,10 +1664,20 @@ impl HomeView {
                 .absolute()
                 .size_full()
                 .id("stage-video")
-                // 点画面切暂停（对齐 Tauri）；顺手把焦点带回舞台锚——弹层
-                // 菜单收走焦点后，这是用户最自然的「回到播放操作」路径
+                // 点画面：信息流语义（Tauri onStageClick）——未选中时单击 =
+                // 「选中这部剧」（进入连播锁定，滚轮/↑↓ 变切集），选中后的
+                // 单击才是播放/暂停。顺手把焦点带回舞台锚——弹层菜单收走
+                // 焦点后，这是用户最自然的「回到播放操作」路径
                 .on_click(cx.listener(|this, _, window, cx| {
                     window.focus(&this.focus, cx);
+                    if !this.in_binge() {
+                        if let Some(now) = &this.now {
+                            this.binge = Some(now.series_id.clone());
+                        }
+                        this.wake_controls(cx);
+                        cx.notify();
+                        return;
+                    }
                     this.toggle_pause(cx);
                 }))
                 .child({
@@ -1655,6 +1751,17 @@ impl HomeView {
                         "right" => this.seek_by(5.0, cx),
                         "down" => this.step(1, cx),
                         "up" => this.step(-1, cx),
+                        // Esc 固定管「退出选中」（Tauri 同款语义）：先关
+                        // 浮层面板，都没开才解除连播锁定
+                        "escape" => {
+                            if this.picker_open {
+                                this.picker_open = false;
+                                this.picker_group_override = None;
+                            } else if this.in_binge() {
+                                this.binge = None;
+                            }
+                            cx.notify();
+                        }
                         _ => {}
                     }
                 }),
@@ -1669,7 +1776,61 @@ impl HomeView {
             })
             .child(overlay)
             .children(buffering_badge)
+            // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
+            // 「< 第N集」，点它解除锁定；显隐跟随控制条）
+            .children(self.in_binge().then(|| {
+                let now = self.now.as_ref().expect("in_binge 已验 now 在");
+                h_flex()
+                    .id("binge-pill")
+                    .absolute()
+                    .top_3()
+                    .left_3()
+                    .items_center()
+                    .gap_1()
+                    .pl_2()
+                    .pr_3()
+                    .py_1()
+                    .rounded_full()
+                    .bg(gpui_kit::rgba(0x0000004d))
+                    .text_xs()
+                    .text_color(gpui_kit::rgb(0xffffff))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(gpui_kit::rgba(0x00000080)))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.binge = None;
+                        cx.notify();
+                    }))
+                    .child(
+                        Icon::new(IconName::ChevronLeft)
+                            .small()
+                            .text_color(gpui_kit::rgb(0xffffff)),
+                    )
+                    .child(format!("第{}集", now.vid_index))
+            }))
+            // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层
+            // 拦下鼠标下传（舞台的播放/暂停与信息层都不该收到这次点击）
+            .children((self.picker_open && self.player.is_some()).then(|| {
+                div()
+                    .absolute()
+                    .size_full()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.picker_open = false;
+                            this.picker_group_override = None;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .into_any_element()
+            }))
             .children(controls)
+            // 选集浮层本体（最顶层；自身拦鼠标，点击不落到捕获层）
+            .children((self.picker_open && self.player.is_some()).then(|| self.render_picker(cx)))
             // 布局哨兵：子层矩形只在这里可见，两次准备绘制之间比对（见字段注释）。
             // 第一个子层是封面槽（恒在、恒为舞台整块），出画时第二个是视频层、
             // 尺寸必须与它一致——不一致就是布局回归。
@@ -1883,6 +2044,20 @@ impl HomeView {
                     .dropdown_menu(rate_menu),
             )
             .child(
+                // 选集浮层入口（Tauri immersive 同款：带总集数；浮层贴按钮
+                // 向上弹，见 render_picker）
+                Button::new("stage-picker")
+                    .label(match self.now.as_ref() {
+                        Some(now) if now.episode_count > 0 => {
+                            format!("选集 · 全{}集", now.episode_count)
+                        }
+                        _ => "选集".to_string(),
+                    })
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
+            )
+            .child(
                 Button::new("stage-mute")
                     .label(if self.muted { "取消静音" } else { "静音" })
                     .ghost()
@@ -1890,6 +2065,174 @@ impl HomeView {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
             )
             .child(Slider::new(&self.volume_slider).horizontal().w_24())
+            .into_any_element()
+    }
+
+    /// 选集浮层（Tauri EpisodePicker 对齐）：贴控制栏向上弹的数字网格。
+    /// 范围段每段 30 集（hgplayer 同款）；当前集红底高亮；点选**不关**浮层
+    /// （连选连跳，关闭走 Esc/收起/点外部）。红色是 hgplayer 皮肤（硬红线
+    /// 11 的播放器豁免）。「系列剧」tab 与下载完成角标随相关作品/预约、
+    /// 下载能力的对齐步骤补。
+    fn render_picker(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let Some(now) = &self.now else {
+            return div().into_any_element();
+        };
+        let total = now.episode_count as u32;
+        const GROUP_SIZE: u32 = 30;
+        let group_count = total.div_ceil(GROUP_SIZE).max(1) as usize;
+        let follow_group =
+            (now.vid_index.saturating_sub(1) as usize / GROUP_SIZE as usize).min(group_count - 1);
+        let active_group = match self.picker_group_override {
+            Some((group, at)) if at == now.vid_index => group,
+            _ => follow_group,
+        };
+        let start = active_group as u32 * GROUP_SIZE + 1;
+        let end = (start + GROUP_SIZE - 1).min(total);
+
+        // 头部：选集 tab（红条高亮）+ 全 N 集 + 收起
+        let header = h_flex()
+            .items_center()
+            .justify_between()
+            .mb_3()
+            .child(
+                div()
+                    .relative()
+                    .pb_1()
+                    .text_sm()
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .text_color(gpui_kit::rgb(0xffffff))
+                    .child("选集")
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .h(gpui_kit::px(2.0))
+                            .rounded_full()
+                            .bg(gpui_kit::rgb(0xef4444)),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0xa3a3a3ff))
+                            .child(format!("全{total}集")),
+                    )
+                    .child(
+                        Button::new("picker-close")
+                            .icon(IconName::ChevronDown)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.picker_open = false;
+                                this.picker_group_override = None;
+                                cx.notify();
+                            })),
+                    ),
+            );
+
+        // 范围段 tab（1-30 / 31-60 / …；只有一段时不渲染）
+        let group_tabs = div()
+            .flex()
+            .flex_wrap()
+            .gap_x_4()
+            .gap_y_1()
+            .mb_3()
+            .children((0..group_count).map(|i| {
+                let active = i == active_group;
+                let lo = i as u32 * GROUP_SIZE + 1;
+                let hi = ((i as u32 + 1) * GROUP_SIZE).min(total);
+                div()
+                    .id(gpui_kit::ElementId::from(format!("picker-group-{i}")))
+                    .cursor_pointer()
+                    .text_size(gpui_kit::px(13.0))
+                    .text_color(if active {
+                        gpui_kit::rgb(0xffffff)
+                    } else {
+                        gpui_kit::rgba(0xa3a3a3ff)
+                    })
+                    .hover(|s| s.text_color(gpui_kit::rgba(0xe5e5e5ff)))
+                    .when(active, |s| s.font_weight(gpui_kit::FontWeight::SEMIBOLD))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let at = this.now.as_ref().map(|n| n.vid_index).unwrap_or(0);
+                        this.picker_group_override = Some((i, at));
+                        cx.notify();
+                    }))
+                    .child(format!("{lo}-{hi}"))
+            }));
+
+        // 8 列数字网格
+        let grid = div()
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .children((start..=end).map(|n| {
+                let active = n == now.vid_index;
+                div()
+                    .id(gpui_kit::ElementId::from(format!("picker-ep-{n}")))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .w(gpui_kit::px(48.0))
+                    .h(gpui_kit::px(36.0))
+                    .rounded(gpui_kit::px(6.0))
+                    .text_sm()
+                    .cursor_pointer()
+                    .text_color(if active {
+                        gpui_kit::rgb(0xffffff)
+                    } else {
+                        gpui_kit::rgba(0xe5e5e5ff)
+                    })
+                    .bg(if active {
+                        gpui_kit::rgba(0xef4444ff)
+                    } else {
+                        gpui_kit::rgba(0x262626cc)
+                    })
+                    .hover(|s| s.bg(gpui_kit::rgba(0x404040ff)))
+                    .when(active, |s| s.font_weight(gpui_kit::FontWeight::SEMIBOLD))
+                    .on_click(cx.listener(move |this, _, _, cx| this.pick_episode(n, cx)))
+                    .child(format!("{n}"))
+            }));
+
+        let hint = div()
+            .mt_3()
+            .pt_2p5()
+            .border_t_1()
+            .border_color(gpui_kit::rgba(0x262626ff))
+            .text_xs()
+            .text_color(gpui_kit::rgba(0x737373ff))
+            .child("选定集数即选中本剧：单击画面也可选中，滚轮/↑↓ 切集，Esc 退出");
+
+        v_flex()
+            .id("picker-panel")
+            .absolute()
+            .right_4()
+            .bottom_12()
+            .w(gpui_kit::px(472.0))
+            .max_h(gpui_kit::relative(0.62))
+            .p_4()
+            .rounded(gpui_kit::px(12.0))
+            .bg(gpui_kit::rgba(0x171717f2))
+            .overflow_y_scroll()
+            // 浮层内的任何点击都不许落到捕获层/舞台（点选集把视频点停了
+            // 就是这里漏的——Tauri EpisodePicker 根节点 onClick 同款）
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .child(header)
+            .children((group_count > 1).then_some(group_tabs))
+            .child(grid)
+            .child(hint)
             .into_any_element()
     }
 
