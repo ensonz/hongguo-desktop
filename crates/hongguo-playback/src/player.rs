@@ -2,11 +2,14 @@
 //!
 //! [`open`] 做完所有贵的前置（读样本表、开解码器、起音频设备）才返回句柄；
 //! 随后的播放由两个任务自治：音频喂送（[`audio_feeder`]）与视频循环
-//! （[`video::run`]）。宿主只拿 [`PlayerHandle`]：取帧、暂停/继续、读进度、
-//! 等事件。
+//! （[`video::run`]）。宿主只拿 [`PlayerHandle`]：取帧、暂停/继续、倍速/
+//! 音量/静音、seek、读进度、等事件。
+//!
+//! 控制面语义与 Tauri 版一致：倍速 0.25–4（音频 WSOLA 变速不变调，时钟乘
+//! rate）、音量 0–1 与静音独立、seek 冲解码器与设备缓冲后从关键帧续播。
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -16,6 +19,7 @@ use hongguo_mp4::sample_table::TrackInfo;
 use crate::audio::{AudioOut, Clock, RingFeed};
 use crate::source::{SampleSource, open_stream};
 use crate::video;
+use crate::wsola::Wsola;
 
 /// 引擎事件（经调用方给的通道送达；通道关闭 = 宿主已弃，引擎自停）。
 #[derive(Debug, Clone)]
@@ -29,6 +33,10 @@ pub enum PlayerEvent {
     /// 「已出画」的事实抹掉了，封面永远收不掉。帧跟着事件走，宿主只认事件
     /// 里的帧，顺序天然正确。
     Frame(hongguo_media_platform::platform::vt::DecodedFrame),
+    /// 缓冲断流：设备已暂停、时钟冻结（水位见 [`BUFFER_LOW_SECS`]）。
+    Buffering,
+    /// 断流恢复：设备重新起跑。
+    Ready,
     /// 自然播完。
     Ended,
     /// 致命失败（引擎已停）。
@@ -50,9 +58,15 @@ pub struct OpenOptions {
 pub(crate) struct Shared {
     pub paused: AtomicBool,
     pub shutdown: AtomicBool,
-    /// 主时钟，**可替换**：音频设备迟到时（见 [`open`]）会把它换成音频时钟，
-    /// 让画面立刻跟上真实播放节奏。
+    /// 主时钟，**可替换**：音频设备迟到接管、音频播完切挂钟，都会换它，
+    /// 画面与进度读数自动跟上。
     pub clock: parking_lot::Mutex<Arc<Clock>>,
+    /// seek 请求（媒体秒）。视频/音频循环各自取走后重新定位。
+    pub seek_request: parking_lot::Mutex<Option<f64>>,
+    /// 音量（f32 位型存储，0–1）与静音：喂给设备回调，同时是音频设备迟到
+    /// 接管时的初值来源。
+    pub volume: AtomicU32,
+    pub muted: AtomicBool,
     pub latest: parking_lot::Mutex<Option<hongguo_media_platform::platform::vt::DecodedFrame>>,
     pub dims: parking_lot::Mutex<(usize, usize)>,
     pub duration_secs: parking_lot::Mutex<f64>,
@@ -66,9 +80,23 @@ impl Shared {
         self.clock.lock().now()
     }
 
-    /// 换主时钟（音频迟到接管时用）。
+    /// 换主时钟（音频迟到接管/音频播完切挂钟时用）。
     pub(crate) fn set_clock(&self, clock: Arc<Clock>) {
         *self.clock.lock() = clock;
+    }
+
+    /// 取走 pending 的 seek 目标（无则 `None`）。
+    pub(crate) fn take_seek(&self) -> Option<f64> {
+        self.seek_request.lock().take()
+    }
+
+    /// 是否有未处理的 seek（视频前瞻闸门用它及时让路）。
+    pub(crate) fn has_seek(&self) -> bool {
+        self.seek_request.lock().is_some()
+    }
+
+    pub(crate) fn rate(&self) -> f64 {
+        self.clock.lock().rate()
     }
 
     /// 发事件。宿主弃了（通道关闭）返回 Err，调用方应顺势退出。
@@ -92,6 +120,10 @@ pub struct PlayerHandle {
     audio: Arc<parking_lot::Mutex<Option<AudioOut>>>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
+
+/// 倍速范围（与 Tauri 版 playback-prefs 的 MIN_RATE/MAX_RATE 一致）。
+pub const MIN_RATE: f64 = 0.25;
+pub const MAX_RATE: f64 = 4.0;
 
 impl PlayerHandle {
     /// 当前上屏帧（NV12 CVPixelBuffer，引用计数克隆）。渲染线程调用。
@@ -122,15 +154,66 @@ impl PlayerHandle {
     pub fn pause(&self) {
         self.shared.paused.store(true, Ordering::Relaxed);
         if let Some(audio) = self.audio.lock().as_ref() {
-            audio.set_paused(true);
+            audio.device.set_user_paused(true);
         }
     }
 
     pub fn resume(&self) {
         self.shared.paused.store(false, Ordering::Relaxed);
         if let Some(audio) = self.audio.lock().as_ref() {
-            audio.set_paused(false);
+            audio.device.set_user_paused(false);
         }
+    }
+
+    /// 当前倍速。
+    pub fn rate(&self) -> f64 {
+        self.shared.rate()
+    }
+
+    /// 换倍速（0.25–4）：时钟换轴不跳，音频经 WSOLA 变速不变调，
+    /// 视频侧无需感知（媒体时间已含 rate）。
+    pub fn set_rate(&self, rate: f64) {
+        let rate = rate.clamp(MIN_RATE, MAX_RATE);
+        self.shared.clock.lock().set_rate(rate);
+    }
+
+    /// 当前音量（0–1）。
+    pub fn volume(&self) -> f32 {
+        f32::from_bits(self.shared.volume.load(Ordering::Relaxed))
+    }
+
+    pub fn set_volume(&self, volume: f32) {
+        let volume = volume.clamp(0.0, 1.0);
+        self.shared
+            .volume
+            .store(volume.to_bits(), Ordering::Relaxed);
+        if let Some(audio) = self.audio.lock().as_ref() {
+            audio.set_volume(volume);
+        }
+    }
+
+    /// 静音独立于音量（对齐 Tauri 版 playback-prefs：静音后音量值保留）。
+    pub fn is_muted(&self) -> bool {
+        self.shared.muted.load(Ordering::Relaxed)
+    }
+
+    pub fn set_muted(&self, muted: bool) {
+        self.shared.muted.store(muted, Ordering::Relaxed);
+        if let Some(audio) = self.audio.lock().as_ref() {
+            audio.set_muted(muted);
+        }
+    }
+
+    /// 跳到目标媒体时间：时钟立即换轴，音频设备进入冲流（丢弃旧缓冲），
+    /// 视频/音频循环取到请求后各自冲解码器、从目标前的关键帧/首个样本续播。
+    pub fn seek(&self, secs: f64) {
+        let dur = (*self.shared.duration_secs.lock()).max(0.0);
+        let target = secs.clamp(0.0, dur);
+        self.shared.clock.lock().reset(target);
+        if let Some(audio) = self.audio.lock().as_ref() {
+            audio.begin_flush();
+        }
+        *self.shared.seek_request.lock() = Some(target);
     }
 }
 
@@ -141,7 +224,7 @@ impl Drop for PlayerHandle {
             task.abort();
         }
         if let Some(audio) = self.audio.lock().as_ref() {
-            audio.set_paused(true);
+            audio.device.set_user_paused(true);
         }
     }
 }
@@ -165,7 +248,7 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
             .unwrap_or_else(|| "无".into())
     );
 
-    // 时长 = 视/音两轨谁的尾巴长
+    // 时长 = 视/音两轨谁的尾巴长（elst 修剪过的 presentation 轴）
     let video_end = media_end(&video_info);
     let audio_end = meta.audio.as_ref().map(media_end).unwrap_or(0.0);
     let duration = video_end.max(audio_end);
@@ -177,6 +260,9 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
         paused: AtomicBool::new(false),
         shutdown: AtomicBool::new(false),
         clock: parking_lot::Mutex::new(Arc::clone(&wall)),
+        seek_request: parking_lot::Mutex::new(None),
+        volume: AtomicU32::new(1.0f32.to_bits()),
+        muted: AtomicBool::new(false),
         latest: parking_lot::Mutex::new(None),
         dims: parking_lot::Mutex::new((video_info.width as usize, video_info.height as usize)),
         duration_secs: parking_lot::Mutex::new(duration),
@@ -194,7 +280,7 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
     // 先出画，同时留一个任务守着建流结果，设备迟到建成时把它接进来：换主
     // 时钟、从当前位置开始喂音频，声画立刻衔接上。
     let t_audio = std::time::Instant::now();
-    match audio_attempt(meta.audio.as_ref()) {
+    match audio_attempt(meta.audio.as_ref(), &shared) {
         AudioAttempt::Ready(pair) => {
             log::info!(
                 "[Playback] 音频设备阶段结束（{}ms，累计 {}ms）",
@@ -289,9 +375,14 @@ async fn adopt_audio(
 ) {
     let (out, feed) = pair;
     let clock = Arc::clone(&out.clock_src);
+    // 倍速/音量/静音是用户偏好：新时钟与设备初值都要继承
+    clock.set_rate(shared.rate());
     clock.reset(start_secs);
+    out.set_volume(f32::from_bits(shared.volume.load(Ordering::Relaxed)));
+    out.set_muted(shared.muted.load(Ordering::Relaxed));
     // 暂停状态要带给刚接上的设备（起播时若已是暂停态）
-    out.set_paused(shared.paused.load(Ordering::Relaxed));
+    out.device
+        .set_user_paused(shared.paused.load(Ordering::Relaxed));
 
     let (prime_tx, prime_rx) = tokio::sync::oneshot::channel();
     let feeder = {
@@ -315,7 +406,8 @@ async fn adopt_audio(
             AUDIO_PRIME_TIMEOUT.as_secs()
         );
     }
-    out.start();
+    // 设备起跑（用户暂停位已带上；缓冲位起播恒清零）
+    out.device.start();
     // 设备起来了才把主时钟换成音频时钟：起播瞬间到设备就绪之间，画面仍按
     // 挂钟走（此时本来就还没有声音，不存在对齐对象）
     shared.set_clock(clock);
@@ -325,12 +417,27 @@ async fn adopt_audio(
     drop(feeder);
 }
 
-/// 轨道的媒体时长（秒）。
+/// 轨道的媒体时长（秒，presentation 轴：mdhd 时长 − elst 起点）。
 fn media_end(info: &TrackInfo) -> f64 {
     if info.media_timescale > 0 && info.media_duration > 0 {
-        return info.media_duration as f64 / f64::from(info.media_timescale);
+        let end = info.media_duration as f64 / f64::from(info.media_timescale);
+        return (end - info.edit_media_start_secs).max(0.0);
     }
     info.sample_pts().last().copied().unwrap_or(0.0)
+}
+
+/// ASC 的 audioObjectType（诊断：2=AAC-LC，5=HE-AAC v1/SBR，29=HE-AAC v2/PS）。
+fn asc_aot(asc: &[u8]) -> Option<u32> {
+    let b0 = *asc.first()?;
+    let b1 = *asc.get(1)?;
+    let aot = u32::from((b0 >> 3) & 0x1f);
+    if aot == 31 {
+        // 转义：再取 6 位，实际 profile = 32 + ext
+        let ext = u32::from(((b0 & 0x07) << 3) | (b1 >> 5));
+        Some(32 + ext)
+    } else {
+        Some(aot)
+    }
 }
 
 /// 建音频设备的上界等待。见 [`open`] 里该段的说明。
@@ -366,7 +473,7 @@ enum AudioAttempt {
 }
 
 /// 建音频输出，最多等 [`AUDIO_OPEN_TIMEOUT`]。
-fn audio_attempt(audio: Option<&TrackInfo>) -> AudioAttempt {
+fn audio_attempt(audio: Option<&TrackInfo>, shared: &Shared) -> AudioAttempt {
     let Some((channels, sample_rate)) = audio.map(|a| (a.channels, a.sample_rate)) else {
         return AudioAttempt::Unusable;
     };
@@ -385,11 +492,13 @@ fn audio_attempt(audio: Option<&TrackInfo>) -> AudioAttempt {
     AUDIO_LAST_ATTEMPT_MS.store(now, Ordering::Release);
 
     let (tx, rx) = tokio::sync::oneshot::channel();
+    let volume = f32::from_bits(shared.volume.load(Ordering::Relaxed));
+    let muted = shared.muted.load(Ordering::Relaxed);
     let spawned = std::thread::Builder::new()
         .name("hg-audio-open".into())
         .spawn(move || {
             // 接收端已弃（超时且玩家已走）时 send 失败即丢弃产物：设备释放
-            let _ = tx.send(AudioOut::open(channels, sample_rate));
+            let _ = tx.send(AudioOut::open(channels, sample_rate, volume, muted));
         });
     if let Err(e) = spawned {
         log::warn!("[Playback] 音频建流线程起不来（{e}），无声播放");
@@ -429,21 +538,25 @@ fn audio_attempt(audio: Option<&TrackInfo>) -> AudioAttempt {
 }
 
 /// 音频预填包数：设备启动前先解这么多包推进缓冲（AAC 一包 1024 帧 ≈ 23ms，
-/// 8 包 ≈ 186ms，留在 ¼ 秒环形缓冲的容量内）。
-///
-/// 不预填就启动设备的话，设备开局先消费到一段空缓冲——放出来的是静音，而
-/// 「听过静音」的这段时间在音频时钟上会被记成播放位置（不修的话就是音画
-/// 不同步的头号来源）。
+/// 8 包 ≈ 186ms）。不预填就启动设备的话，开局先放一段欠载静音。
 const AUDIO_PRIME_PACKETS: usize = 8;
 
 /// 预填的等待上界：超时（网络还没把音频字节供上来）就先启动设备——
 /// 时钟只计真实帧，短期欠载不会跑偏，只是画面会等音频一下。
 const AUDIO_PRIME_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// 音频喂送循环：样本 → symphonia → 交错 f32 → 环形缓冲。
+/// 缓冲低水位：环形缓冲低于这个秒数 → 暂停设备 + Buffering（设备绝不
+/// 空转放静音——主流一致，宁停不响空洞）。
+const BUFFER_LOW_SECS: f64 = 0.25;
+
+/// 缓冲高水位：回填到这个秒数才恢复播放（滞回避免抖动）。
+const BUFFER_HIGH_SECS: f64 = 0.6;
+
+/// 音频喂送循环：样本 → 平台 AAC 解码 → WSOLA 倍速 → 环形缓冲。
 ///
 /// 播放位置不在这里记账——时钟由输出回调按设备消费推进，喂送端只管把解码
-/// 好的 PCM 源源不断放进缓冲。
+/// 好的 PCM 源源不断放进缓冲。附带三件事：seek 重定位（冲流协议）、rebuffer
+/// 水位状态机、播完后的挂钟接管。
 ///
 /// `primed`：预填够 [`AUDIO_PRIME_PACKETS`] 包时发一记信号（调用方据此启动
 /// 设备，保证设备一响就有真实数据）。
@@ -455,12 +568,6 @@ async fn audio_feeder(
     start_secs: f64,
     primed: Option<tokio::sync::oneshot::Sender<()>>,
 ) {
-    use symphonia::core::audio::SampleBuffer;
-    use symphonia::core::codecs::{CODEC_TYPE_AAC, CodecParameters, DecoderOptions};
-    use symphonia::core::formats::Packet;
-    use symphonia::core::units::TimeBase;
-    use symphonia::default::get_codecs;
-
     let asc = info.decoder_config.clone();
     let (channels, sample_rate) = (info.channels, info.sample_rate);
     if channels == 0 || sample_rate == 0 || asc.is_empty() {
@@ -472,20 +579,28 @@ async fn audio_feeder(
             .await;
         return;
     }
+    // profile 留证：LC 还是 HE，一行日志钉死，后续排障不用猜
+    match asc_aot(&asc) {
+        Some(2) => log::info!("[Playback] 音频 profile：AOT 2（AAC-LC）"),
+        Some(5) => log::info!("[Playback] 音频 profile：AOT 5（HE-AAC v1 / SBR）"),
+        Some(29) => log::info!("[Playback] 音频 profile：AOT 29（HE-AAC v2 / PS）"),
+        Some(other) => log::info!("[Playback] 音频 profile：AOT {other}"),
+        None => log::warn!("[Playback] 音频 profile 解析不出（asc 首字节缺失）"),
+    }
 
-    let mut params = CodecParameters::new();
-    params
-        .for_codec(CODEC_TYPE_AAC)
-        .with_sample_rate(sample_rate)
-        .with_time_base(TimeBase::new(1, sample_rate));
-    params.with_extra_data(asc.into_boxed_slice());
-    let mut decoder = match get_codecs().make(&params, &DecoderOptions::default()) {
+    let mut decoder = match hongguo_media_platform::platform::audio::AacDecoder::open(
+        &asc,
+        channels,
+        sample_rate,
+    ) {
         Ok(d) => d,
         Err(e) => {
             shared.fail(format!("AAC 解码器初始化失败: {e}")).await;
             return;
         }
     };
+    let mut wsola = Wsola::new(sample_rate, channels);
+    let ch = usize::from(channels);
 
     let mut pts = info.sample_pts();
     if pts.is_empty() {
@@ -494,22 +609,41 @@ async fn audio_feeder(
             .map(|i| i as f64 * 1024.0 / f64::from(sample_rate))
             .collect();
     }
-    // 起点对齐：第一个 PTS ≥ 起点的样本
-    let begin = pts.partition_point(|&p| p < start_secs - 1e-6);
+    // 起点对齐：第一个 PTS ≥ 起点的样本（elst 修剪后，priming 样本已在 0 前）
+    let mut idx = pts.partition_point(|&p| p < start_secs - 1e-6);
+    let total = pts.len().min(source.len());
 
     let mut primed = primed;
     let mut pushed = 0usize;
+    // seek 后重预填未收口：预填够且设备跑过至少一个丢弃周期才解除冲流
+    let mut flush_pending = false;
 
-    for (idx, &pt) in pts.iter().enumerate().skip(begin).take(source.len()) {
+    while idx < total {
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
         }
-        // 暂停 = 停止喂（设备也停消费，时钟冻结）
+        // 暂停 = 停喂（设备也停消费，时钟冻结）；seek 仍然处理（暂停中拖
+        // 进度条：恢复后必须从新位置走）
         while shared.paused.load(Ordering::Relaxed) && !shared.shutdown.load(Ordering::Relaxed) {
+            if let Some(t) = shared.take_seek() {
+                decoder.reset();
+                feed.begin_flush();
+                flush_pending = true;
+                pushed = 0;
+                idx = pts.partition_point(|&p| p < t - 1e-6);
+            }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
+        }
+        if let Some(t) = shared.take_seek() {
+            decoder.reset();
+            feed.begin_flush();
+            flush_pending = true;
+            pushed = 0;
+            idx = pts.partition_point(|&p| p < t - 1e-6);
+            continue;
         }
         let sample = match source.read(idx).await {
             Ok(s) => s,
@@ -518,54 +652,98 @@ async fn audio_feeder(
                 return;
             }
         };
-        let packet = Packet::new_from_slice(
-            0,
-            (pt * f64::from(sample_rate)).round() as u64,
-            1024,
-            &sample,
-        );
-        let decoded = match decoder.decode(&packet) {
+        let decoded = match decoder.decode(&sample) {
             Ok(d) => d,
             Err(e) => {
                 // 单包解不出来不该整场静音，但也**不能跳过**：跳过等于把这段
                 // 时间从音频里抹掉，音轨比画面短一截——每跳一包就多攒一份
                 // 音画差。补一包等长静音，时间轴严丝合缝。
                 log::warn!("[Playback] 音频样本 {idx} 解码失败（补静音）: {e}");
-                let silence = vec![0f32; 1024 * usize::from(channels)];
-                if !feed.push(&silence, &shared.shutdown).await {
-                    return;
-                }
-                continue;
+                vec![0f32; 1024 * ch]
             }
         };
-        let mut sbuf = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
-        sbuf.copy_interleaved_ref(decoded);
-        let samples = sbuf.samples();
-        // 峰值电平：**能把「喂的是静音」和「设备/音量问题」分开**的唯一
-        // 观测点。全 0 意味着解码/解密没解出波形（此时画面正常但无声，
-        // 只看设备状态会被误导）；有电平则问题在设备或音量侧。
-        if idx % 100 == 0 {
-            let peak = samples.iter().fold(0f32, |m, s| m.max(s.abs()));
-            log::debug!(
-                "[Playback][feed] 样本 {idx}（{:.1}s），clock={:.2}，峰值 {:.4}",
-                pt,
-                shared.now(),
-                peak
-            );
-        }
-        if !feed.push(samples, &shared.shutdown).await {
+        // 倍速伸缩（rate 变化逐窗生效）
+        let rate = shared.rate();
+        let mut stretched = Vec::with_capacity(decoded.len() / 2);
+        wsola.process(&decoded, rate, &mut stretched);
+        if !stretched.is_empty() && !feed.push(&stretched, &shared.shutdown).await {
             return;
         }
         pushed += 1;
+        // 冲流收口：预填够 + 设备确实跑过丢弃周期（设备暂停时回调不来，
+        // 宁可等恢复也别让旧声音漏出去）
+        if flush_pending && pushed >= AUDIO_PRIME_PACKETS && feed.end_flush_if_seen() {
+            flush_pending = false;
+        }
         // 预填够一截就放行设备（见 AUDIO_PRIME_PACKETS）
         if let Some(tx) = primed.take()
             && pushed >= AUDIO_PRIME_PACKETS
         {
             let _ = tx.send(());
         }
+        // rebuffer 水位（冲流期间不判：环里混着待丢弃的旧数据）
+        if !flush_pending {
+            let ring_secs = feed.buffered_frames() as f64 / (ch as f64 * f64::from(sample_rate));
+            if ring_secs <= BUFFER_LOW_SECS && feed.set_starved(true) {
+                log::info!("[Playback] 缓冲低水位（{ring_secs:.2}s），暂停设备等填充");
+                shared.emit(PlayerEvent::Buffering).await;
+            } else if ring_secs >= BUFFER_HIGH_SECS && feed.set_starved(false) {
+                log::info!("[Playback] 缓冲回填（{ring_secs:.2}s），恢复播放");
+                shared.emit(PlayerEvent::Ready).await;
+            }
+        }
+        idx += 1;
     }
     // 流很短或一直没喂满：别让调用方等满超时，直接放行
     if let Some(tx) = primed.take() {
         let _ = tx.send(());
+    }
+
+    // 喂完：等设备把环形缓冲放干，再把主时钟切到挂钟——音频时钟在缓冲
+    // 放干后不再推进，视频尾巴（比音轨长时）会被冻住，Ended 也到不了。
+    while feed.buffered_frames() > 0 && !shared.shutdown.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let at = shared.now();
+    let rate = shared.rate();
+    let wall = Arc::new(Clock::wall());
+    wall.set_rate(rate);
+    wall.reset(at);
+    shared.set_clock(wall);
+    log::info!("[Playback] 音频喂送结束（{at:.1}s 起切挂钟收尾）");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ASC 的 AOT 解析：LC 与 HE 两族都要读对（诊断日志的地基）。
+    /// 位序：首 5 位 = AOT；31 时再取 6 位（实际 profile = 32 + ext）。
+    #[test]
+    fn asc_aot_parses_lc_and_he() {
+        // AOT=2（LC）：00010 → 0b0001_0xxx
+        assert_eq!(asc_aot(&[0x10, 0x00]), Some(2));
+        // AOT=5（HE v1）：00101 → 0b0010_1xxx
+        assert_eq!(asc_aot(&[0x29, 0x00]), Some(5));
+        // AOT=29（HE v2）：11101 → 0xE8 高 5 位
+        assert_eq!(asc_aot(&[0xE8, 0x00]), Some(29));
+        // AOT=31 转义：11111 + 000000 → 32
+        assert_eq!(asc_aot(&[0xF8, 0x00]), Some(32));
+        assert_eq!(asc_aot(&[]), None);
+    }
+
+    /// media_end 在 elst 修剪下扣掉 edit 起点（priming 不该算进时长）。
+    #[test]
+    fn media_end_subtracts_edit_start() {
+        let mut info = TrackInfo {
+            media_timescale: 48_000,
+            media_duration: 48_000 * 100,
+            edit_media_start_secs: 2112.0 / 48_000.0,
+            ..Default::default()
+        };
+        assert!((media_end(&info) - (100.0 - 2112.0 / 48_000.0)).abs() < 1e-9);
+        info.media_timescale = 0;
+        info.media_duration = 0;
+        assert_eq!(media_end(&info), 0.0);
     }
 }

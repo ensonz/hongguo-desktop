@@ -17,6 +17,7 @@
 mod bridge;
 mod home;
 mod http_client;
+mod playback_prefs;
 mod rank;
 #[cfg(feature = "screenshot")]
 mod screenshot;

@@ -190,7 +190,7 @@ pub(crate) async fn run(
     parameter_sets: Vec<Vec<u8>>,
     start_secs: f64,
 ) {
-    let begin_at = start_index(&info, start_secs);
+    let mut start_secs = start_secs;
     let mut decoder = match HevcFrameDecoder::open(&parameter_sets, true) {
         Ok(d) => d,
         Err(e) => {
@@ -198,14 +198,17 @@ pub(crate) async fn run(
             return;
         }
     };
+
     *shared.dims.lock() = (info.width as usize, info.height as usize);
 
-    let mut pts = info.sample_pts();
+    let pts = info.sample_pts();
     let dts = info.sample_dts();
-    if pts.is_empty() {
+    let pts = if pts.is_empty() {
         let fps = info.average_framerate().unwrap_or(25.0);
-        pts = (0..info.samples.len()).map(|i| i as f64 / fps).collect();
-    }
+        (0..info.samples.len()).map(|i| i as f64 / fps).collect()
+    } else {
+        pts
+    };
     let frame_dur = 1.0 / info.average_framerate().unwrap_or(25.0);
     // B 帧重排的安全线：显示时间早于「已解码 dts 水位 - 本值」的帧，
     // 不可能再有更早的帧解出来，可以定稿。无 ctts 时为 0。
@@ -232,7 +235,27 @@ pub(crate) async fn run(
     let mut diag_read = std::time::Duration::ZERO;
     let mut diag_iters = 0u64;
 
-    for (idx, _) in pts.iter().enumerate().skip(begin_at).take(source.len()) {
+    let total = pts.len().min(source.len());
+    let mut idx = start_index(&info, start_secs);
+    while idx < total {
+        // seek：冲重排与上屏队列、重建解码会话、从目标前的关键帧续播。
+        // 时钟已被句柄侧即时换轴，这里的重定位让解码供给跟上新时间轴。
+        if let Some(target) = shared.take_seek() {
+            let _ = decoder.finish();
+            decoder = match HevcFrameDecoder::open(&parameter_sets, true) {
+                Ok(d) => d,
+                Err(e) => {
+                    shared.fail(format!("seek 重建解码器失败: {e}")).await;
+                    return;
+                }
+            };
+            pending.clear();
+            ready.clear();
+            start_secs = target;
+            idx = start_index(&info, target);
+            log::info!("[Playback] 视频 seek 到 {target:.1}s（关键帧样本 {idx}）");
+            continue;
+        }
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
         }
@@ -243,6 +266,9 @@ pub(crate) async fn run(
         // 挤成刚够实时——解码一慢就再也追不回来（实测画面掉到 2/3 速、
         // 音画偏差滚到 -5s）。落后时这里不设闸，解码全速把差距吃掉。
         loop {
+            if shared.shutdown.load(Ordering::Relaxed) || shared.has_seek() {
+                break; // seek/停机要及时让路到外层
+            }
             let ahead_secs = ready
                 .back()
                 .map(|f| f.pts_secs - shared.now())
@@ -299,6 +325,7 @@ pub(crate) async fn run(
         if !emit_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
             return;
         }
+        idx += 1;
     }
     match decoder.finish() {
         Ok(tail) => {

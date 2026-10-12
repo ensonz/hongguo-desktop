@@ -94,6 +94,39 @@ pub(super) fn read_mdhd(data: &[u8], start: usize, size: usize, info: &mut Track
     };
 }
 
+/// 从 `elst` 读 edit 起点（首个非空 edit 的 media_time）。
+///
+/// 结构：version+flags(4) | entry_count(4) | entries。
+/// version 0 条目 12 字节：segment_duration(4) media_time(4) rate(4)；
+/// version 1 条目 20 字节：duration(8) media_time(8) rate(4)。
+/// media_time = -1（各版本的无符号全 1）是空 edit 占位，跳过。
+pub(super) fn read_elst(data: &[u8], start: usize, size: usize, info: &mut TrackInfo) {
+    if size < 8 || info.media_timescale == 0 {
+        return;
+    }
+    let version = data[start];
+    let entry = if version == 1 { 20 } else { 12 };
+    let count = read_entry_count(data, start, size, entry);
+    for i in 0..count {
+        let at = start + 8 + i * entry;
+        if at + entry > start + size {
+            break;
+        }
+        let media_time = if version == 1 {
+            u64_at(data, at + 8) as i64
+        } else {
+            // media_time 是 SInt32：-1（全 1）是空 edit 占位，零扩展会读成
+            // 天文数字的正数，空 edit 判定就废了
+            i64::from(u32_at(data, at + 4) as i32)
+        };
+        if media_time < 0 {
+            continue; // 空 edit：只占 presentation 时长，不指媒体位置
+        }
+        info.edit_media_start_secs = media_time as f64 / f64::from(info.media_timescale);
+        break; // 首个非空 edit 即锚点，多 edit 流按首个锚定
+    }
+}
+
 impl TrackInfo {
     /// 每样本的**解码**时间与**显示**时间（秒），同一套展开一次算齐。
     ///
@@ -152,6 +185,19 @@ impl TrackInfo {
             }
             for d in &mut dts {
                 *d -= min;
+            }
+        }
+
+        // elst：presentation 时间轴 = 媒体时间轴 − edit 起点（AAC 编码器
+        // priming 由容器的 edit list 表达）。减出负值是刻意的——起点前的
+        // 样本（编码器前置静音）在 presentation 轴上就该落在 0 之前，由
+        // 消费方按「pts ≥ 起点」过滤。dts 同量平移，保持两轴对齐。
+        if self.edit_media_start_secs > 0.0 {
+            for p in &mut pts {
+                *p -= self.edit_media_start_secs;
+            }
+            for d in &mut dts {
+                *d -= self.edit_media_start_secs;
             }
         }
         (dts, pts)

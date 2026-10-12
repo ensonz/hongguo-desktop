@@ -10,6 +10,9 @@
 //! （试编帧不能小于 256×256，nvenc 曾在 64×64 上误判不可用）。
 //! 任何探测失败都安静地返回不可用，让分流链落到 ffmpeg/软解。
 
+// AAC 解码：macOS AudioToolbox（AudioConverter，mpv 的 coreaudio AAC 解码同款）
+#[cfg(target_os = "macos")]
+pub mod audio;
 #[cfg(target_os = "windows")]
 pub mod mf;
 #[cfg(target_os = "macos")]

@@ -11,8 +11,11 @@
 //! 流内下一部——Tauri 的剧终接力跨季/换批语义后续对齐）。取流编排与
 //! Tauri 同一段 service（[`PlayRuntime`]）。
 //!
-//! 对齐取舍：↑↓ 切剧与控制栏随控制层目标落地；「回首页 5 分钟换一批」
-//! 的过期重开未做（换一批入口本身已对齐）。
+//! 控制区（对齐 Tauri 版控制栏的核心件）：暂停/继续（按钮 + 点击画面）、
+//! 进度条拖动 seek、倍速菜单（0.75–3x，音频变速不变调）、音量/静音；偏好
+//! 经 [`crate::playback_prefs`] 跨集跨启动保留。键盘快捷键（空格/方向键）
+//! 与 ↑↓ 切剧随控制层下一批目标落地；「回首页 5 分钟换一批」的过期重开
+//! 未做（换一批入口本身已对齐）。
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -22,11 +25,13 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants;
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme, Sizable, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, IconName, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    ElementId, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img, surface,
+    ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img, surface,
 };
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
@@ -43,6 +48,22 @@ use tokio::sync::mpsc;
 use crate::bridge;
 
 // ---------------------------------------------------------------- 数据面
+
+/// 进度拖动的拖拽载荷（`on_drag`/`on_drag_move` 按类型配对）。
+struct ScrubDrag;
+
+/// 拖动期间跟指针的幽灵视图：空 div（拖动不需要可视残影，预览走进度条本身）。
+struct ScrubGhost;
+
+impl gpui_kit::Render for ScrubGhost {
+    fn render(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl gpui_kit::IntoElement {
+        div()
+    }
+}
 
 /// 沉浸流的三个 tab（tab_type 即书城 cell 换一换的契约，见 docs 抓包文档）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -155,6 +176,24 @@ pub struct HomeView {
     /// 切换目标（switching 时 overlay 显示它的封面与标题）。
     pending_title: Option<String>,
 
+    // —— 控制区（对齐 Tauri 版控制栏核心件） ——
+    /// 倍速/音量/静音的现值（引擎侧同值；换集后重放给新引擎，跨启动走
+    /// [`crate::playback_prefs`]）。
+    rate: f64,
+    volume: f32,
+    muted: bool,
+    /// 音量滑杆（0–1；纯用户驱动，无需程序化回写）。
+    volume_slider: Entity<SliderState>,
+    /// 进度拖动中的目标秒（None = 跟随播放位置显示）。
+    scrubbing: Option<f64>,
+    /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
+    buffering: bool,
+    /// 控制条可见截止时刻；拖动中/暂停时常显。
+    controls_until: Option<Instant>,
+    /// 进度轨道上帧矩形（拖动/点击的指针位置 → 比例换算用；同
+    /// `stage_rects` 的哨兵存取模式）。
+    progress_bounds: Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
+
     wheel_at: Option<Instant>,
     last_save: Instant,
     /// 已流预取（每部一次，失败不算数允许重试）。
@@ -184,6 +223,16 @@ impl HomeView {
             feeds.insert(s, SourceFeed::default());
             indexes.insert(s, 0usize);
         }
+        // 偏好先于引擎与滑杆：滑杆初值、起播后重放都吃它
+        let prefs = crate::playback_prefs::load_from(
+            &hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME),
+        );
+        let volume_slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.0)
+                .max(1.0)
+                .default_value(prefs.volume)
+        });
         let mut view = Self {
             state: Arc::clone(&state),
             active: Source::Feed,
@@ -197,6 +246,14 @@ impl HomeView {
             switching: false,
             frame: None,
             pending_title: None,
+            rate: prefs.rate,
+            volume: prefs.volume,
+            muted: prefs.muted,
+            volume_slider,
+            scrubbing: None,
+            buffering: false,
+            controls_until: None,
+            progress_bounds: Rc::new(Cell::new(None)),
             wheel_at: None,
             last_save: Instant::now(),
             stream_prefetched: HashSet::new(),
@@ -206,6 +263,7 @@ impl HomeView {
             seeds: Vec::new(),
             stage_rects: Rc::new(Cell::new(None)),
         };
+        view.subscribe_controls(cx);
         view.load_feed(Source::Feed, false, cx);
         view.load_history(cx);
         view
@@ -576,9 +634,15 @@ impl HomeView {
                         // 新引擎就位（帧随后由它的 Frame 事件送到，这里不清帧：
                         // 起了才清的写法会把先到的首帧抹掉，封面从此收不掉）。
                         // 切换途中旧帧已清，到这里的画面本来就是封面占位。
+                        // 偏好重放：换集重建引擎（对齐 Tauri `<video>` 卸载重挂）后
+                        // 把倍速/音量/静音按存值发给新引擎。
+                        handle.set_rate(view.rate);
+                        handle.set_volume(view.volume);
+                        handle.set_muted(view.muted);
                         view.player = Some(handle);
                         view.now = Some(now);
                         view.switching = false;
+                        view.buffering = false;
                     }
                     Err(e) => {
                         log::warn!("[Home] 起播失败: {e}");
@@ -731,8 +795,15 @@ impl HomeView {
                 // 相邻剧分集档案预取（换剧秒回，Tauri 同节奏）
                 self.prefetch_neighbor_archives();
             }
-            PlayerEvent::Ended => self.advance_after_end(cx),
+            // 引擎缓冲状态机：水位低暂停设备、回填恢复（详见 playback::player）
+            PlayerEvent::Buffering => self.buffering = true,
+            PlayerEvent::Ready => self.buffering = false,
+            PlayerEvent::Ended => {
+                self.buffering = false;
+                self.advance_after_end(cx);
+            }
             PlayerEvent::Failed(msg) => {
+                self.buffering = false;
                 self.pending_title = Some(format!("播放失败：{msg}"));
             }
         }
@@ -756,6 +827,151 @@ impl HomeView {
             })
             .await;
         });
+    }
+
+    // —— 控制区（对齐 Tauri 版控制栏核心件） ——
+
+    /// 倍速档位（与 Tauri 版 `player-controls.tsx` 的 RATES 完全一致）。
+    const RATES: [f64; 6] = [0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
+    /// 控制条可见时长：鼠标静止/无操作后自动隐藏。
+    const CONTROLS_VISIBLE: Duration = Duration::from_secs(3);
+
+    fn subscribe_controls(&mut self, cx: &mut Context<Self>) {
+        // subscribe 的处理器签名与 listener 不同（实体 + 事件，无 window），
+        // 直接给闭包再转发到方法
+        cx.subscribe(
+            &self.volume_slider,
+            |this: &mut Self, _: Entity<SliderState>, event: &SliderEvent, cx| {
+                this.on_volume_event(event, cx);
+            },
+        )
+        .detach();
+    }
+
+    /// 音量滑杆：拖动即生效（引擎在设备回调里乘 PCM，零延迟），松手落盘。
+    fn on_volume_event(&mut self, event: &SliderEvent, cx: &mut Context<Self>) {
+        let value = match event {
+            SliderEvent::Change(v) | SliderEvent::Release(v) => v,
+        };
+        let SliderValue::Single(v) = *value else {
+            return;
+        };
+        self.volume = v;
+        if let Some(player) = &self.player {
+            player.set_volume(v);
+        }
+        if matches!(event, SliderEvent::Release(_)) {
+            self.persist_prefs();
+        }
+        cx.notify();
+    }
+
+    fn toggle_pause(&mut self, cx: &mut Context<Self>) {
+        let Some(player) = &self.player else {
+            return;
+        };
+        if player.is_paused() {
+            player.resume();
+        } else {
+            player.pause();
+        }
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    fn set_rate(&mut self, rate: f64, cx: &mut Context<Self>) {
+        self.rate = rate;
+        if let Some(player) = &self.player {
+            player.set_rate(rate);
+        }
+        self.persist_prefs();
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    fn toggle_mute(&mut self, cx: &mut Context<Self>) {
+        self.muted = !self.muted;
+        if let Some(player) = &self.player {
+            player.set_muted(self.muted);
+        }
+        self.persist_prefs();
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    /// 偏好落盘（数据目录键值文件，见 [`crate::playback_prefs`]）。
+    fn persist_prefs(&self) {
+        let prefs = crate::playback_prefs::PlaybackPrefs {
+            rate: self.rate,
+            volume: self.volume,
+            muted: self.muted,
+        };
+        bridge::spawn(async move {
+            let path = hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
+            let _ =
+                tokio::task::spawn_blocking(move || crate::playback_prefs::save_to(&path, &prefs))
+                    .await;
+        });
+    }
+
+    /// 鼠标活动/操作刷新控制条可见窗；隐藏→可见的沿上排一次性定时器，
+    /// 静止到期后靠它（或播放中的帧事件流）触发重算隐藏。
+    fn wake_controls(&mut self, cx: &mut Context<Self>) {
+        let was_hidden = !self.controls_visible();
+        self.controls_until = Some(Instant::now() + Self::CONTROLS_VISIBLE);
+        if was_hidden {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(Self::CONTROLS_VISIBLE).await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+            cx.notify();
+        }
+    }
+
+    fn controls_visible(&self) -> bool {
+        self.scrubbing.is_some()
+            || self.player.as_ref().is_some_and(|p| p.is_paused())
+            || self.controls_until.is_some_and(|t| Instant::now() < t)
+    }
+
+    /// 进度轨道的指针位置 → 目标秒。轨道矩形缺失（首帧前）返回 `None`。
+    fn scrub_target_at(&self, x: gpui_kit::Pixels) -> Option<f64> {
+        let bounds = self.progress_bounds.get()?;
+        let player = self.player.as_ref()?;
+        let dur = player.duration_secs();
+        if dur <= 0.0 {
+            return None;
+        }
+        let ratio = ((x.to_f64() - bounds.origin.x.to_f64()) / bounds.size.width.to_f64().max(1.0))
+            .clamp(0.0, 1.0);
+        Some(ratio * dur)
+    }
+
+    /// 收口拖动：松手（轨道内/外都算）把预览位置交给引擎。
+    fn commit_scrub(&mut self, cx: &mut Context<Self>) {
+        if let Some(target) = self.scrubbing.take()
+            && let Some(player) = &self.player
+        {
+            player.seek(target);
+        }
+        self.wake_controls(cx);
+        cx.notify();
+    }
+
+    /// `m:ss`（与 Tauri 版时间格式一致）。
+    fn fmt_secs(secs: f64) -> String {
+        let s = secs.max(0.0) as u64;
+        format!("{}:{:02}", s / 60, s % 60)
+    }
+
+    /// 倍速按钮文案：整数不带小数点（1x / 1.5x / 0.75x）。
+    fn fmt_rate(rate: f64) -> String {
+        if rate.fract() == 0.0 {
+            format!("{}x", rate as i64)
+        } else {
+            format!("{rate}x")
+        }
     }
 
     /// 连播：下一集；末集接流内下一部（剧终接力的跨季/换批语义后续对齐）。
@@ -1028,11 +1244,20 @@ impl HomeView {
         // 不给 size 就是 0×0 盒子（taffy 对无上下文的叶子返回零尺寸），
         // paint_surface 画了个寂寞：解码、音频、封面全正常，唯独画面不见。
         // Tauri 侧同款写法是 `absolute inset-0 size-full object-contain`。
+        // 外层 div 接点击切暂停（对齐 Tauri 点击画面暂停/继续）：控制条是
+        // 兄弟层，点它不会冒泡到这里。
         let video: gpui_kit::AnyElement = match (&self.frame, video_ready) {
-            (Some(frame), true) => surface(frame.buffer())
+            (Some(frame), true) => div()
                 .absolute()
                 .size_full()
-                .object_fit(ObjectFit::Contain)
+                .id("stage-video")
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx)))
+                .child(
+                    surface(frame.buffer())
+                        .absolute()
+                        .size_full()
+                        .object_fit(ObjectFit::Contain),
+                )
                 .into_any_element(),
             _ => h_flex()
                 .absolute()
@@ -1042,6 +1267,29 @@ impl HomeView {
                 .child(Spinner::new())
                 .into_any_element(),
         };
+        // 缓冲角标（右上）：引擎水位状态机的 Buffering 事件驱动，区别于左上
+        // 的切剧提示
+        let buffering_badge = (self.buffering && self.player.is_some()).then(|| {
+            h_flex()
+                .absolute()
+                .top_2()
+                .right_2()
+                .gap_1()
+                .px_2()
+                .py_1()
+                .rounded(theme.radius)
+                .bg(gpui_kit::rgba(0x000000aa))
+                .child(Spinner::new())
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(gpui_kit::rgb(0xffffff))
+                        .child("缓冲中"),
+                )
+        });
+        // 控制条（底部悬浮，鼠标活动时可见）
+        let controls =
+            (self.player.is_some() && self.controls_visible()).then(|| self.render_controls(cx));
         // 信息叠加层（左下）：剧名 + 集数 + 热度/角标
         let overlay = self.render_overlay(cx);
         let rects = Rc::clone(&self.stage_rects);
@@ -1060,6 +1308,8 @@ impl HomeView {
                 div().absolute().size_full().into_any_element()
             })
             .child(overlay)
+            .children(buffering_badge)
+            .children(controls)
             // 布局哨兵：子层矩形只在这里可见，两次准备绘制之间比对（见字段注释）。
             // 第一个子层是封面槽（恒在、恒为舞台整块），出画时第二个是视频层、
             // 尺寸必须与它一致——不一致就是布局回归。
@@ -1175,6 +1425,185 @@ impl HomeView {
             )
             .into_any_element()
     }
+
+    /// 播放控制条（底部悬浮）：暂停/继续、进度（拖动 seek）、倍速菜单、
+    /// 音量/静音。布局与操作面对齐 Tauri 版控制栏；倍速档位、静音独立于
+    /// 音量的语义与 `playback-prefs` 一致。
+    fn render_controls(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let paused = self.player.as_ref().is_some_and(|p| p.is_paused());
+        let duration = self
+            .player
+            .as_ref()
+            .map(|p| p.duration_secs())
+            .unwrap_or(0.0);
+        let position = self.scrubbing.unwrap_or_else(|| {
+            self.player
+                .as_ref()
+                .map(|p| p.position_secs())
+                .unwrap_or(0.0)
+        });
+        let play_icon = if paused {
+            IconName::Play
+        } else {
+            IconName::Pause
+        };
+        // 倍速菜单的点击回调拿不到 view 的 Context，经实体句柄回写
+        let view = cx.entity();
+        let rate = self.rate;
+        let rate_menu = move |menu: gpui_kit::component::menu::PopupMenu,
+                              _window: &mut Window,
+                              _cx: &mut Context<gpui_kit::component::menu::PopupMenu>|
+              -> gpui_kit::component::menu::PopupMenu {
+            let mut menu = menu.label("倍速");
+            for r in Self::RATES {
+                let view = view.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(Self::fmt_rate(r))
+                        .checked(r == rate)
+                        .on_click(move |_, _window, cx| {
+                            view.update(cx, |v, cx| v.set_rate(r, cx));
+                        }),
+                );
+            }
+            menu
+        };
+        h_flex()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .items_center()
+            .gap_3()
+            .px_4()
+            .py_2()
+            .bg(gpui_kit::rgba(0x000000aa))
+            .child(
+                Button::new("stage-toggle-play")
+                    .icon(play_icon)
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx))),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .font_family("monospace")
+                    .text_color(gpui_kit::rgba(0xffffffcc))
+                    .child(Self::fmt_secs(position)),
+            )
+            .child(self.render_progress_track(cx))
+            .child(
+                div()
+                    .text_xs()
+                    .font_family("monospace")
+                    .text_color(gpui_kit::rgba(0xffffffcc))
+                    .child(Self::fmt_secs(duration)),
+            )
+            .child(
+                Button::new("stage-rate")
+                    .label(Self::fmt_rate(self.rate))
+                    .ghost()
+                    .small()
+                    .dropdown_menu(rate_menu),
+            )
+            .child(
+                Button::new("stage-mute")
+                    .label(if self.muted { "取消静音" } else { "静音" })
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
+            )
+            .child(Slider::new(&self.volume_slider).horizontal().w_24())
+            .into_any_element()
+    }
+
+    /// 进度轨道（自绘）：细条填充按播放位置实时走（帧事件驱动重渲染）；
+    /// 点击即跳转，按住拖动为预览（时间读数跟手），松手才 seek——对齐
+    /// Tauri 版「拖动不抢播、松手定位」。轨道矩形经 prepainted 哨兵存取，
+    /// 拖动事件只带窗口坐标。
+    fn render_progress_track(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let duration = self
+            .player
+            .as_ref()
+            .map(|p| p.duration_secs())
+            .unwrap_or(0.0);
+        let position = self.scrubbing.unwrap_or_else(|| {
+            self.player
+                .as_ref()
+                .map(|p| p.position_secs())
+                .unwrap_or(0.0)
+        });
+        let frac = if duration > 0.0 {
+            (position / duration).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let bounds = Rc::clone(&self.progress_bounds);
+        h_flex()
+            .flex_1()
+            .items_center()
+            // 命中区加高（好点），视觉条只有 4px
+            .h_4()
+            .relative()
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .h_1()
+                    .rounded_full()
+                    .bg(gpui_kit::rgba(0xffffff33))
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .h_1()
+                            .w(gpui_kit::relative(frac as f32))
+                            .rounded_full()
+                            .bg(gpui_kit::rgb(0xffffff)),
+                    ),
+            )
+            // prepainted 哨兵是 Div 的方法：必须在 .id() 变 Stateful 之前挂
+            .on_children_prepainted(move |children, _window, _cx| {
+                // 第一个子层是视觉条；矩形存哨兵供指针位置换算
+                if let Some(b) = children.first() {
+                    bounds.set(Some(*b));
+                }
+            })
+            .id("stage-progress-track")
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, ev: &gpui_kit::MouseDownEvent, _window, cx| {
+                    if let Some(target) = this.scrub_target_at(ev.position.x) {
+                        this.scrubbing = Some(target);
+                        this.commit_scrub(cx);
+                    }
+                }),
+            )
+            .on_drag(ScrubDrag, |_, _, _, cx| cx.new(|_| ScrubGhost))
+            .on_drag_move::<ScrubDrag>(cx.listener(
+                |this, ev: &gpui_kit::DragMoveEvent<ScrubDrag>, _window, cx| {
+                    if let Some(target) = this.scrub_target_at(ev.event.position.x) {
+                        this.scrubbing = Some(target);
+                        cx.notify();
+                    }
+                },
+            ))
+            // 松手收口：轨道内/外都要算（拖出轨道再松手也是一次明确的定位）
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _: &gpui_kit::MouseUpEvent, _window, cx| {
+                    this.commit_scrub(cx);
+                }),
+            )
+            .on_mouse_up_out(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _: &gpui_kit::MouseUpEvent, _window, cx| {
+                    this.commit_scrub(cx);
+                }),
+            )
+            .into_any_element()
+    }
 }
 
 impl gpui_kit::Render for HomeView {
@@ -1226,6 +1655,9 @@ impl gpui_kit::Render for HomeView {
                 None => self
                     .render_stage(cx)
                     .id("home-stage")
+                    .on_mouse_move(cx.listener(|this, _: &gpui_kit::MouseMoveEvent, _, cx| {
+                        this.wake_controls(cx);
+                    }))
                     .on_scroll_wheel(cx.listener(
                         |this, ev: &gpui_kit::ScrollWheelEvent, window, cx| {
                             // Tauri 同参：|Δy|<15 忽略，400ms 冷却在 step 里
