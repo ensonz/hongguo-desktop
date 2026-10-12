@@ -1,10 +1,28 @@
 //! 播放。
 
+use std::sync::Arc;
+
 use tauri::State;
 
 use hongguo_common::AppResult;
 use hongguo_common::model::{PlayRequest, PlayResponse};
 use hongguo_service::app_state::AppState;
+use hongguo_service::play_service::online::{PlayRuntime, ProgressSink};
+
+/// Tauri 壳的取流运行时：后台任务派发走 tauri 全局运行时（与
+/// `tauri::async_runtime::spawn` 同一运行时，红线 1 语义不变），进度事件
+/// emit 给前端（`online-play-progress`，与前端 EVENTS 对应）。
+fn play_runtime(app: &tauri::AppHandle) -> PlayRuntime {
+    let app = app.clone();
+    let sink: ProgressSink = Arc::new(move |event| {
+        use tauri::Emitter;
+        let _ = app.emit(
+            hongguo_service::download_service::events::names::ONLINE_PROGRESS,
+            event,
+        );
+    });
+    PlayRuntime::new(tauri::async_runtime::handle().inner().clone(), Some(sink))
+}
 
 #[tauri::command]
 pub async fn play_series(
@@ -12,7 +30,7 @@ pub async fn play_series(
     state: State<'_, AppState>,
     request: PlayRequest,
 ) -> AppResult<PlayResponse> {
-    hongguo_service::play_service::local::resolve_play(&app, &state, &request).await
+    hongguo_service::play_service::local::resolve_play(&play_runtime(&app), &state, &request).await
 }
 
 /// 与首页起点决策同口径（home-page 的起点 effect：看过 >3 秒就续播那一集）。
@@ -60,7 +78,7 @@ pub async fn play_prefetch(
     let settings = state.settings();
     let env = state.api_env();
     hongguo_service::play_service::online::prefetch_stream(
-        &app,
+        &play_runtime(&app),
         &ep.vid,
         &format!("{series_id}:{}", ep.vid_index),
         &settings,

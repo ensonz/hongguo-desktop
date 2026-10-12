@@ -2,6 +2,7 @@
 
 use tauri::State;
 
+use super::online::PlayRuntime;
 use super::{online, position};
 use crate::app_state::AppState;
 use hongguo_common::model::{PlayRequest, PlayResponse};
@@ -13,7 +14,7 @@ use hongguo_store::Store;
 /// `preferOnline` 只在**本地没有这一集**时才起作用：已经下好的文件永远走
 /// `hongguo-local://`，没必要重新下一遍。
 pub async fn resolve_play(
-    app: &tauri::AppHandle,
+    runtime: &PlayRuntime,
     state: &State<'_, AppState>,
     request: &PlayRequest,
 ) -> AppResult<PlayResponse> {
@@ -82,7 +83,7 @@ pub async fn resolve_play(
     // 进度事件的 key 用前端认的 `{seriesId}:{vidIndex}` 形态
     let progress_key = format!("{}:{}", request.series_id, request.vid_index);
     match online::prepare(
-        app,
+        runtime,
         &vid,
         &progress_key,
         request.definition,
@@ -104,7 +105,7 @@ pub async fn resolve_play(
             // 连播下一集的**流**预取：集间切换此前完全裸奔，自动连播每集
             // 都冷走取流表+探针链（实测 1.4s）——切剧预取只救得了「换一部剧」。
             online::schedule_next_episode_prefetch(
-                app,
+                runtime,
                 &state.store,
                 state.settings(),
                 state.api_env(),

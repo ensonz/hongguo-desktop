@@ -2,9 +2,11 @@
 //!
 //! 业务编排：download / play / merge / login / series / settings / storage /
 //! transcode / capability 九个域，外加全局业务状态 [`app_state`]（经壳的
-//! Tauri `manage` 注入；GPUI 壳则直接构造）。本 crate 依赖 tauri 仅取
-//! `async_runtime`（后台任务统一走它，红线 1）与事件发射的 `AppHandle`
-//! 形参——不含任何窗口/IPC 逻辑，壳的差异被挡在 commands 层。
+//! Tauri `manage` 注入；GPUI 壳则直接构造）。壳的差异被挡在外：在线取流
+//! 编排（`play_service::online`）已经壳无关（运行时与进度事件经
+//! [`play_service::online::PlayRuntime`] 由壳注入），其余域仍以
+//! `tauri::async_runtime` 起后台任务、`AppHandle` 形参发事件——本 crate
+//! 不含任何窗口/IPC 逻辑。
 //!
 //! 与壳的 `commands` 同名同构：看目录就能定位 command → service 的对应关系。
 
@@ -26,11 +28,13 @@ pub use app_state::{AppState, AppStateInner};
 mod tests {
     /// 与命令层同一纪律：service 层同样可能在无 Tokio 上下文的线程（协议
     /// 回调、主线程）上被调用，裸 `tokio::spawn` / `Handle::current` /
-    /// `block_on` 会 panic→abort。后台任务一律 `tauri::async_runtime::spawn`
-    /// （全局运行时，任意线程可调）——典型反例见 `play_service::online` 的
-    /// `resume_fill`（同步入口，可能被协议线程调用）。async fn 内
-    /// `tokio::time::sleep` / `tokio::sync::*` 这类运行时内调用不在禁止之列；
-    /// 测试代码允许自建运行时，故先切掉每个文件 `#[cfg(test)]` 之后的内容再扫。
+    /// `block_on` 会 panic→abort。后台任务要么 `tauri::async_runtime::spawn`
+    /// （全局运行时，任意线程可调），要么走壳显式注入的运行时 handle
+    /// （`play_service::online::PlayRuntime`，语义等价且壳无关）——典型反例
+    /// 见 `play_service::online` 的 `resume_fill`（同步入口，可能被协议线程
+    /// 调用）。async fn 内 `tokio::time::sleep` / `tokio::sync::*` 这类
+    /// 运行时内调用不在禁止之列；测试代码允许自建运行时，故先切掉每个文件
+    /// `#[cfg(test)]` 之后的内容再扫。
     ///
     /// 源码清单由目录自动发现（`collect_sources`，随 crate 迁移内联），不再
     /// 手工登记——新增 service 文件漏登记曾让本守护静默失效。

@@ -10,9 +10,14 @@
 //! - **整集**（回落）：CDN 不支持 Range、moov 定位失败等情形下，整集取回 +
 //!   解密后一次性交给协议，行为与本功能加入前完全一致。
 //!
-//! ⚠️ 起后台填充任务一律 `tauri::async_runtime::spawn`，不用裸 `tokio::spawn`：
-//! 后者依赖调用点所在的 Tokio 上下文，[`resume_fill`] 是同步入口、可能被协议/
-//! 回调线程调用（那里没有上下文，会 panic→abort，见 2026-10-07 闪退）。
+//! ⚠️ 起后台填充任务一律走 [`PlayRuntime`] 显式给的运行时 handle，不裸
+//! `tokio::spawn`：后者依赖调用点所在的 Tokio 上下文，[`resume_fill`] 是
+//! 同步入口、可能被协议/回调线程调用（那里没有上下文，会 panic→abort，
+//! 见 2026-10-07 闪退）。壳在装配期把运行时交进来（Tauri 壳 =
+//! `tauri::async_runtime::handle()`，语义与 `tauri::async_runtime::spawn`
+//! 一致；GPUI 壳 = 自己常驻的运行时），任意线程都可安全派发。
+//!
+//! 本模块壳无关：进度事件只产出给 [`ProgressSink`]，送达方式由壳定。
 
 use std::sync::Arc;
 
@@ -50,6 +55,27 @@ pub struct Prepared {
     pub definitions: Vec<VideoDefinition>,
 }
 
+/// 进度事件出口：service 只负责产出事件，送达方式由壳决定
+/// （Tauri 壳 emit 给前端；GPUI 壳现阶段没有订阅方，传 [`PlayRuntime::progress`] = None）。
+pub type ProgressSink = Arc<dyn Fn(&OnlineProgressEvent) + Send + Sync>;
+
+/// 取流编排的壳侧运行时：后台任务派发 + 进度事件去向。
+///
+/// service 可能被协议回调、主线程等**无 Tokio 上下文**的线程调用（2026-10-07
+/// 闪退教训），后台任务不能依赖调用点上下文起——派发用壳显式给的运行时
+/// handle，任意线程可调。进度事件也经它送达壳（Tauri emit / GPUI 忽略）。
+#[derive(Clone)]
+pub struct PlayRuntime {
+    pub handle: tokio::runtime::Handle,
+    pub progress: Option<ProgressSink>,
+}
+
+impl PlayRuntime {
+    pub fn new(handle: tokio::runtime::Handle, progress: Option<ProgressSink>) -> Self {
+        Self { handle, progress }
+    }
+}
+
 /// 填充门闸：数据填充段（真正抢带宽的下载+解密）同时只允许一路。
 ///
 /// 渐进注册（探针链，~1MB 流量）**不排门闸**——它越早完成，切剧能命中
@@ -63,7 +89,7 @@ static FILL_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 /// 缓存按 (vid, 档位) 分条目（见 [`hongguo_stream`]），所以切清晰度
 /// 既不用下载、也不会动到正在播的那一档：切回去直接命中内存里的旧数据。
 pub async fn prepare(
-    app: &tauri::AppHandle,
+    runtime: &PlayRuntime,
     vid: &str,
     progress_key: &str,
     definition: Option<u32>,
@@ -96,7 +122,7 @@ pub async fn prepare(
     if let Some(want) = want {
         if let Some(hit) = prepared(c, vid, want) {
             // 预取只填了头部的条目：转正后立刻续填余下（后台，不挡播放）
-            resume_fill(app, vid, want, progress_key);
+            resume_fill(runtime, vid, want, progress_key);
             log::info!("[Online] {vid} 档位 {want} 已缓存，直接复用");
             return Ok(hit);
         }
@@ -141,9 +167,10 @@ pub async fn prepare(
     let owned_key = progress_key.to_string();
     // `cache()` 返回 `&'static StreamCache`，可以直接带进 spawn 的 future
     let c = cache();
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let filled = fill(&app, c, &owned, &owned_key, want, &play, &settings, false).await;
+    let runtime = runtime.clone();
+    let handle = runtime.handle.clone();
+    handle.spawn(async move {
+        let filled = fill(&runtime, c, &owned, &owned_key, want, &play, &settings, false).await;
         // 取流权一直持有到数据落盘：中途放开会让并发的第二个请求以为
         // 「没人管这一档」而重新下一遍。
         c.end_fetch(&owned, want);
@@ -174,7 +201,7 @@ fn prepared(c: &StreamCache, vid: &str, definition: u32) -> Option<Prepared> {
 /// 幂等：已有条目或已在取流时静默返回。失败同样静默——预取是锦上添花，
 /// 报错只会把噪音推给根本没请求这件事的前端。
 pub async fn prefetch_stream(
-    app: &tauri::AppHandle,
+    runtime: &PlayRuntime,
     vid: &str,
     progress_key: &str,
     settings: &Settings,
@@ -218,10 +245,11 @@ pub async fn prefetch_stream(
     let owned = vid.to_string();
     let owned_key = progress_key.to_string();
     let c = cache();
-    let app = app.clone();
+    let runtime = runtime.clone();
     let settings = settings.clone();
-    tauri::async_runtime::spawn(async move {
-        let filled = fill(&app, c, &owned, &owned_key, want, &play, &settings, true).await;
+    let handle = runtime.handle.clone();
+    handle.spawn(async move {
+        let filled = fill(&runtime, c, &owned, &owned_key, want, &play, &settings, true).await;
         c.end_fetch(&owned, want);
         if let Err(e) = filled {
             log::warn!("[Online] 预取填充 {owned} 失败: {e}");
@@ -240,7 +268,7 @@ pub async fn prefetch_stream(
 /// 让位）。档案里查不到下一集的 vid 就放弃：连播到它时 resolve_play 会
 /// 自行解析（与 compat_prefetch 同款语义）。
 pub fn schedule_next_episode_prefetch(
-    app: &tauri::AppHandle,
+    runtime: &PlayRuntime,
     store: &Store,
     settings: Settings,
     env: ApiEnv,
@@ -251,9 +279,10 @@ pub fn schedule_next_episode_prefetch(
         return;
     };
     let progress_key = format!("{series_id}:{next_vid_index}");
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = prefetch_stream(&app, &vid, &progress_key, &settings, &env).await {
+    let runtime = runtime.clone();
+    let handle = runtime.handle.clone();
+    handle.spawn(async move {
+        if let Err(e) = prefetch_stream(&runtime, &vid, &progress_key, &settings, &env).await {
             log::info!("[Online] 第 {next_vid_index} 集连播预取失败（忽略）: {e}");
         }
     });
@@ -310,7 +339,7 @@ async fn wait_for_fetch(c: &StreamCache, vid: &str, definition: u32) -> AppResul
     reason = "参数表与平台 C API（虚表/会话属性）一一对应，硬拆参数结构反而失真"
 )]
 async fn fill(
-    app: &tauri::AppHandle,
+    runtime: &PlayRuntime,
     c: &StreamCache,
     vid: &str,
     progress_key: &str,
@@ -331,7 +360,7 @@ async fn fill(
         log::info!("[Online] {vid} 已被切走/让位，取消填充");
         return Ok(());
     }
-    let reporter = ProgressReporter::new(app.clone(), progress_key.to_string());
+    let reporter = ProgressReporter::new(runtime.progress.clone(), progress_key.to_string());
 
     match build_progressive(play, settings, &|r, t| reporter.report(r, t, "downloading")).await {
         Ok((sparse, prog)) => {
@@ -458,7 +487,7 @@ enum FillBudget {
 ///
 /// 没有它，预取只填头部的条目在被切上后，播放追上填充前沿就只能
 /// 30s 超时——「滚回来就黑屏」的另一半。
-pub fn resume_fill(app: &tauri::AppHandle, vid: &str, definition: u32, progress_key: &str) {
+pub fn resume_fill(runtime: &PlayRuntime, vid: &str, definition: u32, progress_key: &str) {
     let c = cache();
     if !c.needs_resume(vid, definition) {
         return;
@@ -472,12 +501,13 @@ pub fn resume_fill(app: &tauri::AppHandle, vid: &str, definition: u32, progress_
     };
     let proxy = prog.proxy.clone();
     let cdn_url = prog.cdn_url.clone();
-    let app = app.clone();
+    let runtime = runtime.clone();
     let owned = vid.to_string();
     let owned_key = progress_key.to_string();
-    // 本函数是同步入口，可能被协议/回调线程调用：必须用全局运行时，见模块头注释。
-    tauri::async_runtime::spawn(async move {
-        let reporter = ProgressReporter::new(app.clone(), owned_key);
+    // 本函数是同步入口，可能被协议/回调线程调用：必须用壳显式给的运行时，
+    // 见模块头注释。
+    runtime.handle.spawn(async move {
+        let reporter = ProgressReporter::new(runtime.progress.clone(), owned_key);
         let cancelled = || !c.exists(&owned, definition) || c.current() != owned;
         let client = match hongguo_api::client::build_client(&proxy) {
             Ok(cl) => cl,
@@ -796,12 +826,13 @@ pub async fn fetch_plain(
 /// 在线播放进度上报器。
 ///
 /// 复用下载服务那套节流（0.5% 或 500ms 才发一次）：取流是每秒好几 MB 的量，
-/// 每次都发会把 UI 线程打满。
+/// 每次都发会把 UI 线程打满。事件经壳给的 [`ProgressSink`] 送达——service
+/// 不关心前端在哪；没有 sink（GPUI 壳现阶段）时是纯空操作。
 ///
 /// 进度不是可选装饰：整集取回 + 解密期间界面上只有一个转圈，用户既看不出在动
 /// 还是卡住，也看不到还要多久。
 pub struct ProgressReporter {
-    app: tauri::AppHandle,
+    sink: Option<ProgressSink>,
     /// 前端按 `{seriesId}:{vidIndex}` 过滤事件（episodeKey，与
     /// compat-play-progress 同一格式）——曾经发裸 vid 导致「正在缓存 X%」
     /// 永远匹配不上，别改回 vid。
@@ -810,9 +841,9 @@ pub struct ProgressReporter {
 }
 
 impl ProgressReporter {
-    pub fn new(app: tauri::AppHandle, key: String) -> Self {
+    pub fn new(sink: Option<ProgressSink>, key: String) -> Self {
         Self {
-            app,
+            sink,
             key,
             throttle: Default::default(),
         }
@@ -820,6 +851,9 @@ impl ProgressReporter {
 
     /// 报一次进度。`total` 为 0（CDN 没给 Content-Length）时不发百分比。
     pub fn report(&self, received: u64, total: u64, phase: &str) {
+        let Some(sink) = &self.sink else {
+            return;
+        };
         let percent = if total > 0 {
             received as f64 / total as f64 * 100.0
         } else {
@@ -828,33 +862,28 @@ impl ProgressReporter {
         if !self.throttle.should_send(&self.key, percent) {
             return;
         }
-        use tauri::Emitter;
-        let _ = self.app.emit(
-            crate::download_service::events::names::ONLINE_PROGRESS,
-            &OnlineProgressEvent {
-                key: self.key.clone(),
-                received,
-                total,
-                percent: percent.min(100.0),
-                phase: phase.to_string(),
-            },
-        );
+        sink(&OnlineProgressEvent {
+            key: self.key.clone(),
+            received,
+            total,
+            percent: percent.min(100.0),
+            phase: phase.to_string(),
+        });
     }
 
     /// 100%：解密完成、缓冲就绪。
     pub fn done(&self) {
         self.throttle.forget(&self.key);
-        use tauri::Emitter;
-        let _ = self.app.emit(
-            crate::download_service::events::names::ONLINE_PROGRESS,
-            &OnlineProgressEvent {
-                key: self.key.clone(),
-                received: 0,
-                total: 0,
-                percent: 100.0,
-                phase: "ready".to_string(),
-            },
-        );
+        let Some(sink) = &self.sink else {
+            return;
+        };
+        sink(&OnlineProgressEvent {
+            key: self.key.clone(),
+            received: 0,
+            total: 0,
+            percent: 100.0,
+            phase: "ready".to_string(),
+        });
     }
 }
 
