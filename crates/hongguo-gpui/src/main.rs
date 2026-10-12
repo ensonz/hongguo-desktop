@@ -19,6 +19,7 @@ mod feed;
 mod http_client;
 mod rank;
 mod shell;
+mod spike;
 
 use std::sync::Arc;
 use std::sync::OnceLock;

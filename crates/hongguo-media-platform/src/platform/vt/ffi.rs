@@ -92,6 +92,9 @@ pub const kCMVideoCodecType_H264: OSType = 0x6176_6331;
 pub const kCMVideoCodecType_HEVC: OSType = 0x6876_6331;
 /// `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange`（'420v'，NV12）
 pub const kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange: OSType = 0x3432_3076;
+/// `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange`（'420f'，NV12 全区间）——
+/// 播放末端 GPU 合成器的采样格式（gpui surface 断言的就是它）
+pub const kCVPixelFormatType_420YpCbCr8BiPlanarFullRange: OSType = 0x3432_3066;
 /// `kVTDecodeFrameFlags`：不设 EnableAsynchronousDecompression 即同步解码
 pub const kVTDecodeFrame_Synchronous: u32 = 0;
 /// `kCFNumberSInt32Type`

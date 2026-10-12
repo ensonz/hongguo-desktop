@@ -295,7 +295,11 @@ unsafe extern "C" fn decode_cb(
 
 impl Decompressor {
     /// 用 `hvcC` 参数集（VPS/SPS/PPS 裸 NAL）建同步解码会话，输出 NV12。
-    unsafe fn new(parameter_sets: &[Vec<u8>]) -> AppResult<Self> {
+    ///
+    /// `full_range` 选输出像素区间：`false` = VideoRange（'420v'，转码链
+    /// 既定格式）；`true` = FullRange（'420f'，GPU 合成器直采样要求的形态，
+    /// 见 [`HevcFrameDecoder`]）。
+    unsafe fn new(parameter_sets: &[Vec<u8>], full_range: bool) -> AppResult<Self> {
         unsafe {
             let sizes: Vec<usize> = parameter_sets.iter().map(|n| n.len()).collect();
             let ptrs: Vec<*const u8> = parameter_sets.iter().map(|n| n.as_ptr()).collect();
@@ -313,8 +317,11 @@ impl Decompressor {
                 "建 HEVC 格式描述",
             )?;
 
-            let pixel_format =
-                make_int(ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange as i32);
+            let pixel_format = make_int(if full_range {
+                ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            } else {
+                ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            } as i32);
             let iosurface = iosurface_attrs();
             let attrs = make_dict(&[
                 (
@@ -440,6 +447,88 @@ impl Decompressor {
         while let Ok(item) = self.rx.try_recv() {
             out.push(item);
         }
+    }
+}
+
+// ————————————————————————————————————————————————————————————
+// 播放逐帧解码（§5.3：GPUI 帧流末端的解码出口）
+// ————————————————————————————————————————————————————————————
+
+use core_video::pixel_buffer::{CVPixelBuffer, CVPixelBufferRef};
+
+/// 一帧解码输出：NV12 CVPixelBuffer + 源时间轴显示时间。
+///
+/// CVPixelBuffer 是 CF 对象、引用线程安全（Apple 文档明示可跨线程搬运），
+/// 线程绑定声明由本类型给出。`buffer()` 是引用计数克隆（+1）：渲染侧拿
+/// 走自己的引用，帧队列里的原件不受影响。
+pub struct DecodedFrame {
+    inner: Pb,
+    /// 该帧的显示时间（秒，源时间轴）。同步解码吐出的是**解码序**，消费方
+    /// 必须按这个 PTS 配对显示槽，绝不按吐出顺序排位（与转码链 run() 同一
+    /// 纪律）。
+    pub pts_secs: f64,
+}
+
+unsafe impl Send for DecodedFrame {}
+
+impl DecodedFrame {
+    /// 像素缓冲（NV12，IOSurface 背板）。返回值持独立引用（+1）。
+    pub fn buffer(&self) -> CVPixelBuffer {
+        use core_foundation::base::TCFType;
+        // 手写 ffi 里是 *mut c_void，core-video 侧是不透明结构指针——同一 CF 对象
+        unsafe { CVPixelBuffer::wrap_under_get_rule(self.inner.0 as CVPixelBufferRef) }
+    }
+
+    /// 帧分辨率 `(宽, 高)`。
+    pub fn dims(&self) -> (usize, usize) {
+        self.inner.dims()
+    }
+}
+
+/// HEVC 逐帧解码器（播放末端；转码链走 [`transcode_h264`]，不经这里）。
+///
+/// 同步解码：[`HevcFrameDecoder::decode`] 返回即该样本的全部输出已就绪。
+/// 帧经 NV12 CVPixelBuffer（IOSurface 背板）交付，GPU 可直接采样——
+/// GPUI 的 `surface()` 元素零拷贝上屏就吃这个形态。
+///
+/// `full_range = true` 时请求 FullRange NV12（'420f'）：GPU 合成器的
+/// YCbCr shader 断言全区间；转码链保持 '420v' 不受影响。
+pub struct HevcFrameDecoder {
+    inner: Decompressor,
+}
+
+// VT 解码会话与格式描述都是 CF 对象，CoreFoundation 引用计数线程安全，
+// Apple 文档明示会话可跨线程使用；内部通道（Receiver/Box<Sender>）本身
+// Send。跨线程约束（async 任务里持解码器）由本声明给出。
+unsafe impl Send for HevcFrameDecoder {}
+
+impl HevcFrameDecoder {
+    /// 用参数集（`hvcC` 裸 NAL：VPS/SPS/PPS）建解码会话。
+    pub fn open(parameter_sets: &[Vec<u8>], full_range: bool) -> AppResult<Self> {
+        Ok(Self {
+            inner: unsafe { Decompressor::new(parameter_sets, full_range)? },
+        })
+    }
+
+    /// 解一个样本（MP4 长度前缀 NAL 原样字节），返回本次产生的帧（解码序，
+    /// 各自带 PTS）。无输出（如先行参考帧还没喂够）返回空表。
+    pub fn decode(&mut self, sample: &[u8], pts_secs: f64, duration_secs: f64) -> AppResult<Vec<DecodedFrame>> {
+        unsafe { self.inner.decode(sample, pts_secs, duration_secs)? };
+        Ok(self.take_ready())
+    }
+
+    /// 冲尾帧并返回遗留输出。会话随即不再可用。
+    pub fn finish(&mut self) -> AppResult<Vec<DecodedFrame>> {
+        unsafe { self.inner.finish()? };
+        Ok(self.take_ready())
+    }
+
+    fn take_ready(&self) -> Vec<DecodedFrame> {
+        let mut raw = Vec::new();
+        self.inner.drain(&mut raw);
+        raw.into_iter()
+            .map(|(inner, pts_secs)| DecodedFrame { inner, pts_secs })
+            .collect()
     }
 }
 
@@ -972,7 +1061,7 @@ fn run(
     //   显示序——产物按解码序播放（真实剧集实证：标题帧闪现在转场前，
     //   showinfo 呈现序 0, 0.533, 0.067…）。配对好的帧按容器时间槽顺序
     //   喂编码器；槽内帧未到就继续解码下一个样本，内存以重排窗口为界。
-    let decoder = unsafe { Decompressor::new(&parameter_sets)? };
+    let decoder = unsafe { Decompressor::new(&parameter_sets, false)? };
     let mut slot_times = source_pts.clone();
     slot_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut ready: Vec<(Pb, f64)> = Vec::new();

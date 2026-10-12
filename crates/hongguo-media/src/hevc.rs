@@ -87,6 +87,25 @@ pub fn read_parameter_set_nalus(
     param_nalus_from_hvcc(&hvcc)
 }
 
+/// [`read_parameter_set_nalus`] 的内存形态：从**已拿到的文件头部字节**
+/// （须覆盖 moov）提取参数集。在线流播放没有文件可读——样本表 + 渐进流的
+/// 头部区间就是全部元数据，解析逻辑与文件形态同一份。
+pub fn param_nalus_from_head(head: &[u8], track: &TrackInfo) -> AppResult<(Vec<Vec<u8>>, usize)> {
+    if !is_hevc(&track.codec) {
+        return Err(AppError::Media(format!(
+            "不是 HEVC 轨（codec = {}）",
+            track.codec
+        )));
+    }
+    let (offset, size) = find_hvc_c_in(head, track)?;
+    let start = offset as usize;
+    let end = start + size as usize;
+    param_nalus_from_hvcc(
+        head.get(start..end)
+            .ok_or_else(|| AppError::Media("hvcC 越出头部字节范围（moov 不完整）".into()))?,
+    )
+}
+
 /// 解析 hvcC **载荷**（box header 之后的部分）：参数集 NAL 数组 + 长度前缀字节数。
 ///
 /// MP4（stsd sample entry）与 HEIF（ipco 属性）里的 hvcC 载荷布局完全一致，
@@ -173,14 +192,18 @@ fn find_hvc_c(path: &Path, track: &TrackInfo) -> AppResult<(u64, u64)> {
         f.read_exact(&mut head)
             .map_err(|e| AppError::Io(e.to_string()))?;
     }
+    find_hvc_c_in(&head, track)
+}
 
+/// [`find_hvc_c`] 的内存形态（[`param_nalus_from_head`] 用）。
+fn find_hvc_c_in(data: &[u8], track: &TrackInfo) -> AppResult<(u64, u64)> {
     // stbl 的位置与大小在解析轨道时（`collect_track`）就记在 track 上了，
     // 直接用——**不要在它自己的载荷范围里再找一次 stbl**，那里没有它自己。
     if track.stbl_size == 0 {
         return Err(AppError::Media("轨道没有 stbl".into()));
     }
     let stbl_end = track.stbl_offset + track.stbl_size;
-    let stsd = find_box(&head, track.stbl_offset, stbl_end, "stsd")
+    let stsd = find_box(data, track.stbl_offset, stbl_end, "stsd")
         .ok_or_else(|| AppError::Media("找不到 stsd".into()))?;
 
     // stsd 是 FullBox：载荷开头 8 字节是 version+flags(4) 与 entry_count(4)，
@@ -188,20 +211,20 @@ fn find_hvc_c(path: &Path, track: &TrackInfo) -> AppResult<(u64, u64)> {
     //
     // sample entry 的扩展区（hvcC / avcC / sinf）位于 VisualSampleEntry 载荷的
     // 78 字节之后——加密轨的 format 是 `encv`，但这部分布局与普通轨一致。
-    for b in hongguo_mp4::r#box::parse_boxes(&head, stsd.start + 8, stsd.start + stsd.size) {
+    for b in hongguo_mp4::r#box::parse_boxes(data, stsd.start + 8, stsd.start + stsd.size) {
         let entry_end = b.start + b.size;
         let inner = b.start + VISUAL_SAMPLE_ENTRY_PAYLOAD;
         if inner + 8 > entry_end {
             continue;
         }
-        if let Some(hvcc) = find_box(&head, inner, entry_end, "hvcC") {
+        if let Some(hvcc) = find_box(data, inner, entry_end, "hvcC") {
             return Ok((hvcc.start as u64, hvcc.size as u64));
         }
     }
 
     Err(AppError::Media(format!(
         "stsd 里没有 hvcC（format = {}）",
-        String::from_utf8_lossy(&head[stsd.start + 12..stsd.start + 16])
+        String::from_utf8_lossy(&data[stsd.start + 12..stsd.start + 16])
     )))
 }
 

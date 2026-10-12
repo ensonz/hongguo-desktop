@@ -13,12 +13,13 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{ElementId, ObjectFit, RenderImage, SharedString, Window, div, img};
+use gpui_kit::{ElementId, Entity, ObjectFit, RenderImage, SharedString, Window, div, img};
 use hongguo_api::discover::FeedItem;
 use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_service::app_state::AppStateInner;
 
 use crate::bridge;
+use crate::spike::{SpikeClosed, SpikeHost, SpikePlayer};
 
 /// 推荐流页的加载状态机（explicit states，coding-guides「Async work」）。
 #[derive(Debug, Clone)]
@@ -42,6 +43,8 @@ pub struct FeedView {
     covers: HashMap<String, Arc<RenderImage>>,
     /// 已派发封面加载的 series_id（防重复派发）。
     covers_pending: std::collections::HashSet<String>,
+    /// §5.3 spike 播放宿主：点封面进播放，返回事件后清空。
+    player: Option<Entity<SpikeHost>>,
 }
 
 impl FeedView {
@@ -54,6 +57,7 @@ impl FeedView {
             loading: false,
             covers: HashMap::new(),
             covers_pending: std::collections::HashSet::new(),
+            player: None,
         };
         view.refresh(cx);
         view
@@ -90,8 +94,18 @@ impl FeedView {
                         );
                         view.session = page.session_id;
                         view.load_covers(&page.items, cx);
+                        // §5.3 spike 脚手架：HONGGUO_SPIKE_AUTO=1 时自动试播
+                        // 第一部（无头验证整条解码链；阶段 3 随 spike 一并拆除）
+                        let auto = if std::env::var_os("HONGGUO_SPIKE_AUTO").is_some() {
+                            page.items.first().map(|i| (i.series_id.clone(), i.title.clone()))
+                        } else {
+                            None
+                        };
                         view.items = page.items;
                         view.phase = Phase::Loaded;
+                        if let Some((sid, title)) = auto {
+                            view.open_spike(sid, title, cx);
+                        }
                     }
                     Err(e) => {
                         log::warn!("[Recommend] GPUI 壳失败: {e}");
@@ -243,8 +257,22 @@ impl FeedView {
         }
     }
 
-    /// 一张封面卡。暂不可点击——详情/播放视图落地（§5.3 spike 之后）才给
-    /// 点击意图，不给假的点击可供性（设计规范「动作必须守约」）。
+    /// 点封面进 spike 播放（§5.3）：建播放器实体并订阅返回事件。
+    fn open_spike(&mut self, series_id: String, title: String, cx: &mut Context<Self>) {
+        let player = cx.new(|pcx| {
+            SpikePlayer::new(Arc::clone(&self.state), series_id.clone(), title.clone(), pcx)
+        });
+        let host = cx.new(|_| SpikeHost { player });
+        cx.subscribe(&host, |this, _, _: &SpikeClosed, cx| {
+            this.player = None;
+            cx.notify();
+        })
+        .detach();
+        self.player = Some(host);
+        cx.notify();
+    }
+
+    /// 一张封面卡。点击进 §5.3 spike 播放（首页沉浸流是阶段 3 的正式形态）。
     fn render_card(&self, item: &FeedItem, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme();
         // 封面位图未就绪时以次级底色占位（阶梯是秒级，有磁盘缓存）。
@@ -255,6 +283,8 @@ impl FeedView {
                 .into_any_element(),
             None => div().size_full().into_any_element(),
         };
+        let sid = item.series_id.clone();
+        let title = item.title.clone();
         v_flex()
             .w_40()
             .gap_2()
@@ -266,6 +296,11 @@ impl FeedView {
                     .bg(theme.secondary)
                     .w_40()
                     .h_48()
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(0.85))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_spike(sid.clone(), title.clone(), cx);
+                    }))
                     .child(cover),
             )
             .child(
@@ -292,11 +327,21 @@ impl gpui_kit::Render for FeedView {
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
         let theme = cx.theme();
+        // spike 播放中：整个内容区让给播放器（返回后回到网格）
+        if let Some(host) = &self.player {
+            return v_flex()
+                .size_full()
+                .bg(theme.background)
+                .text_color(theme.foreground)
+                .child(host.clone())
+                .into_any_element();
+        }
         v_flex()
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
             .child(self.render_toolbar(cx))
             .child(self.render_grid(cx))
+            .into_any_element()
     }
 }

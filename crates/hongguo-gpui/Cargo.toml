@@ -10,7 +10,8 @@ authors.workspace = true
 # 操作一致约定（docs/architecture-refactor.md §7）：本壳**不复制业务**——
 # 设备引导（hongguo_service::device）、全局状态（AppStateInner）、接口调用
 # （state.api_env() + hongguo_api）与 Tauri 壳走同一段服务面；壳内只做窗口、
-# 装配与渲染。视频帧流（GPUI 直接出帧）是 §5.3 的独立 spike，不在单壳范围。
+# 装配与渲染。§5.3 spike（解码帧 → GPUI surface 上屏）直接消费取流编排与
+# 解码出口，为 hongguo-playback 引擎定型。
 
 # cargo test 会把无测试框架的 bin 当用例**直接执行**（本壳一跑就开窗口，
 # 把全仓测试挂死——实测发生过）。应用 bin 一律关掉 test 集成。
@@ -29,9 +30,13 @@ hongguo-api = { path = "../hongguo-api" }
 hongguo-protocol = { path = "../hongguo-protocol" }
 hongguo-common = { path = "../hongguo-common" }
 hongguo-store = { path = "../hongguo-store" }
+# §5.3 spike：进程内取流（serve）+ 参数集提取 + VT 逐帧解码出口。
+hongguo-stream = { path = "../hongguo-stream" }
+hongguo-media = { path = "../hongguo-media" }
+hongguo-media-platform = { path = "../hongguo-media-platform" }
 # service 的 async 函数族依赖 tokio 运行时设施（sleep / Semaphore）；GPUI 的
 # 执行器不是 tokio，本壳自带一个运行时线程做桥（oneshot 回传，见 main.rs）。
-tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 # 封面远程拉取：gpui 图片缓存的 HttpClient 桥（http_client.rs）与 BoxFuture。
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 bytes = "1"

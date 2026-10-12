@@ -4348,9 +4348,12 @@ dependencies = [
  "gpui-kit",
  "hongguo-api",
  "hongguo-common",
+ "hongguo-media",
+ "hongguo-media-platform",
  "hongguo-protocol",
  "hongguo-service",
  "hongguo-store",
+ "hongguo-stream",
  "image",
  "log",
  "reqwest",
@@ -4378,6 +4381,8 @@ dependencies = [
 name = "hongguo-media-platform"
 version = "0.4.4"
 dependencies = [
+ "core-foundation 0.10.0",
+ "core-video",
  "hongguo-common",
  "hongguo-media",
  "hongguo-mp4",
