@@ -24,7 +24,7 @@ pub(crate) struct Clock {
     consumed: AtomicU64,
     /// 设备引线（帧）：这批样本从回调到 DAC 的提前量。≤ consumed。
     lead: AtomicU64,
-    /// base（媒体秒）与倍速：换速时 rebase，两者必须原子地一起动。
+    /// base（媒体秒）、倍速与待生效的换速：换速时 rebase，必须原子地一起动。
     state: Mutex<ClockState>,
     /// 无音频模式：起点挂钟。
     wall: Mutex<Option<Instant>>,
@@ -33,7 +33,19 @@ pub(crate) struct Clock {
 struct ClockState {
     base: f64,
     rate: f64,
+    /// 分级换速：环里还压着旧速率内容时，换速**延迟到它放完**（阈值记在
+    /// consumed 上）。`rate()` 在此期间返回目标值——WSOLA 与界面即刻按新
+    /// 倍速走，只有时钟的推进轴等旧内容放完才换。None = 无待生效换速。
+    pending: Option<PendingRate>,
 }
+
+struct PendingRate {
+    at_consumed: u64,
+    rate: f64,
+}
+
+/// 环内残量低于这个秒数时换速直接生效（不值得为几十毫秒 staging）。
+const IMMEDIATE_RATE_DRAIN_SECS: f64 = 0.05;
 
 impl Clock {
     pub(crate) fn audio(sample_rate: u32) -> Self {
@@ -44,6 +56,7 @@ impl Clock {
             state: Mutex::new(ClockState {
                 base: 0.0,
                 rate: 1.0,
+                pending: None,
             }),
             wall: Mutex::new(None),
         }
@@ -57,16 +70,18 @@ impl Clock {
             state: Mutex::new(ClockState {
                 base: 0.0,
                 rate: 1.0,
+                pending: None,
             }),
             wall: Mutex::new(None),
         }
     }
 
     /// 设播放起点（媒体秒）。计数清零，now() 从 base 起走。倍速保留
-    /// （用户偏好不因起播/seek 重置）。
+    /// （用户偏好不因起播/seek 重置）；待生效的换速作废（seek 优先）。
     pub(crate) fn reset(&self, base_secs: f64) {
         let mut st = self.state.lock();
         st.base = base_secs;
+        st.pending = None;
         drop(st);
         self.consumed.store(0, Ordering::Relaxed);
         self.lead.store(0, Ordering::Relaxed);
@@ -84,26 +99,67 @@ impl Clock {
         st.base + (consumed - lead) as f64 / self.sample_rate as f64 * st.rate
     }
 
-    /// 换倍速：按旧速率算出当前位并锁内 rebase（清计数），时间轴不跳。
-    pub(crate) fn set_rate(&self, rate: f64) {
+    /// 换倍速。
+    ///
+    /// 环里还压着旧速率内容（`drain_secs`，由调用方从环占有量读）时走
+    /// **分级**：时钟暂按旧速率推进，阈值（`consumed + drain`）越过瞬间
+    /// rebase 换新轴——旧内容按旧速率放完、新内容按新速率来，时间轴不跳、
+    /// 音画不错位。立即换轴的话时钟比可闻位置快出 `drain×Δrate`（最多
+    /// 1s×2.25），画面抢先声音一大截，正是「切倍速后音画不同步」的来源。
+    ///
+    /// `rate()` 自本调用起返回目标值：WSOLA 逐窗按新倍速伸缩（新内容进环
+    /// 排在旧内容后面），界面倍速按钮即刻高亮——只有主时钟的轴在等。
+    pub(crate) fn set_rate(&self, rate: f64, drain_secs: f64) {
         let mut st = self.state.lock();
-        st.base = audio_now(&st, self.sample_rate, &self.consumed, &self.lead);
-        st.rate = rate;
-        drop(st);
-        self.consumed.store(0, Ordering::Relaxed);
-        self.lead.store(0, Ordering::Relaxed);
+        if self.sample_rate == 0 || drain_secs <= IMMEDIATE_RATE_DRAIN_SECS {
+            // 立即换轴：按旧速率算出当前位并锁内 rebase（清计数），不跳
+            st.base = audio_now(&st, self.sample_rate, &self.consumed, &self.lead);
+            st.rate = rate;
+            st.pending = None;
+            drop(st);
+            self.consumed.store(0, Ordering::Relaxed);
+            self.lead.store(0, Ordering::Relaxed);
+            return;
+        }
+        st.pending = Some(PendingRate {
+            at_consumed: self.consumed.load(Ordering::Relaxed)
+                + (drain_secs * self.sample_rate as f64) as u64,
+            rate,
+        });
     }
 
+    /// 当前倍速。语义是**目标倍速**：分级换速的等待期里也返回新值——
+    /// 喂送侧 WSOLA、界面显示、新引擎继承偏好都该拿目标，而不是旧轴。
     pub(crate) fn rate(&self) -> f64 {
-        self.state.lock().rate
+        let st = self.state.lock();
+        st.pending.as_ref().map(|p| p.rate).unwrap_or(st.rate)
     }
 
     /// 输出回调记账：设备又消费了 `frames` 帧、当前引线 `lead` 帧。
     /// 帧数按增量累加（漏一次回调也不失真），引线按最新值覆盖（可闻位置
-    /// 读数时再钳到 ≤ 已消费）。
+    /// 读数时再钳到 ≤ 已消费）。越过分级换速阈值时在此换轴（回调线程
+    /// 串行，不会重复生效）。
     fn advance(&self, frames: u64, lead: u64) {
-        self.consumed.fetch_add(frames, Ordering::Relaxed);
+        let consumed = self.consumed.fetch_add(frames, Ordering::Relaxed) + frames;
         self.lead.store(lead, Ordering::Relaxed);
+        // 检查与取走同一把锁：UI 线程的 set_rate 在锁外，不会插进检查与
+        // 生效之间把阈值换掉
+        let mut st = self.state.lock();
+        let Some(p) = st.pending.take_if(|p| consumed >= p.at_consumed) else {
+            return;
+        };
+        // base 推进到阈值处的可闻位（引线用当前值，误差 ≤ 一根引线），
+        // 计数清零从阈值重新起算——之后 now() 就是新轴
+        st.base += (p
+            .at_consumed
+            .saturating_sub(self.lead.load(Ordering::Relaxed).min(p.at_consumed)))
+            as f64
+            / self.sample_rate as f64
+            * st.rate;
+        st.rate = p.rate;
+        drop(st);
+        self.consumed.store(0, Ordering::Relaxed);
+        self.lead.store(0, Ordering::Relaxed);
     }
 }
 
@@ -198,6 +254,11 @@ pub(crate) struct AudioOut {
     volume: Arc<AtomicU32>,
     /// 静音独立于音量（对齐 Tauri 版 playback-prefs 语义）。
     muted: Arc<AtomicBool>,
+    /// 环形缓冲占有量（设备域帧）：投放端与回调各刷一份真值。分级换速
+    /// 靠它知道「环里还压着多少旧速率内容」（见 [`Clock::set_rate`]）。
+    ring_frames: Arc<AtomicU64>,
+    /// 设备域采样率（占有量帧数换算秒用）。
+    device_rate: u32,
     /// 冲流中：回调丢弃环形缓冲里的所有旧数据、不推进时钟（seek 用）。
     discarding: Arc<AtomicBool>,
     /// 冲流收口凭证（见 [`RingFeed::end_flush_if_seen`]）。
@@ -245,6 +306,9 @@ impl AudioOut {
         // 时钟计数设备域帧：设备帧数 ÷ 设备采样率 = 媒体秒（重采样保持时长）
         let clock = Arc::new(Clock::audio(dst_rate));
         let cb_clock = Arc::clone(&clock);
+        // 环占有量（设备域帧）：投放端与回调各刷一份真值，分级换速读它
+        let ring_frames = Arc::new(AtomicU64::new(0));
+        let cb_ring_w = Arc::clone(&ring_frames);
         let cb_calls = Arc::new(AtomicU64::new(0));
         // 欠载（缓冲空、只能出静音）累计帧数。
         //
@@ -281,10 +345,15 @@ impl AudioOut {
                                 break;
                             }
                         }
+                        cb_ring_w.store(0, Ordering::Relaxed);
                         data.fill(0.0);
                         return;
                     }
                     let filled = cons.pop_slice(data); // 样本数
+                    cb_ring_w.store(
+                        (cons.occupied_len() / channels_cb) as u64,
+                        Ordering::Relaxed,
+                    );
                     // 设备引线：这批数据到 DAC 的提前量（帧）
                     let lead = info
                         .timestamp()
@@ -350,6 +419,8 @@ impl AudioOut {
                 clock_src: clock,
                 volume: cb_volume_w,
                 muted: cb_muted_w,
+                ring_frames: Arc::clone(&ring_frames),
+                device_rate: dst_rate,
                 discarding: cb_discard_w,
                 discard_seen: cb_seen_out,
                 silence_frames: cb_silence,
@@ -357,6 +428,7 @@ impl AudioOut {
             RingFeed {
                 producer: prod,
                 pending: Vec::new(),
+                ring_frames,
                 discarding: cb_discard_feed,
                 discard_seen: cb_seen,
                 device,
@@ -371,6 +443,12 @@ impl AudioOut {
 
     pub(crate) fn set_muted(&self, muted: bool) {
         self.muted.store(muted, Ordering::Relaxed);
+    }
+
+    /// 环形缓冲滞留时长（秒，设备域）。换倍速时它就是「还压在环里的旧速率
+    /// 内容」的播放时间——分级时钟的换轴延迟就取这个值。
+    pub(crate) fn buffered_secs(&self) -> f64 {
+        self.ring_frames.load(Ordering::Relaxed) as f64 / f64::from(self.device_rate.max(1))
     }
 
     /// 开始冲流（seek 跳点即调）：回调进入丢弃态并清零收口凭证，
@@ -396,6 +474,9 @@ pub(crate) struct RingFeed {
     /// 上次投放的未写完余量（设备域）。用户暂停中断投放时留这里，恢复后
     /// 的下一次调用先续投它——旧包必须排在新包前面（保序）。
     pending: Vec<f32>,
+    /// 环占有量（设备域帧，与 [`AudioOut::ring_frames`] 同源）。投放端
+    /// 每次写入后刷新。
+    ring_frames: Arc<AtomicU64>,
     discarding: Arc<AtomicBool>,
     discard_seen: Arc<AtomicBool>,
     device: Arc<AudioDevice>,
@@ -421,6 +502,7 @@ impl RingFeed {
         if self.pending.is_empty() {
             self.pending = self.adapter.process(samples).to_vec();
         }
+        let (dst_ch, _) = self.adapter.dst_format();
         let mut done = 0usize;
         while done < self.pending.len() {
             if shutdown.load(Ordering::Relaxed) {
@@ -431,6 +513,10 @@ impl RingFeed {
                 return true;
             }
             done += self.producer.push_slice(&self.pending[done..]);
+            self.ring_frames.store(
+                (self.producer.occupied_len() / usize::from(dst_ch.max(1))) as u64,
+                Ordering::Relaxed,
+            );
             if done < self.pending.len() {
                 tokio::time::sleep(std::time::Duration::from_millis(4)).await;
             }
@@ -516,18 +602,56 @@ mod tests {
         let clock = Clock::audio(48_000);
         clock.reset(0.0);
         clock.advance(48_000, 0); // 1s
-        clock.set_rate(2.0);
+        clock.set_rate(2.0, 0.0); // 环空，立即换轴
         let at_switch = clock.now();
         assert!((at_switch - 1.0).abs() < 1e-9, "换速瞬间不跳");
         clock.advance(48_000, 0); // 再消费 1s 设备时间 = 媒体 2s
         assert!((clock.now() - 3.0).abs() < 1e-9);
     }
 
+    /// 分级换速：环里压着旧速率内容时，时钟按旧轴走到阈值再换新轴，
+    /// 全程连续；`rate()` 从换速调用起就返回目标值（WSOLA/界面语义）。
+    #[test]
+    fn clock_stages_rate_change_until_ring_drains() {
+        let clock = Clock::audio(48_000);
+        clock.reset(0.0);
+        clock.advance(24_000, 0); // 可闻 0.5s；环里还有 1s 旧内容
+        clock.set_rate(2.0, 1.0);
+        assert_eq!(clock.rate(), 2.0, "目标倍速即刻生效（WSOLA/界面语义）");
+        assert!((clock.now() - 0.5).abs() < 1e-9, "换速调用不跳轴");
+        // 旧内容还没放完：继续旧轴
+        clock.advance(24_000, 0);
+        assert!((clock.now() - 1.0).abs() < 1e-9, "阈值前按旧速率推进");
+        // 越过阈值（consumed 24000+24000+48000=96000 ≥ 72000）：rebase 换轴。
+        // 越线的那一小撮帧（≤ 一次回调 ~10ms）随清计数归零，可闻位停驻阈值处
+        clock.advance(48_000, 0);
+        assert!((clock.now() - 1.5).abs() < 1e-9, "阈值处可闻位 1.5s");
+        clock.advance(24_000, 0);
+        assert!((clock.now() - 2.5).abs() < 1e-9, "阈值后按新速率推进");
+        clock.advance(24_000, 0);
+        assert!((clock.now() - 3.5).abs() < 1e-9);
+        // 换轴后 pending 清掉，rate 回到状态值
+        assert_eq!(clock.rate(), 2.0);
+    }
+
+    /// 分级等待期间 seek：reset 作废待生效换速，从新起点按原倍速走。
+    #[test]
+    fn seek_cancels_pending_rate() {
+        let clock = Clock::audio(48_000);
+        clock.reset(0.0);
+        clock.advance(24_000, 0);
+        clock.set_rate(2.0, 1.0);
+        clock.reset(10.0);
+        assert_eq!(clock.rate(), 1.0, "reset 作废待生效换速（保留当前轴）");
+        clock.advance(48_000, 0);
+        assert!((clock.now() - 11.0).abs() < 1e-9);
+    }
+
     /// 倍速对挂钟模式同样生效（无音频退化路径）。
     #[test]
     fn wall_clock_scales_with_rate() {
         let clock = Clock::wall();
-        clock.set_rate(2.0);
+        clock.set_rate(2.0, 0.0);
         clock.reset(5.0);
         assert!((clock.now() - 5.0).abs() < 0.05);
     }

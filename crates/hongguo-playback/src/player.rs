@@ -189,11 +189,21 @@ impl PlayerHandle {
         self.shared.rate()
     }
 
-    /// 换倍速（0.25–4）：时钟换轴不跳，音频经 WSOLA 变速不变调，
-    /// 视频侧无需感知（媒体时间已含 rate）。
+    /// 换倍速（0.25–4）。
+    ///
+    /// 环里还压着旧速率内容时走**分级**（见 [`Clock::set_rate`]）：WSOLA
+    /// 即刻按新倍速产新内容（排在环内旧内容后面），主时钟等旧内容按旧速率
+    /// 放完才换轴——立即换轴会让画面比声音抢先最多 1s×Δrate（切倍速后
+    /// 音画不同步的来源）。音频经 WSOLA 变速不变调，视频侧无需感知。
     pub fn set_rate(&self, rate: f64) {
         let rate = rate.clamp(MIN_RATE, MAX_RATE);
-        self.shared.clock.lock().set_rate(rate);
+        let drain = self
+            .audio
+            .lock()
+            .as_ref()
+            .map(|a| a.buffered_secs())
+            .unwrap_or(0.0);
+        self.shared.clock.lock().set_rate(rate, drain);
     }
 
     /// 当前音量（0–1）。
@@ -411,8 +421,9 @@ async fn adopt_audio(
 ) {
     let (out, feed) = pair;
     let clock = Arc::clone(&out.clock_src);
-    // 倍速/音量/静音是用户偏好：新时钟与设备初值都要继承
-    clock.set_rate(shared.rate());
+    // 倍速/音量/静音是用户偏好：新时钟与设备初值都要继承（新时钟环空，
+    // drain=0 立即生效）
+    clock.set_rate(shared.rate(), 0.0);
     clock.reset(start_secs);
     out.set_volume(f32::from_bits(shared.volume.load(Ordering::Relaxed)));
     out.set_muted(shared.muted.load(Ordering::Relaxed));
@@ -863,7 +874,8 @@ async fn audio_feeder(
     let at = shared.now();
     let rate = shared.rate();
     let wall = Arc::new(Clock::wall());
-    wall.set_rate(rate);
+    // 挂钟无环，drain=0 立即换轴（rate() 是目标值，此刻旧的分级等待已无意义）
+    wall.set_rate(rate, 0.0);
     wall.reset(at);
     shared.set_clock(wall);
     log::info!("[Playback] 音频喂送结束（{at:.1}s 起切挂钟收尾）");
