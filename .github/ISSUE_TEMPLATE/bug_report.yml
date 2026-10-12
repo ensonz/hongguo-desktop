@@ -1,0 +1,136 @@
+name: 问题报告
+description: 报告一个缺陷或异常，请提供足够的排查信息
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 本项目为个人学习研究的非官方客户端。提交前请：① 确认已升级到最新版；② 日志/截图先自行脱敏（可能包含账号 token、cookie）。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 发生了什么？如果界面有报错文案，请贴出原文
+      placeholder: |
+        例：点击「缓存」按钮后下载任务卡在 0%，反复重试无效。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 按步骤写清楚，越具体越好；无法稳定复现请说明触发时的场景
+      placeholder: |
+        1. 打开App，搜索「xxx」
+        2. 进入剧集详情页
+        3. 点击第 3 集播放
+        4. 画面黑屏，只有声音
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及功能
+      options:
+        - 登录 / 账号
+        - 首页 / 推荐
+        - 搜索
+        - 剧集详情
+        - 播放
+        - 下载 / 缓存
+        - 弹幕
+        - 互动（评论 / 点赞 / 收藏）
+        - 设置
+        - 更新
+        - 界面 / 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: 出现频率
+      options:
+        - 每次必现
+        - 经常
+        - 偶尔
+        - 仅出现过一次
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: 安装渠道
+      options:
+        - macOS 安装包 dmg（Apple Silicon）
+        - macOS 安装包 dmg（Intel）
+        - Windows 安装包（NSIS）
+        - 源码自行构建（make dev）
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 在「设置」页查看，形如 0.4.4；自行构建请填 git commit
+      placeholder: "0.4.4"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统及版本
+      placeholder: "macOS 15.6 / Windows 11 23H2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: 网络环境
+      options:
+        - 直连
+        - 系统代理 / VPN（与 App 无关时也请选它）
+        - 公司网络 / 校园网
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断信息
+      description: |
+        排查关键素材，尽量提供（注意先脱敏）：
+        - 崩溃时数据目录下的 crash.log——
+          macOS: ~/Library/Application Support/hongguo-downloader/
+          Windows: %APPDATA%\hongguo-downloader\
+        - 开发者工具控制台报错（复现时打开 DevTools）
+        - 界面截图 / 录屏（直接拖拽到本框）
+      placeholder: 可附 crash.log 片段、报错截图或录屏链接
+
+  - type: checkboxes
+    id: known
+    attributes:
+      label: 确认
+      options:
+        - label: 我已升级到最新版本并搜索过现有 issue，没有重复
+          required: true
+        - label: 该问题与官方 App 无关（官方 App 正常，仅本客户端异常）
+          required: false
