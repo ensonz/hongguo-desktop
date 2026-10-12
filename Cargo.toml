@@ -14,12 +14,17 @@ resolver = "3"
 members = [
     "crates/hongguo-api",
     "crates/hongguo-common",
+    "crates/hongguo-gpui",
     "crates/hongguo-media",
     "crates/hongguo-media-platform",
     "crates/hongguo-mp4",
+    "crates/hongguo-playback",
+    "crates/hongguo-protocol",
+    "crates/hongguo-service",
     "crates/hongguo-signer",
     "crates/hongguo-store",
     "crates/hongguo-stream",
+    "crates/hongguo-tauri",
     "src-tauri",
 ]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被

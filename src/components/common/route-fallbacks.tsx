@@ -6,7 +6,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Button } from '@/components/ui/button';
-import { SkeletonRows } from '@/components/skeletons';
+import { SkeletonRows } from '@/components/ui/skeletons';
 import { ErrorState } from '@/components/common/error-state';
 import { t } from '@/locales';
 

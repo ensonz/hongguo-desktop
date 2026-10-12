@@ -3,7 +3,7 @@
 ## 环境准备
 
 - Node ≥ 22（pnpm）+ Rust toolchain（MSRV 1.99，edition 2024）。依赖：`pnpm install`。
-- 数据目录 `%APPDATA%/hongguo-downloader/hongguo.db`（SQLite，沿 Electron 版路径便于旧档迁移）；`HONGGUO_DATA_DIR` 环境变量可重定向（测试用）。
+- 数据目录 `%APPDATA%/hongguo-downloader/hongguo.db`（SQLite，沿 Electron 版路径便于旧档迁移）；`HONGGUO_DATA_DIR` 环境变量可重定向（测试用）。多壳数据根分离：壳经 `paths::set_shell_data_root` 声明**与默认根平级**的独立数据目录（GPUI 壳 = `%APPDATA%/hongguo-gpui`），与 Tauri 根互不嵌套、互不共用——嵌子目录的形态已被否决，不得改回。
 - 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户自己开着 dev 会话时**一律不可调试——CDP、computer-use 都不行**，自动化调试只针对自己启动的实例。
 
 ## 日常命令

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
-import { SeriesRowCard } from '@/components/series-row-card';
+import { SeriesRowCard } from '@/components/common/series-row-card';
 import { useReserveSeries } from '@/service/queries';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import { t } from '@/locales';

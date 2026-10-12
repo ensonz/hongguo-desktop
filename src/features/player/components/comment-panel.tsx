@@ -14,7 +14,7 @@
 //! 正文行（@ 浅蓝高亮）、相对时间（N 天前）、头像 32px。
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Heart, Loader2, X } from 'lucide-react';
+import { Heart, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData } from '@tanstack/react-query';
@@ -35,6 +35,7 @@ import {
 import { dedupBy, keys } from '@/service/queries/common';
 import { relativeTime } from '@/utils/relative-time';
 import { EmojiText } from '@/components/common/emoji/emoji-text';
+import { ReplyThread } from '@/components/common/reply-thread';
 import { EmojiSendBox } from '@/components/common/emoji/emoji-send-box';
 import type { CommentItem, CommentPage, ReplyItem, ReplyPage } from '@/service/schema';
 
@@ -44,88 +45,11 @@ interface Props {
   onClose: () => void;
 }
 
-/** 一条回复行：头像 / 昵称 / 表情文本 / 时间 / ♡（回复点赞与
- *  评论点赞同形态，object_id 传 reply_id——2026-10-10 抓包实锤；
- *  显示直读回复缓存，点赞乐观写缓存——服务端读写即时同步，无需旁路态）。
- *  自己的回复（userId 对上登录 uid）带删除入口。 */
-function ReplyRow({
-  reply,
-  myUserId,
-  onDigg,
-  onReplyTo,
-  onDelete,
-}: {
-  reply: ReplyItem;
-  myUserId: string;
-  onDigg: (id: string, digg: boolean) => void;
-  onReplyTo: (reply: ReplyItem) => void;
-  onDelete: (reply: ReplyItem) => void;
-}) {
-  const isLiked = reply.userDigg;
-  const count = reply.diggCount;
-  const isMine = !!myUserId && reply.userId === myUserId;
-  return (
-    <div className="flex gap-2">
-      {reply.avatar ? (
-        <img src={reply.avatar} alt="" loading="lazy" className="size-8 shrink-0 rounded-full" />
-      ) : (
-        <div className="grid size-8 shrink-0 place-items-center rounded-full bg-neutral-700 text-xs">
-          {(reply.userName || '友').slice(0, 1)}
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] text-neutral-400">
-          {reply.userName || t('player.comments.anon')}
-        </p>
-        <p className="mt-0.5 text-xs leading-snug break-words whitespace-pre-wrap">
-          {reply.replyToName && (
-            <span className="text-neutral-500">
-              {t('player.comments.replyToPrefix')}{' '}
-              <span className="text-[#7BB4E8]">@{reply.replyToName}</span>：
-            </span>
-          )}
-          <EmojiText text={reply.text} />
-        </p>
-        <div className="mt-0.5 flex items-center gap-3 text-[10px] text-neutral-500">
-          <span>{relativeTime(reply.createTime)}</span>
-          <button
-            type="button"
-            onClick={() => onReplyTo(reply)}
-            className="cursor-pointer hover:text-neutral-300"
-          >
-            {t('player.comments.reply')}
-          </button>
-          {isMine && (
-            <button
-              type="button"
-              onClick={() => onDelete(reply)}
-              className="cursor-pointer hover:text-red-400"
-            >
-              {t('common.delete')}
-            </button>
-          )}
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => onDigg(reply.replyId, !isLiked)}
-        className={cn(
-          'flex shrink-0 cursor-pointer flex-col items-center gap-0.5 self-start text-neutral-400 hover:text-white',
-          isLiked && 'text-red-400',
-        )}
-        title={t('player.interact.like')}
-      >
-        <Heart className={cn('size-3', isLiked && 'fill-red-400 text-red-400')} />
-        {count > 0 && <span className="text-[9px] tabular-nums">{count}</span>}
-      </button>
-    </div>
-  );
-}
-
-/** 「展开 N 条回复」区：原地内联展开（其他评论仍在列表里，hgplayer
- *  同款），展开才拉首页，一页 10 条，hasMore 续拉。开合受控于父组件
- *  ——回复发送成功后强制展开，让本地追加的那条立刻可见（折叠时发
- *  回复 = 「没效果」的根源）。 */
+/** 播放器皮肤的回复线程：解包评论回复查询，交给共享 ReplyThread。
+ *  皮肤与 i18n 键位差异收敛在 `components/common/reply-thread`（阶段 3
+ *  「双实现收敛」；页侧剧评同源）。原地内联展开（hgplayer 同款），展开才
+ *  拉首页；开合受控于父组件——回复发送成功后强制展开，让本地追加的那条
+ *  立刻可见（折叠时发回复 = 「没效果」的根源）。 */
 function ReplySection({
   vid,
   commentId,
@@ -147,70 +71,26 @@ function ReplySection({
   onReplyTo: (reply: ReplyItem) => void;
   onDeleteReply: (reply: ReplyItem) => void;
 }) {
-  const { data, isPending, error, refetch, isFetchingNextPage, hasNextPage, fetchNextPage } =
-    useCommentReplies(vid, commentId, open);
-  const replies = dedupBy(data?.pages.flatMap((p) => p.items) ?? [], (r) => r.replyId);
+  const q = useCommentReplies(vid, commentId, open);
+  const replies = dedupBy(q.data?.pages.flatMap((p) => p.items) ?? [], (r) => r.replyId);
   return (
-    <div className="mt-1">
-      {replyCount > 0 && (
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex cursor-pointer items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200"
-        >
-          {open ? (
-            <>
-              {t('player.comments.collapseReplies')}
-              <ChevronDown className="size-3 rotate-180" />
-            </>
-          ) : (
-            <>
-              {tf('player.comments.expandReplies', { n: replyCount })}
-              <ChevronDown className="size-3" />
-            </>
-          )}
-        </button>
-      )}
-      {open && (
-        <div className="mt-1.5 flex flex-col gap-2 border-l-2 border-neutral-800 pl-2.5">
-          {isPending && (
-            <div className="grid place-items-center py-2 text-neutral-500">
-              <Loader2 className="size-3.5 animate-spin" />
-            </div>
-          )}
-          {error && (
-            <button
-              type="button"
-              onClick={() => void refetch()}
-              className="cursor-pointer text-left text-[11px] text-neutral-500 hover:text-neutral-300"
-            >
-              {t('player.comments.repliesLoadFailed')}
-            </button>
-          )}
-          {replies.map((r) => (
-            <ReplyRow
-              key={r.replyId}
-              reply={r}
-              myUserId={myUserId}
-              onDigg={onDigg}
-              onReplyTo={onReplyTo}
-              onDelete={onDeleteReply}
-            />
-          ))}
-          {hasNextPage && (
-            <button
-              type="button"
-              disabled={isFetchingNextPage}
-              onClick={() => void fetchNextPage()}
-              className="flex w-fit cursor-pointer items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-200 disabled:opacity-60"
-            >
-              {isFetchingNextPage && <Loader2 className="size-3 animate-spin" aria-hidden />}
-              {t('player.comments.moreReplies')}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <ReplyThread
+      variant="player"
+      replyCount={replyCount}
+      myUserId={myUserId}
+      open={open}
+      onToggle={onToggle}
+      replies={replies}
+      isPending={q.isPending}
+      error={q.error}
+      refetch={() => void q.refetch()}
+      hasNextPage={q.hasNextPage}
+      isFetchingNextPage={q.isFetchingNextPage}
+      fetchNextPage={() => void q.fetchNextPage()}
+      onDigg={onDigg}
+      onReplyTo={onReplyTo}
+      onDeleteReply={onDeleteReply}
+    />
   );
 }
 

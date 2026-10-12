@@ -14,7 +14,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { SeriesCover } from '@/components/series-cover';
+import { SeriesCover } from '@/components/common/series-cover';
 import { formatPlayCount } from '@/utils/format';
 import {
   useDownloadTasks,

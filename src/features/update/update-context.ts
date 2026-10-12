@@ -16,9 +16,13 @@ export interface UpdateContextValue {
   available: Update | null;
   /** 下载进度 0-100 */
   progress: number;
+  /** 更新弹层（发现新版本）开关 */
   dialogOpen: boolean;
   setDialogOpen: (open: boolean) => void;
-  /** manual = 设置卡手动点按钮：无新版/失败要 toast；启动检查静默 */
+  /** 「已是最新版本」弹层开关——只在手动检查查无新版时弹，自动检查保持安静 */
+  upToDateOpen: boolean;
+  setUpToDateOpen: (open: boolean) => void;
+  /** manual = 设置卡手动点按钮：无论有无新版都要弹层、失败要 toast；启动检查无新版保持安静 */
   checkForUpdate: (manual: boolean) => Promise<void>;
   /** 用户点「下载更新」才触发：只下载不安装 */
   startDownload: () => void;

@@ -40,6 +40,13 @@ windows = { version = "0.62", features = [
 
 # macOS 的 VideoToolbox 是纯 C API，手写声明零依赖（platform/vt/ffi.rs），
 # 经 `#[link(kind = "framework")]` 直接链接系统框架，无第三方 crate。
+# 逐帧解码出口（播放末端）的 CVPixelBuffer 包装类型与 gpui 同源
+# （gpui-pre 的 surface 元素吃这个类型），版本锁定一致避免类型失配。
+[target.'cfg(target_os = "macos")'.dependencies]
+core-video = { version = "0.5.2", features = ["metal"] }
+# TCFType trait（CVPixelBuffer 的引用计数包装用）；与 core-video 自身的
+# core-foundation 同大版本，不引入第二份。
+core-foundation = "0.10"
 
 [features]
 # 壳的跨层 e2e（src/testing/media_pipeline_e2e.rs）要调本 crate 的测试通道

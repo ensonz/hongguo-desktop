@@ -26,3 +26,6 @@ docs/
 # Loomy 运行时工作目录不是项目代码（对齐 .gitignore）；不 ignore 的话
 # format:check 会红在会话附件上
 .loomy-attachments/
+
+# 抓包工具链的本地 venv（Python 生态的 JSON/JS 不该被前端格式化器扫）
+.venv-capture/

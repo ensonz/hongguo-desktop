@@ -1,5 +1,5 @@
 /** 相关作品卡片：封面（角标 + 评分）+ 两行剧名 + 集数/播放量。 */
-import { SeriesCover } from '@/components/series-cover';
+import { SeriesCover } from '@/components/common/series-cover';
 import { formatPlayCount } from '@/utils/format';
 import { t, tf } from '@/locales';
 import type { RelatedItem } from '@/service/schema';

@@ -1,0 +1,71 @@
+[package]
+name = "hongguo-gpui"
+description = "红果桌面版 GPUI 壳：直接消费 hongguo-service，操作与 Tauri 客户端一致"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+# 操作一致约定（docs/architecture-refactor.md §7）：本壳**不复制业务**——
+# 设备引导（hongguo_service::device）、全局状态（AppStateInner）、接口调用
+# （state.api_env() + hongguo_api）与 Tauri 壳走同一段服务面；壳内只做窗口、
+# 装配与渲染。§5.3 spike（解码帧 → GPUI surface 上屏）直接消费取流编排与
+# 解码出口，为 hongguo-playback 引擎定型。
+
+# cargo test 会把无测试框架的 bin 当用例**直接执行**（本壳一跑就开窗口，
+# 把全仓测试挂死——实测发生过）。应用 bin 一律关掉 test 集成。
+# 需要测的东西放 tests/（集成测试，不碰 bin）：目前只有一条源码守卫——
+# 「造 RenderImage 只有 image_upload.rs 一处，且必须过 RGBA→BGRA」。
+[[bin]]
+name = "hongguo-gpui"
+test = false
+
+# 进程内抓帧取证（screenshot.rs）：`--features screenshot` 才编入，走 GPUI
+# `render_to_image`（不需要系统屏幕录制授权，无头也能拿真图）。默认构建不带。
+#
+# 不启用 gpui-kit 的 test-support：它会连带拉起 gpui-fast 加速栈，而那套
+# 依赖与 gpui-pre 在 unicode-properties 上版本打架（0.1.3 vs 0.1.4），
+# 直接解不开。`render_to_image` 的实现在 gpui-pre / gpui-platform 两处
+# 门控，同版本单独开这两家的 test-support 即可。
+[features]
+screenshot = [
+    "dep:gpui-pre",
+    "dep:gpui-pre-platform",
+    "gpui-pre/test-support",
+    "gpui-pre-platform/test-support",
+]
+
+[dependencies]
+# GPUI Kit（longbridge/gpui-kit）：gpui-base + gpui-component 聚合，桌面壳按
+# .agents/skills/gpui-ui-design 的设计/编码规范构建（组件系统 + 主题令牌）。
+gpui-kit = "0.7.2"
+# 仅 `screenshot` feature 用：同版本的 gpui-pre / 平台层，为开 test-support
+# （`render_to_image` 的实现就门控在这两处）。版本必须与 gpui-kit 钉的一致。
+gpui-pre = { version = "=0.3.8", package = "gpui-pre", optional = true }
+gpui-pre-platform = { version = "=0.3.8", package = "gpui-pre-platform", optional = true }
+# 与 Tauri 壳同一业务面。
+hongguo-service = { path = "../hongguo-service" }
+hongguo-api = { path = "../hongguo-api" }
+# 封面三级转码阶梯（HEIC → JPEG，含磁盘缓存）——与 Tauri 壳的 hongguo-cover:// 同源。
+hongguo-protocol = { path = "../hongguo-protocol" }
+hongguo-common = { path = "../hongguo-common" }
+hongguo-store = { path = "../hongguo-store" }
+# §5.3 spike：播放引擎（解码/音频/同步）+ 取流编排面。
+hongguo-playback = { path = "../hongguo-playback" }
+hongguo-stream = { path = "../hongguo-stream" }
+hongguo-media = { path = "../hongguo-media" }
+hongguo-media-platform = { path = "../hongguo-media-platform" }
+# service 的 async 函数族依赖 tokio 运行时设施（sleep / Semaphore）；GPUI 的
+# 执行器不是 tokio，本壳自带一个运行时线程做桥（oneshot 回传，见 main.rs）。
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+# 封面远程拉取：gpui 图片缓存的 HttpClient 桥（http_client.rs）与 BoxFuture。
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+bytes = "1"
+futures = "0.3"
+anyhow = "1"
+# 封面 HEIC 走协议层转 JPEG 后的位图解码（对齐 gpui 内置的 image 版本）。
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+smallvec = "1"
+log = "0.4"
+env_logger = "0.11"

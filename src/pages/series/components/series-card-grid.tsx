@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Flame } from 'lucide-react';
-import { SeriesCover } from '@/components/series-cover';
+import { SeriesCover } from '@/components/common/series-cover';
 import { tf } from '@/locales';
 import type { SeriesCard } from '@/service/schema';
 

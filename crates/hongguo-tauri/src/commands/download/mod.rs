@@ -1,0 +1,35 @@
+//! 下载队列 command。
+//!
+//! 按职责拆分：
+//! - 本文件：查询（任务列表、队列状态）+ 落盘辅助
+//! - [`actions`]：变更（提交、暂停、重试、删除）
+
+use tauri::State;
+
+use hongguo_common::AppResult;
+use hongguo_common::model::{DownloadTask, QueueStatus};
+use hongguo_service::app_state::AppState;
+
+mod actions;
+mod cleanup;
+
+pub use actions::*;
+
+pub use cleanup::*;
+
+/// 全部下载任务。
+#[tauri::command]
+pub fn get_download_tasks(state: State<'_, AppState>) -> Vec<DownloadTask> {
+    state.queue().all()
+}
+
+/// 队列状态概览。
+#[tauri::command]
+pub fn get_queue_status(state: State<'_, AppState>) -> QueueStatus {
+    state.queue().status()
+}
+
+/// 把队列快照写回数据文件。
+pub(crate) fn persist(state: &State<'_, AppState>) -> AppResult<()> {
+    hongguo_service::download_service::persist_tasks(&state.store, &state.queue(), "Download")
+}

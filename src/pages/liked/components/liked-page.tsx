@@ -18,11 +18,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { ListSearch } from '@/components/list-search';
+import { ListSearch } from '@/components/common/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { BatchBar, ManageToggle, PickDot } from '@/components/batch-manage';
+import { BatchBar, ManageToggle, PickDot } from '@/components/common/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { interact as interactCmd } from '@/service/commands';

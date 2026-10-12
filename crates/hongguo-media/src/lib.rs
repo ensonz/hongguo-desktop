@@ -1,8 +1,10 @@
 //! 纯 Rust 编解码（hongguo-media crate）。
 //!
 //! - [`backend`]：转码后端的统一标识（枚举与家族）
+//! - [`bgra`]：4 字节像素的通道序（RGBA ⇄ BGRA，渲染上传用）
 //! - [`demux`]：MP4 轨道/样本解复用
 //! - [`hevc`]：hvcC 参数集提取与 Annex-B 转换
+//! - [`nv12_rgba`]：NV12 → RGBA（BT.709 limited），Windows 播放的渲染转换
 //! - [`remux`]：流复制拼接（快速合并）
 //! - [`codec_probe`]：各集编码是否一致（快速合并的前提）
 //! - [`disk_space`]：输出卷剩余空间
@@ -17,11 +19,13 @@
 //! 本 crate 不依赖 tauri。
 
 pub mod backend;
+pub mod bgra;
 pub mod codec_probe;
 pub mod demux;
 pub mod disk_space;
 pub mod heif;
 pub mod hevc;
+pub mod nv12_rgba;
 pub mod remux;
 pub mod transcode;
 

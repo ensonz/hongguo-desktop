@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
 > 版本：2026-10-12（rev3，定序已确认）
-> 状态：阶段 0/1 已完成；阶段 2 进行中——第 1~3 条（common / signer / mp4 / api / store / stream / media / media-platform）已落地，第 4~6 步按 §8 分批执行
+> 状态：**重构完成**——阶段 0~3 全部落地（12 个成员 crate + 双壳）；`hongguo-gpui` 起步单壳已交付（操作与 Tauri 客户端一致，帧流 spike 已闭环并接入播放引擎——进度与遗留见 [`gpui-shell-progress.md`](./gpui-shell-progress.md)）
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -20,7 +20,7 @@
 ## 进度看板（随每步更新）
 
 > 口径：行数用 `Get-ChildItem -Recurse -Include *.rs` 实测；包数用 `cargo metadata`。
-> **最后更新 2026-10-12（3c 合并后）**；每完成一步在 `docs/build-baseline.md` 复测编译数字。
+> **最后更新 2026-10-13（GPUI 播放接入与颜色根因定案后）**；每完成一步在 `docs/build-baseline.md` 复测编译数字。
 
 | 步骤 | 内容 | 状态 | 实测 |
 | --- | --- | --- | --- |
@@ -31,17 +31,19 @@
 | 3a | 流契约：`hongguo-stream` | ✅ 2026-10-11 | 4 文件 / 1,459 行；包 726 → 727 |
 | 3b | 媒体核心：`hongguo-media` | ✅ 2026-10-11 | 16 文件 / 4,477 行；包 727 → 728 |
 | 3c | 平台层：`hongguo-media-platform` | ✅ 2026-10-12 | 12 文件 / 4,420 行（含 lib.rs 与 test-support 门控）；包 728 → 729 |
-| 4 | 协议与业务：`hongguo-protocol` → `hongguo-service` | ⬜ 待做 | |
-| 5 | 薄化 Tauri：`commands` / `app_state` / `bootstrap` / `diagnostics` → `hongguo-tauri` | ⬜ 待做 | |
-| 6 | 清理：删过渡代码、回收 vendor 补丁、补文档与测试 | ⬜ 待做 | |
-| 阶段 3 | 前端并行：评论/剧评双实现收敛、`components/` 归位、入参 zod 化 | ⬜ 待做 | |
+| 4 | 协议与业务：`hongguo-protocol` → `hongguo-service` | ✅ 2026-10-12 | protocol 5 文件（无 tauri 依赖）；service 41 文件（含 AppState 随迁）；包 729 → 731 |
+| 5 | 薄化 Tauri：`commands` / `app_state` / `bootstrap` / `diagnostics` → `hongguo-tauri` | ✅ 2026-10-12 | tauri 壳装配 31 文件 / 4,568 行迁出；壳降至 2 文件 / 22 行；包 731 → 729（壳瘦身净减 2 包） |
+| 6 | 清理：删过渡代码、回收 vendor 补丁、补文档与测试 | ✅ 2026-10-12 | 事件载荷 struct 化（§10 挂账清零）；vendor 补丁上游未修，保留 |
+| 阶段 3 | 前端并行：评论/剧评双实现收敛、`components/` 归位、入参 zod 化 | ✅ 2026-10-12 | 回复线程收敛共享 reply-thread（视觉零变化）；6 散装组件归位；入参 zod 化经核已是既定设计（registry 编译期约束） |
+| GPUI 壳 | `hongguo-gpui` 起步单壳（§15 交付物） | ✅ 2026-10-12 | 窗口 + 双壳同源装配 + 推荐流；`make gpui`；帧流 spike 另行立项 |
+| GPUI 播放 | §5.3 帧流闭环 → 引擎接入：解码门面 → `hongguo-playback` → 首页沉浸流 / 排行榜 / 封面 | ✅ 2026-10-13 | 本机可播（HEVC+AAC、倍速/seek/音量、连播、榜单封面）；通道序 RGBA→BGRA 真因与封面键修复见 `docs/gpui-shell-progress.md` |
 
-**当前体量**（2026-10-12，3c 后实测；含 3b 之后并行落地的功能提交增量）：
+**当前体量**（2026-10-12，重构完成后实测）：
 
 | 位置 | 文件 | 行数 |
 | --- | --- | --- |
-| 壳 `src-tauri/src` | 75 | 11,510 |
-| `crates/`（8 个成员） | 131 | 34,444 |
+| 壳 `src-tauri/src`（纯配置 + 入口） | 2 | 22 |
+| `crates/`（12 个成员） | 210 | 46,383 |
 
 对照 §0 的重构前快照：壳是 **198 文件 / 41,890 行**。逐 crate 明细与依赖方向见 §4。
 
@@ -158,7 +160,7 @@
 | --- | --- | --- |
 | `hongguo-service` | `service/`——download / play / merge / series / settings / storage / transcode 编排 | api + media + stream + store + common |
 | `hongguo-tauri` | `commands/` + `app_state.rs` + `bootstrap/` + `diagnostics.rs` + 入口（`lib.rs`）；IPC、协议注册、装配 | service + protocol + stream + tauri |
-| `hongguo-gpui` | GPUI 应用壳：初始化、开窗口、（后续）组合 feature | service + stream + media |
+| `hongguo-gpui` | GPUI 应用壳：初始化、开窗口、（后续）组合 feature | service + stream + media | **起步单壳已落地 2026-10-12**（窗口 + 双壳同源装配 + 推荐流；tokio 桥见 §12） |
 
 ### 4.4 GPUI Feature 拆分（**降级为有代码再谈**）
 
@@ -308,8 +310,8 @@ hongguo-desktop/
 2. **抽持久化**（**已完成 2026-10-11**）：`hongguo-store`——13 文件 / 1,820 行迁出，`cargo metadata` 725 → 726 包（仅新增本 crate，无版本漂移）。两处解耦：`persist_tasks` 从 store 移入 `service::download_service`（去掉 store → `AppState` 反向依赖）；`paths::ScopedDataDir` 由 `#[cfg(test)]` 改 feature `test-support` 门控（跨 crate 后 `#[cfg(test)]` 对下游测试不可见）
 3. **立流契约再抽媒体**：**3a 已完成 2026-10-11**——`hongguo-stream` 落地（`protocol/stream/*` + `protocol/range.rs` 共 4 文件 / 1,459 行迁出，进程级 `cache()` 单例随迁）；`cargo metadata` 726 → 727 包。**3b 已完成 2026-10-11**——`hongguo-media` 落地（16 文件 / 4,477 行迁出，含 `tests/fixtures/heic-cover-sample.heic`）；`cargo metadata` 727 → 728 包。两处结构性决定：跨层的端到端用例 `remux/e2e_tests.rs` 归壳的 `src/testing/media_pipeline_e2e.rs`（它同时要平台硬编、ffmpeg 与服务层）；`worker::temp_path_for` 上移 `hongguo_common::utils::path`（下载 / 转码 / ffmpeg 三条链路的共同落盘约定，留在 service 会让 media 反向依赖）。**3c 已完成 2026-10-12**——`hongguo-media-platform` 落地（12 文件 / 4,420 行迁出，含 `capability/` 与新增 `lib.rs`；`cargo metadata` 728 → 729 包）。一处结构性决定：`transcode_h264_for_tests` 测试通道（及 mf 软件编码器路径）由 `#[cfg(test)]` 改 `any(test, feature = "test-support")` 门控——跨 crate 后 `pub(crate)` 对壳的 e2e 够不着，经壳的 dev-dependencies feature 开启（对齐 hongguo-mp4 `fixtures` / hongguo-store `ScopedDataDir` 先例）。增量复测：平台层文件 build 18.6 s → 21.5 s，壳文件持平（16 s），见 `docs/build-baseline.md`。编译基线见 `docs/build-baseline.md`（3b 复测：改 media 文件的增量 build 18.6 s → 26 s，是拆分的真实代价，换来的是边界而非秒数）
 4. **抽协议与业务**：`hongguo-protocol` → `hongguo-service`（service 改为只依赖 stream 契约）
-5. **薄化 Tauri**：`commands/app_state/bootstrap/diagnostics` 迁入 `hongguo-tauri`，`src-tauri` 退化为纯配置与入口
-6. **清理**：删过渡代码、回收 vendor 补丁、补齐文档与测试
+5. **薄化 Tauri**（**已完成 2026-10-12**）：`commands/bootstrap/diagnostics/protocol 胶水/testing` 迁入 `hongguo-tauri`（31 文件 / 4,568 行），`src-tauri` 降至 2 文件 / 22 行（纯配置 + 入口；`generate_context!` 必须与 tauri.conf.json 同 crate）。`AppState` 实测为纯业务状态，随 service 走（修正本条原列清单）。两处 tauri-build 机械约束记入 §12
+6. **清理**（**已完成 2026-10-12**）：事件载荷 `json!` 裸拼全部 struct 化（§10 挂账清零，载荷形状零变化）；vendor 4 个补丁上游均未发修复版，保留；过渡注释清零
 
 每一步用 `path` 依赖替换，避免一次性大爆炸。**GPUI 不在本序列内**——它是末端新增，待 §5.3 spike 有结论后单独立项。
 
@@ -380,6 +382,12 @@ hongguo-desktop/
 | 跨层 e2e 用例的归属（3b） | `remux/e2e_tests.rs` 同时依赖媒体核心 + 平台硬编 + ffmpeg + 服务层，任何单一 crate 都装不下 → 迁到壳的 `src/testing/media_pipeline_e2e.rs`（Cargo 集成测试目录够不着私有模块，只能是壳内 `#[cfg(test)]` 模块） | ✅ 已定（3b） |
 | `worker::temp_path_for` 的归属（3b） | 上移 `hongguo_common::utils::path`——下载/转码/ffmpeg 三条链路共用的落盘命名约定；留在 service 会让 `hongguo-media` 反向依赖服务层 | ✅ 已定（3b） |
 | `transcode_h264_for_tests` 的可见性（3c） | 跨 crate 后 `pub(crate)` 对壳 e2e 够不着 → 改 `pub` + `any(test, feature = "test-support")` 门控（连带 mf 的软件编码器通道同步门控）；生产构建不带 feature 不编译 | ✅ 已定（3c） |
+| `AppState` 的归属（第 4 条实测修正） | 实测为纯业务状态句柄（store/settings/device/队列，无 UI 语义）→ 随 `hongguo-service` 走而非原定的 `hongguo-tauri`；壳经 Tauri `manage` 注入不变，GPUI 壳直接构造 | ✅ 已定（第 4 条） |
+| `service → protocol` 正向边（第 4 条实测） | play_service 构造 WebView 播放 URL 需要 `local_play_url`/`stream_url`——方向向下无环，保留并记入 §4.2；GPUI 走帧流不经 URL，未来投递末端重构时再议上移壳层 | ✅ 已定（第 4 条） |
+| 协议 crate 的切线（第 4 条） | `hongguo-protocol` **无 tauri 依赖**：供数产出 `(状态码, 头, 体)` 元组，HTTP 组装与 Builder 注册归壳胶水（§2「协议注册归壳」）；工作池与 panic 加固随供数逻辑进 crate | ✅ 已定（第 4 条） |
+| tauri-build 的直接依赖约束（第 5 条实测） | `generate_context!` 须与 tauri.conf.json 同 crate；conf 声明 assetProtocol → 壳的 tauri 依赖须带 `protocol-asset`；capabilities 的插件权限清单只从壳的**直接依赖**收集 → 六个插件在壳保留直接依赖声明（代码不经手） | ✅ 已定（第 5 条） |
+| GPUI 壳的异步桥（单壳实测） | service 的 async 族假定 tokio 设施，GPUI 执行器是 smol 系 → 壳内持常驻 tokio 运行时线程，GPUI 任务经 `oneshot::Receiver` 回传（不依赖 tokio 上下文，可在 GPUI 执行器 await） | ✅ 已定（单壳） |
+| 双壳设备引导（单壳） | `adopt_sync` + 轮换元数据下沉 `hongguo_service::device`（纯 store+signer，双壳同源）；健康探针/轮换异步生命周期暂留 tauri bootstrap，GPUI 待生命周期装配时接入 | ✅ 已定（单壳） |
 
 ---
 
@@ -408,11 +416,12 @@ hongguo-desktop/
 
 ## 15. 后续可交付物
 
-- 根 `Cargo.toml` workspace members + 依赖关系图（含 §9 机械耦合清单的核对）
-- `docs/stream-contract.md`：§5.2 契约定稿（依赖 §5.3 spike）
-- `hongguo-gpui` 单壳 + 播放 spike（`CVPixelBuffer → Metal → GPUI 上屏`）
+- ~~根 `Cargo.toml` workspace members + 依赖关系图~~ → **已交付**（阶段 0，成员清单见根 manifest）
+- `docs/stream-contract.md`：§5.2 契约定稿（依赖 §5.3 spike，未做）
+- ~~`hongguo-gpui` 单壳~~ → **已交付**（2026-10-12：窗口 + 双壳同源装配 + 推荐流，`make gpui`）；~~播放 spike~~ 仍 ❓（`CVPixelBuffer → Metal → GPUI 上屏` / Windows `IMFSample → D3D11`，另行立项）
 - ~~编译基线报告（clean build 耗时 + 增量重编译范围）~~ → **已交付**：`docs/build-baseline.md`
-- 迁移 Checklist（按 PR 粒度）
+- ~~迁移 Checklist（按 PR 粒度）~~ → **已交付**：本文件进度看板（逐条实测记录）
+- 健康探针/轮换异步生命周期下沉 service（GPUI 壳接入同一套设备轮换）——待 GPUI 壳演进时处理
 
 ---
 

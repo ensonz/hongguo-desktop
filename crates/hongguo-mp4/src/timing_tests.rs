@@ -202,6 +202,42 @@ fn sample_pts_fold_in_ctts_offsets() {
 }
 
 #[test]
+fn sample_dts_is_monotonic_where_pts_is_not() {
+    // 播放端做 B 帧重排的水位只能按 dts 算：pts 非单调（上面那例已证），
+    // dts 必须严格递增，且与 pts 同一套平移（两者都从 0 起）。
+    let mut info = cfr_info(3);
+    info.ctts = vec![(1, 0), (1, 512), (1, -512)];
+
+    let dts = info.sample_dts();
+    let pts = info.sample_pts();
+    let d = 1.0 / 30.0;
+
+    assert_eq!(dts.len(), 3);
+    assert!(dts.windows(2).all(|w| w[1] > w[0]), "dts 必须递增: {dts:?}");
+    assert!((dts[0] - 0.0).abs() < 1e-9, "dts 从 0 起步: {dts:?}");
+    // 同一套平移：平移量相同，逐项差值等于 ctts 偏移
+    assert!((pts[2] - dts[2] + d).abs() < 1e-9, "pts 与 dts 必须对齐");
+}
+
+#[test]
+fn max_reorder_secs_reads_the_worst_negative_offset() {
+    let mut info = cfr_info(4);
+    assert_eq!(info.max_reorder_secs(), 0.0, "没有 ctts 就没有重排");
+
+    info.ctts = vec![(1, 0), (2, 1024), (1, -2048)];
+    let expect = 2048.0 / f64::from(info.media_timescale);
+    assert!(
+        (info.max_reorder_secs() - expect).abs() < 1e-9,
+        "应取最大负偏移的绝对值，实际 {}",
+        info.max_reorder_secs()
+    );
+
+    // 只有正偏移（无 B 帧语义）：不用为不存在的重排留水位
+    info.ctts = vec![(4, 512)];
+    assert_eq!(info.max_reorder_secs(), 0.0);
+}
+
+#[test]
 fn sample_pts_without_stts_is_empty() {
     let mut info = info_with_samples(10);
     info.media_timescale = 15_360;
@@ -261,4 +297,73 @@ fn average_framerate_comes_out_of_the_sample_table() {
         None,
         "总时长为 0 推不出帧率"
     );
+}
+
+#[test]
+fn elst_reads_first_non_empty_edit_media_time() {
+    // AAC priming 的典型形态：media_time 指到 1024 个样本之后（空 edit 在前占位）
+    let mut entries = Vec::new();
+    entries.extend(10u32.to_be_bytes()); // segment_duration
+    entries.extend(u32::MAX.to_be_bytes()); // media_time = -1：空 edit
+    entries.extend(0x0001_0000u32.to_be_bytes()); // rate
+    entries.extend(100u32.to_be_bytes());
+    entries.extend(1024u32.to_be_bytes()); // media_time = 1024
+    entries.extend(0x0001_0000u32.to_be_bytes());
+    let data = full(b"elst", 0, &entry_count_and_entries(&entries));
+
+    let mut info = info_with_samples(1);
+    info.media_timescale = 44_100;
+    read_elst(&data, 8, data.len() - 8, &mut info);
+
+    assert!((info.edit_media_start_secs - 1024.0 / 44_100.0).abs() < 1e-9);
+}
+
+#[test]
+fn elst_version_1_reads_64_bit_media_time() {
+    let mut entries = Vec::new();
+    entries.extend(100u64.to_be_bytes()); // segment_duration
+    entries.extend(2112u64.to_be_bytes()); // media_time
+    entries.extend(0x0001_0000u32.to_be_bytes());
+    let mut body = Vec::new();
+    body.extend(2u32.to_be_bytes());
+    body.extend_from_slice(&entries);
+    let data = full(b"elst", 1, &body);
+
+    let mut info = info_with_samples(1);
+    info.media_timescale = 48_000;
+    read_elst(&data, 8, data.len() - 8, &mut info);
+
+    assert!((info.edit_media_start_secs - 2112.0 / 48_000.0).abs() < 1e-9);
+}
+
+#[test]
+fn elst_zero_timescale_is_ignored() {
+    let mut entries = Vec::new();
+    entries.extend(100u32.to_be_bytes());
+    entries.extend(1024u32.to_be_bytes());
+    entries.extend(0x0001_0000u32.to_be_bytes());
+    let data = full(b"elst", 0, &entry_count_and_entries(&entries));
+
+    let mut info = info_with_samples(1);
+    info.media_timescale = 0; // mdhd 没读到：不该拿 0 时基去除
+    read_elst(&data, 8, data.len() - 8, &mut info);
+
+    assert_eq!(info.edit_media_start_secs, 0.0);
+}
+
+#[test]
+fn timeline_shifts_by_edit_media_start() {
+    // priming 修剪：媒体时间 0 的样本在 presentation 轴上落在 0 之前，
+    // 由消费方按「pts ≥ 起点」过滤——这正是 AAC 前置静音的归宿。
+    let mut info = info_with_samples(2);
+    info.media_timescale = 44_100;
+    info.stts = vec![(2, 1024)];
+    info.edit_media_start_secs = 1024.0 / 44_100.0;
+
+    let pts = info.sample_pts();
+    assert!((pts[0] + 1024.0 / 44_100.0).abs() < 1e-9, "首样本落到 0 前");
+    assert!(pts[1].abs() < 1e-9, "第二个样本才是 presentation 起点");
+    // dts 与 pts 同量平移：两轴差不因 elst 改变
+    let dts = info.sample_dts();
+    assert!((dts[0] - pts[0]).abs() < 1e-12);
 }

@@ -94,24 +94,57 @@ pub(super) fn read_mdhd(data: &[u8], start: usize, size: usize, info: &mut Track
     };
 }
 
+/// 从 `elst` 读 edit 起点（首个非空 edit 的 media_time）。
+///
+/// 结构：version+flags(4) | entry_count(4) | entries。
+/// version 0 条目 12 字节：segment_duration(4) media_time(4) rate(4)；
+/// version 1 条目 20 字节：duration(8) media_time(8) rate(4)。
+/// media_time = -1（各版本的无符号全 1）是空 edit 占位，跳过。
+pub(super) fn read_elst(data: &[u8], start: usize, size: usize, info: &mut TrackInfo) {
+    if size < 8 || info.media_timescale == 0 {
+        return;
+    }
+    let version = data[start];
+    let entry = if version == 1 { 20 } else { 12 };
+    let count = read_entry_count(data, start, size, entry);
+    for i in 0..count {
+        let at = start + 8 + i * entry;
+        if at + entry > start + size {
+            break;
+        }
+        let media_time = if version == 1 {
+            u64_at(data, at + 8) as i64
+        } else {
+            // media_time 是 SInt32：-1（全 1）是空 edit 占位，零扩展会读成
+            // 天文数字的正数，空 edit 判定就废了
+            i64::from(u32_at(data, at + 4) as i32)
+        };
+        if media_time < 0 {
+            continue; // 空 edit：只占 presentation 时长，不指媒体位置
+        }
+        info.edit_media_start_secs = media_time as f64 / f64::from(info.media_timescale);
+        break; // 首个非空 edit 即锚点，多 edit 流按首个锚定
+    }
+}
+
 impl TrackInfo {
-    /// 每样本的**显示**时间戳（秒），由 `stts`/`ctts` 游程展开，整体平移到 0 起点。
+    /// 每样本的**解码**时间与**显示**时间（秒），同一套展开一次算齐。
     ///
-    /// 数组按**解码序**（样本序）索引；带 B 帧的码流里显示序 ≠ 解码序，
-    /// 所以返回值**不保证**按数组下标递增——「解码器输出（显示）序下递增」
-    /// 才是不变量，由消费方（转码的编码输出侧）保证。组成偏移（`ctts`）
-    /// 直接加在解码时间上。没有 `stts`、时基为 0 或没有样本时返回空 `Vec`：
-    /// 容器没给时间轴，调用方回落到「样本号 / 默认帧率」的合成轴。
-    pub fn sample_pts(&self) -> Vec<f64> {
+    /// 返回 `(dts, pts)`，两者都按**解码序**（样本序）索引、同量平移过
+    /// （负偏移时最早的显示时间落到 0 之前，整体抬到 0 起步）。带 B 帧的
+    /// 码流里 **pts 不保证递增**——「解码器输出（显示）序下递增」才是不变量，
+    /// 由消费方保证；**dts 恒递增**，是消费方做重排时的安全水位。
+    fn timeline(&self) -> (Vec<f64>, Vec<f64>) {
         let total = self.samples.len();
         if self.stts.is_empty() || self.media_timescale == 0 || total == 0 {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let timescale = f64::from(self.media_timescale);
 
         // 展开到与样本数等长：表短于样本数时按最后一段 delta 延续，
         // 表长于样本数时多出的段丢弃——两表描述本该是同一批样本，
         // 不一致只出现在畸形文件上，能覆盖多少就覆盖多少。
+        let mut dts = Vec::with_capacity(total);
         let mut pts = Vec::with_capacity(total);
         let mut cursor = 0u64;
         let mut last_delta = 1u32;
@@ -122,34 +155,88 @@ impl TrackInfo {
         for &(count, delta) in &self.stts {
             last_delta = delta.max(1);
             for _ in 0..count {
-                if pts.len() == total {
+                if dts.len() == total {
                     break;
                 }
                 let offset = i64::from(ctts.next().unwrap_or(0));
-                let t = (cursor as i64 + offset) as f64 / timescale;
-                pts.push(t);
+                dts.push(cursor as f64 / timescale);
+                pts.push((cursor as i64 + offset) as f64 / timescale);
                 cursor += u64::from(delta);
             }
-            if pts.len() == total {
+            if dts.len() == total {
                 break;
             }
         }
-        while pts.len() < total {
+        while dts.len() < total {
             let t = cursor as f64 / timescale;
+            dts.push(t);
             pts.push(t);
             cursor += u64::from(last_delta);
         }
 
         // 负偏移（version 1 ctts）会让最早的显示时间落在 0 之前，而音轨与
-        // 封装层都从 0 起步：整体平移，等量平移不破坏任何相对时序
+        // 封装层都从 0 起步：整体平移，等量平移不破坏任何相对时序。dts 跟着
+        // 同量平移——两个轴必须对齐，否则「显示时间 - 解码时间」的差会失真。
         if let Some(min) = pts.iter().cloned().reduce(f64::min)
             && min < 0.0
         {
             for p in &mut pts {
                 *p -= min;
             }
+            for d in &mut dts {
+                *d -= min;
+            }
         }
-        pts
+
+        // elst：presentation 时间轴 = 媒体时间轴 − edit 起点（AAC 编码器
+        // priming 由容器的 edit list 表达）。减出负值是刻意的——起点前的
+        // 样本（编码器前置静音）在 presentation 轴上就该落在 0 之前，由
+        // 消费方按「pts ≥ 起点」过滤。dts 同量平移，保持两轴对齐。
+        if self.edit_media_start_secs > 0.0 {
+            for p in &mut pts {
+                *p -= self.edit_media_start_secs;
+            }
+            for d in &mut dts {
+                *d -= self.edit_media_start_secs;
+            }
+        }
+        (dts, pts)
+    }
+
+    /// 每样本的**显示**时间戳（秒），由 `stts`/`ctts` 游程展开，整体平移到 0 起点。
+    ///
+    /// 数组按**解码序**（样本序）索引；带 B 帧的码流里显示序 ≠ 解码序，
+    /// 所以返回值**不保证**按数组下标递增——「解码器输出（显示）序下递增」
+    /// 才是不变量，由消费方（转码的编码输出侧、播放的上屏侧）保证。组成偏移
+    /// （`ctts`）直接加在解码时间上。没有 `stts`、时基为 0 或没有样本时返回
+    /// 空 `Vec`：容器没给时间轴，调用方回落到「样本号 / 默认帧率」的合成轴。
+    pub fn sample_pts(&self) -> Vec<f64> {
+        self.timeline().1
+    }
+
+    /// 每样本的**解码**时间戳（秒），与 [`Self::sample_pts`] 同一套平移。
+    ///
+    /// 播放端做 B 帧重排要用：显示时间可能早于解码时间，唯一单调的是 dts，
+    /// 「已解码到哪」的水位只能按它算。
+    pub fn sample_dts(&self) -> Vec<f64> {
+        self.timeline().0
+    }
+
+    /// B 帧重排的最大负偏移（秒）：显示时间最多能比解码时间早多少。
+    ///
+    /// 无 `ctts`（无 B 帧）时为 0。消费方用「已解码 dts 水位 - 本值」当
+    /// 定稿线：显示时间早于这条线的帧，不可能再有更早的帧解出来。
+    pub fn max_reorder_secs(&self) -> f64 {
+        if self.media_timescale == 0 {
+            return 0.0;
+        }
+        let most_negative = self
+            .ctts
+            .iter()
+            .map(|&(_, offset)| i64::from(offset).min(0))
+            .min()
+            .unwrap_or(0);
+        (-most_negative) as f64 / f64::from(self.media_timescale)
     }
 
     /// 从样本表推出的平均帧率（fps）。

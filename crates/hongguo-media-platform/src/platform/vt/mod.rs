@@ -165,6 +165,16 @@ unsafe fn make_test_frame(width: usize) -> AppResult<Pb> {
 struct Pb(ffi::CVPixelBufferRef);
 unsafe impl Send for Pb {}
 
+impl Clone for Pb {
+    fn clone(&self) -> Self {
+        if self.0.is_null() {
+            return Pb(std::ptr::null_mut());
+        }
+        unsafe { ffi::CFRetain(self.0 as ffi::CFTypeRef) };
+        Pb(self.0)
+    }
+}
+
 impl Pb {
     fn dims(&self) -> (usize, usize) {
         unsafe {
@@ -237,6 +247,36 @@ unsafe fn make_int(v: i32) -> ffi::CFNumberRef {
     }
 }
 
+/// 查出刚建的解码会话是不是硬件解码，记一行日志。
+///
+/// 排障必需：软解在 1080p HEVC 上是 46.8ms/帧（实时线 33ms），表现是
+/// 「画面越播越落后音频」，而日志里光看「首帧正常」根本看不出来。
+unsafe fn log_hardware(session: ffi::VTDecompressionSessionRef) {
+    unsafe {
+        let mut value: ffi::CFTypeRef = std::ptr::null();
+        let status = ffi::VTSessionCopyProperty(
+            session as ffi::VTSessionRef,
+            ffi::kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
+            ffi::kCFAllocatorDefault,
+            &mut value,
+        );
+        if status == ffi::noErr && !value.is_null() {
+            let hw = ffi::CFBooleanGetValue(value as ffi::CFBooleanRef) != 0;
+            ffi::CFRelease(value);
+            log::info!(
+                "[Platform/vt] HEVC 解码会话：{}",
+                if hw {
+                    "硬件解码"
+                } else {
+                    "软解（VT 未启用硬件）"
+                }
+            );
+        } else {
+            log::debug!("[Platform/vt] 解码会话硬件标志不可读（status {status}）");
+        }
+    }
+}
+
 /// IOSurface 背板声明：让解码输出/缩放目标都是 GPU 可共享的像素缓冲
 unsafe fn iosurface_attrs() -> ffi::CFMutableDictionaryRef {
     unsafe {
@@ -295,7 +335,11 @@ unsafe extern "C" fn decode_cb(
 
 impl Decompressor {
     /// 用 `hvcC` 参数集（VPS/SPS/PPS 裸 NAL）建同步解码会话，输出 NV12。
-    unsafe fn new(parameter_sets: &[Vec<u8>]) -> AppResult<Self> {
+    ///
+    /// `full_range` 选输出像素区间：`false` = VideoRange（'420v'，转码链
+    /// 既定格式）；`true` = FullRange（'420f'，GPU 合成器直采样要求的形态，
+    /// 见 [`HevcFrameDecoder`]）。
+    unsafe fn new(parameter_sets: &[Vec<u8>], full_range: bool) -> AppResult<Self> {
         unsafe {
             let sizes: Vec<usize> = parameter_sets.iter().map(|n| n.len()).collect();
             let ptrs: Vec<*const u8> = parameter_sets.iter().map(|n| n.as_ptr()).collect();
@@ -313,8 +357,11 @@ impl Decompressor {
                 "建 HEVC 格式描述",
             )?;
 
-            let pixel_format =
-                make_int(ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange as i32);
+            let pixel_format = make_int(if full_range {
+                ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            } else {
+                ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            } as i32);
             let iosurface = iosurface_attrs();
             let attrs = make_dict(&[
                 (
@@ -333,19 +380,30 @@ impl Decompressor {
                 callback: Some(decode_cb),
                 refcon: &*boxed as *const Sender<(Pb, f64)> as *mut c_void,
             };
+            // 显式点名硬件解码：不传规格时 VT 可能落软解，1080p HEVC 软解
+            // 46.8ms/帧（>33ms 的实时线），画面必然越播越落后。
+            // 只「建议」不「要求」：个别码流硬解不收时还得让 VT 回软解，
+            // 能播总比报错强（建的会话是什么，下面查出来记日志）。
+            let spec = make_dict(&[(
+                ffi::kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder
+                    as ffi::CFTypeRef,
+                ffi::kCFBooleanTrue as ffi::CFTypeRef,
+            )]);
             let mut session: ffi::VTDecompressionSessionRef = std::ptr::null_mut();
             let status = ffi::VTDecompressionSessionCreate(
                 ffi::kCFAllocatorDefault,
                 format,
-                std::ptr::null(),
+                spec,
                 attrs,
                 &record,
                 &mut session,
             );
+            ffi::CFRelease(spec as ffi::CFTypeRef);
             ffi::CFRelease(attrs as ffi::CFTypeRef);
             ffi::CFRelease(iosurface as ffi::CFTypeRef);
             ffi::CFRelease(pixel_format as ffi::CFTypeRef);
             os(status, "建 HEVC 解码会话")?;
+            log_hardware(session);
 
             Ok(Decompressor {
                 session,
@@ -411,12 +469,16 @@ impl Decompressor {
                 ),
                 "建样本缓冲",
             )?;
-            // 同步模式（不设异步标志）：输出回调在本次调用内触发
+            // 异步模式：`kVTDecodeFrame_EnableAsynchronousDecompression` 要求
+            // VT 把解码排队到内部队列，DecodeFrame 立即返回、结果经回调异步
+            // 到达。同步模式（不设标志）会让本调用阻塞到帧出来——实测 1080p
+            // HEVC 每帧 46.5ms，硬件再快也排不成流水线，30fps 的实时线是
+            // 33ms/帧，同步模式必然越播越落后。异步让硬件并行吃满。
             let mut info_flags = 0u32;
             let status = ffi::VTDecompressionSessionDecodeFrame(
                 self.session,
                 sbuf,
-                ffi::kVTDecodeFrame_Synchronous,
+                ffi::kVTDecodeFrame_EnableAsynchronousDecompression,
                 std::ptr::null_mut(),
                 &mut info_flags,
             );
@@ -439,6 +501,170 @@ impl Decompressor {
     fn drain(&self, out: &mut Vec<(Pb, f64)>) {
         while let Ok(item) = self.rx.try_recv() {
             out.push(item);
+        }
+    }
+}
+
+// ————————————————————————————————————————————————————————————
+// 播放逐帧解码（§5.3：GPUI 帧流末端的解码出口）
+// ————————————————————————————————————————————————————————————
+
+use core_video::pixel_buffer::{CVPixelBuffer, CVPixelBufferRef};
+
+/// 一帧解码输出：NV12 CVPixelBuffer + 源时间轴显示时间。
+///
+/// CVPixelBuffer 是 CF 对象、引用线程安全（Apple 文档明示可跨线程搬运），
+/// 线程绑定声明由本类型给出。`buffer()` 是引用计数克隆（+1）：渲染侧拿
+/// 走自己的引用，帧队列里的原件不受影响。
+pub struct DecodedFrame {
+    inner: Pb,
+    /// 该帧的显示时间（秒，源时间轴）。同步解码吐出的是**解码序**，消费方
+    /// 必须按这个 PTS 配对显示槽，绝不按吐出顺序排位（与转码链 run() 同一
+    /// 纪律）。
+    pub pts_secs: f64,
+}
+
+unsafe impl Send for DecodedFrame {}
+
+impl DecodedFrame {
+    /// 像素缓冲（NV12，IOSurface 背板）。返回值持独立引用（+1）。
+    pub fn buffer(&self) -> CVPixelBuffer {
+        use core_foundation::base::TCFType;
+        // 手写 ffi 里是 *mut c_void，core-video 侧是不透明结构指针——同一 CF 对象
+        unsafe { CVPixelBuffer::wrap_under_get_rule(self.inner.0 as CVPixelBufferRef) }
+    }
+
+    /// 帧分辨率 `(宽, 高)`。
+    pub fn dims(&self) -> (usize, usize) {
+        self.inner.dims()
+    }
+}
+
+impl Clone for DecodedFrame {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            pts_secs: self.pts_secs,
+        }
+    }
+}
+
+// 手写而非 derive：帧的身份是「分辨率 + 显示时间」，指针地址对日志没有意义，
+// 而事件枚举要能 Debug 打印（宿主排查用）。
+impl std::fmt::Debug for DecodedFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (w, h) = self.dims();
+        f.debug_struct("DecodedFrame")
+            .field("dims", &format_args!("{w}x{h}"))
+            .field("pts_secs", &self.pts_secs)
+            .finish()
+    }
+}
+
+/// HEVC 逐帧解码器（播放末端；转码链走 [`transcode_h264`]，不经这里）。
+///
+/// 同步解码：[`HevcFrameDecoder::decode`] 返回即该样本的全部输出已就绪。
+/// 帧经 NV12 CVPixelBuffer（IOSurface 背板）交付，GPU 可直接采样——
+/// GPUI 的 `surface()` 元素零拷贝上屏就吃这个形态。
+///
+/// `full_range = true` 时请求 FullRange NV12（'420f'）：GPU 合成器的
+/// YCbCr shader 断言全区间；转码链保持 '420v' 不受影响。
+pub struct HevcFrameDecoder {
+    inner: Decompressor,
+    /// 420f 转换会话：VT 对部分片源不理会 FullRange 请求（输出仍 '420v'），
+    /// 而 GPU 合成器断言全区间——首帧发现格式不符时按需建会话转换。
+    full_range_transfer: Option<Transfer>,
+    actual_format_logged: bool,
+}
+
+// VT 解码会话与格式描述都是 CF 对象，CoreFoundation 引用计数线程安全，
+// Apple 文档明示会话可跨线程使用；内部通道（Receiver/Box<Sender>）本身
+// Send。跨线程约束（async 任务里持解码器）由本声明给出。
+unsafe impl Send for HevcFrameDecoder {}
+
+impl HevcFrameDecoder {
+    /// 用参数集（`hvcC` 裸 NAL：VPS/SPS/PPS）建解码会话。
+    pub fn open(parameter_sets: &[Vec<u8>], full_range: bool) -> AppResult<Self> {
+        Ok(Self {
+            inner: unsafe { Decompressor::new(parameter_sets, full_range)? },
+            full_range_transfer: None,
+            actual_format_logged: false,
+        })
+    }
+
+    /// 解一个样本（MP4 长度前缀 NAL 原样字节），返回本次产生的帧（解码序，
+    /// 各自带 PTS）。无输出（如先行参考帧还没喂够）返回空表。
+    pub fn decode(
+        &mut self,
+        sample: &[u8],
+        pts_secs: f64,
+        duration_secs: f64,
+    ) -> AppResult<Vec<DecodedFrame>> {
+        unsafe { self.inner.decode(sample, pts_secs, duration_secs)? };
+        let ready = self.take_ready();
+        // GPU 合成器（gpui surface）断言 FullRange NV12；VT 对部分片源不理会
+        // 请求仍吐 '420v'——发现即经 VTPixelTransferSession 转全区间，绝不把
+        // 非全区间帧递给渲染端（那里是硬断言，panic 会把主循环打成僵尸）。
+        let mut out = Vec::with_capacity(ready.len());
+        for frame in ready {
+            out.push(self.enforce_full_range(frame));
+        }
+        Ok(out)
+    }
+
+    /// 冲尾帧并返回遗留输出。会话随即不再可用。
+    pub fn finish(&mut self) -> AppResult<Vec<DecodedFrame>> {
+        unsafe { self.inner.finish()? };
+        let ready = self.take_ready();
+        let mut out = Vec::with_capacity(ready.len());
+        for frame in ready {
+            out.push(self.enforce_full_range(frame));
+        }
+        Ok(out)
+    }
+
+    fn take_ready(&self) -> Vec<DecodedFrame> {
+        let mut raw = Vec::new();
+        self.inner.drain(&mut raw);
+        raw.into_iter()
+            .map(|(inner, pts_secs)| DecodedFrame { inner, pts_secs })
+            .collect()
+    }
+
+    fn enforce_full_range(&mut self, frame: DecodedFrame) -> DecodedFrame {
+        let fmt = unsafe { ffi::CVPixelBufferGetPixelFormatType(frame.inner.0) };
+        if !self.actual_format_logged {
+            self.actual_format_logged = true;
+            log::info!(
+                "[Platform/vt] 解码输出像素格式: {}",
+                if fmt == ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
+                    "420f（全区间，直上屏）"
+                } else {
+                    "非 420f，走全区间转换"
+                }
+            );
+        }
+        if fmt == ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
+            return frame;
+        }
+        let DecodedFrame { inner, pts_secs } = frame;
+        let (w, h) = inner.dims();
+        let transfer = self.full_range_transfer.get_or_insert_with(|| {
+            // 转换会话只可能因系统资源建不出来；这里失败等于无法渲染，报错终止
+            unsafe { Transfer::new(w, h).expect("建全区间转换会话") }
+        });
+        let converted = unsafe {
+            transfer.transfer_to(&inner, ffi::kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)
+        };
+        match converted {
+            Ok(pb) => DecodedFrame {
+                inner: pb,
+                pts_secs,
+            },
+            Err(e) => {
+                log::warn!("[Platform/vt] 全区间转换失败，保留原帧（渲染端可能拒绝）: {e}");
+                DecodedFrame { inner, pts_secs }
+            }
         }
     }
 }
@@ -805,8 +1031,9 @@ impl Transfer {
         }
     }
 
-    /// 缩到目标分辨率（NV12 → NV12，GPU 上完成）。
-    unsafe fn scale(&self, src: &Pb) -> AppResult<Pb> {
+    /// 搬到目标分辨率/格式的缓冲（NV12 → NV12，GPU 上完成；区间转换
+    /// VideoRange → FullRange 也由会话承担）。
+    unsafe fn transfer_to(&self, src: &Pb, pixel_format: ffi::OSType) -> AppResult<Pb> {
         unsafe {
             let mut dst: ffi::CVPixelBufferRef = std::ptr::null_mut();
             let attrs = iosurface_attrs();
@@ -814,19 +1041,24 @@ impl Transfer {
                 ffi::kCFAllocatorDefault,
                 self.width,
                 self.height,
-                ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                pixel_format,
                 attrs,
                 &mut dst,
             );
             ffi::CFRelease(attrs as ffi::CFTypeRef);
-            os(st, "建缩放目标缓冲")?;
+            os(st, "建搬移目标缓冲")?;
             let dst = Pb(dst);
             os(
                 ffi::VTPixelTransferSessionTransferImage(self.session, src.0, dst.0),
-                "缩放帧",
+                "搬移帧",
             )?;
             Ok(dst)
         }
+    }
+
+    /// 缩到目标分辨率（转码链既有路径，'420v'）。
+    unsafe fn scale(&self, src: &Pb) -> AppResult<Pb> {
+        unsafe { self.transfer_to(src, ffi::kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) }
     }
 }
 
@@ -972,7 +1204,7 @@ fn run(
     //   显示序——产物按解码序播放（真实剧集实证：标题帧闪现在转场前，
     //   showinfo 呈现序 0, 0.533, 0.067…）。配对好的帧按容器时间槽顺序
     //   喂编码器；槽内帧未到就继续解码下一个样本，内存以重排窗口为界。
-    let decoder = unsafe { Decompressor::new(&parameter_sets)? };
+    let decoder = unsafe { Decompressor::new(&parameter_sets, false)? };
     let mut slot_times = source_pts.clone();
     slot_times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut ready: Vec<(Pb, f64)> = Vec::new();
