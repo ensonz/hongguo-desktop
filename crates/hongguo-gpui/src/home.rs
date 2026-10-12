@@ -41,6 +41,7 @@ use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
 use hongguo_api::interact::fetch_bookshelf;
 use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_common::AppResult;
+use hongguo_common::model::VideoDefinition;
 use hongguo_media_platform::platform::video::{FrameBuffer, VideoFrame};
 use hongguo_playback::{OpenOptions, PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
@@ -150,6 +151,10 @@ struct NowPlaying {
     heat_text: String,
     season_tag: String,
     badge: String,
+    /// 本集提供的全部档位（清晰度菜单数据源；本地集为空 = 菜单置灰）
+    definitions: Vec<VideoDefinition>,
+    /// 实际在播的档位（0 = 尚未取到）
+    definition: u32,
 }
 
 // ---------------------------------------------------------------- 视图
@@ -218,6 +223,11 @@ pub struct HomeView {
     /// 手动翻到的范围段（每段 30 集）：记设置时的当前集——当前集变了
     /// （连播/点选）覆盖作废，自动跟回当前集所在段（Tauri groupOverride）。
     picker_group_override: Option<(usize, u32)>,
+    /// 用户显式选择的清晰度（None = 自动/沿用）：跨集保留（Tauri 的
+    /// definition 会话态同语义），传给后续每次起播的 prepare。
+    preferred_definition: Option<u32>,
+    /// 音量悬停弹层开着（Tauri VolumePopup 同款，随 wrapper hover 开合）。
+    volume_popup_open: bool,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
     buffering: bool,
     /// 控制条可见截止时刻；拖动中/暂停时常显。
@@ -298,6 +308,8 @@ impl HomeView {
             binge: None,
             picker_open: false,
             picker_group_override: None,
+            preferred_definition: None,
+            volume_popup_open: false,
             buffering: false,
             controls_until: None,
             progress_bounds: Rc::new(Cell::new(None)),
@@ -447,7 +459,7 @@ impl HomeView {
     fn after_feed_loaded(&mut self, source: Source, cx: &mut Context<Self>) {
         if self.player.is_none() && !self.switching && source == self.active {
             if let Some(item) = self.display_items().first().cloned() {
-                self.play_target(item, None, cx);
+                self.play_target(item, None, None, cx);
             }
         } else if source == self.active {
             self.follow_cursor(cx);
@@ -472,7 +484,7 @@ impl HomeView {
         {
             return;
         }
-        self.play_target(item, None, cx);
+        self.play_target(item, None, None, cx);
     }
 
     /// 云端历史（推荐 tab 种子 + 起点兜底）。登录才有数据，匿名回空表。
@@ -639,7 +651,7 @@ impl HomeView {
             .find(|i| i.series_id == now.series_id)
             .cloned()
         {
-            self.play_target(item, Some(next as u32), cx);
+            self.play_target(item, Some(next as u32), None, cx);
         }
     }
 
@@ -676,7 +688,7 @@ impl HomeView {
             self.load_more(self.active, cx);
         }
         if let Some(item) = self.display_items().get(next).cloned() {
-            self.play_target(item, None, cx);
+            self.play_target(item, None, None, cx);
         }
         cx.notify();
     }
@@ -685,10 +697,12 @@ impl HomeView {
 
     /// 切到目标剧。旧的引擎继续播到新引擎就位（对齐 Tauri「store 目标
     /// 变了但画面还在上一部」的切换语义），就位即整体换装。
+    /// `start_override` 给切清晰度保进度用（None = 走起点决策）。
     fn play_target(
         &mut self,
         item: StreamItem,
         forced_next_ep: Option<u32>,
+        start_override: Option<f64>,
         cx: &mut Context<Self>,
     ) {
         if self
@@ -745,6 +759,8 @@ impl HomeView {
             item,
             forced_next_ep,
             history,
+            self.preferred_definition,
+            start_override,
             events,
         ));
         cx.spawn(async move |this, cx| {
@@ -789,11 +805,15 @@ impl HomeView {
 
     /// 起播链（tokio 线程）：解析档案 → 起点决策 → prepare → 引擎 open。
     /// 与 Tauri 同一段服务面；起点 >3 秒续播，本地档案优先、云端历史兜底。
+    /// `preferred_definition` 是用户显式选的清晰度（None = 自动/沿用）；
+    /// `start_override` 是切档保进度的位置覆盖。
     async fn play_task(
         state: Arc<AppStateInner>,
         item: StreamItem,
         forced_next_ep: Option<u32>,
         history: Vec<WatchHistoryItem>,
+        preferred_definition: Option<u32>,
+        start_override: Option<f64>,
         events: mpsc::Sender<PlayerEvent>,
     ) -> AppResult<(PlayerHandle, NowPlaying)> {
         let runtime = PlayRuntime::new(crate::tokio().handle().clone(), None);
@@ -813,9 +833,12 @@ impl HomeView {
             }
         };
         let episode_count = series.episodes.len();
-        let (vid_index, start_secs) = match forced_next_ep {
-            Some(idx) => (idx, 0.0),
-            None => {
+        // 切档保进度：覆盖值优先于起点决策（覆盖必然伴随显式集号——
+        // 切清晰度 = 同集同位重播）
+        let (vid_index, start_secs) = match (start_override, forced_next_ep) {
+            (Some(pos), forced) => (forced.unwrap_or(1), pos),
+            (None, Some(idx)) => (idx, 0.0),
+            (None, None) => {
                 let local = state
                     .store
                     .series_last_position(&item.series_id)?
@@ -863,7 +886,15 @@ impl HomeView {
             ep.vid,
             start_secs
         );
-        let prepared = prepare(&runtime, &ep.vid, &progress_key, None, settings, &env).await?;
+        let prepared = prepare(
+            &runtime,
+            &ep.vid,
+            &progress_key,
+            preferred_definition,
+            settings,
+            &env,
+        )
+        .await?;
         let handle = hongguo_playback::open(OpenOptions {
             vid: ep.vid.clone(),
             definition: prepared.definition,
@@ -885,6 +916,8 @@ impl HomeView {
                 heat_text: item.heat_text,
                 season_tag: item.season_tag,
                 badge: item.badge,
+                definitions: prepared.definitions,
+                definition: prepared.definition,
             },
         ))
     }
@@ -1119,8 +1152,11 @@ impl HomeView {
             return;
         };
         self.volume = v;
+        // Tauri setVolumeValue 同款：拖到 0 = 静音，拖离 0 = 解除静音
+        self.muted = v == 0.0;
         if let Some(player) = &self.player {
             player.set_volume(v);
+            player.set_muted(self.muted);
         }
         if matches!(event, SliderEvent::Release(_)) {
             self.persist_prefs();
@@ -1207,6 +1243,38 @@ impl HomeView {
         cx.notify();
     }
 
+    /// 切清晰度（Tauri onDefinitionChange 同款）：同集同位重播，缓存按
+    /// (vid, 档位) 分条目——切回去不用重新下载，也不动正在播的那一档。
+    /// `None` = 回到自动（沿用上轮解析到的档位）。
+    fn switch_definition(&mut self, value: Option<u32>, cx: &mut Context<Self>) {
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        // 与当前实际档位同值就不折腾（自动档位下点解析出的那一档也算同值）
+        if value.is_none() && self.preferred_definition.is_none() {
+            return;
+        }
+        if value == Some(now.definition) && self.preferred_definition == value {
+            return;
+        }
+        let position = self
+            .player
+            .as_ref()
+            .map(|p| p.position_secs())
+            .unwrap_or(0.0);
+        self.preferred_definition = value;
+        self.wake_controls(cx);
+        if let Some(item) = self
+            .display_items()
+            .iter()
+            .find(|i| i.series_id == now.series_id)
+            .cloned()
+        {
+            self.play_target(item, Some(now.vid_index), Some(position), cx);
+        }
+        cx.notify();
+    }
+
     /// 选集浮层里点某一集：跳集，**不关浮层**（hgplayer 同款连选连跳）；
     /// 信息流里主动选集 = 锁定本剧连播（Tauri onPickEpisode 同款）。
     fn pick_episode(&mut self, vid_index: u32, cx: &mut Context<Self>) {
@@ -1221,7 +1289,7 @@ impl HomeView {
                 .cloned()
         {
             self.binge = Some(now.series_id.clone());
-            self.play_target(item, Some(vid_index), cx);
+            self.play_target(item, Some(vid_index), None, cx);
         }
         self.wake_controls(cx);
         cx.notify();
@@ -1323,7 +1391,7 @@ impl HomeView {
                 .find(|i| i.series_id == now.series_id)
                 .cloned()
             {
-                self.play_target(item, Some(next_idx), cx);
+                self.play_target(item, Some(next_idx), None, cx);
                 return;
             }
         }
@@ -1548,7 +1616,7 @@ impl HomeView {
                             if !target_same
                                 && let Some(item) = this.display_items().get(this.cursor()).cloned()
                             {
-                                this.play_target(item, None, cx);
+                                this.play_target(item, None, None, cx);
                             }
                         }
                     }
@@ -2043,6 +2111,70 @@ impl HomeView {
                     .small()
                     .dropdown_menu(rate_menu),
             )
+            .child({
+                // 清晰度菜单（Tauri 同款）：自动 + 本集全部档位；本地集
+                // 没有档位表，按钮置灰并保持可见（不渲染会让用户以为
+                // 「这个功能本来就没有」，在线流那集它又出现了）
+                let defs = self
+                    .now
+                    .as_ref()
+                    .map(|n| n.definitions.clone())
+                    .unwrap_or_default();
+                let current = self.now.as_ref().map(|n| n.definition).unwrap_or(0);
+                let label = match self.now.as_ref() {
+                    Some(n) if n.definition > 0 => format!("{}P", n.definition),
+                    _ => "自动".to_string(),
+                };
+                if defs.is_empty() {
+                    // 无档位表（本地集）：置灰保持可见——直接不渲染会让用户
+                    // 以为「这个功能本来就没有」，在线流那集它又出现了
+                    div()
+                        .px_2()
+                        .text_xs()
+                        .text_color(gpui_kit::rgba(0xffffff66))
+                        .child(label)
+                        .into_any_element()
+                } else {
+                    let view = cx.entity();
+                    Button::new("stage-definition")
+                        .label(label)
+                        .ghost()
+                        .small()
+                        .dropdown_menu(move |menu, _window, _cx| {
+                            let mut menu = menu.label("清晰度");
+                            menu = menu.item(
+                                PopupMenuItem::new("自动").checked(current == 0).on_click({
+                                    let view = view.clone();
+                                    move |_, _, cx| {
+                                        view.update(cx, |v, cx| v.switch_definition(None, cx))
+                                    }
+                                }),
+                            );
+                            for d in &defs {
+                                let view = view.clone();
+                                let value = d.value;
+                                // 竖屏剧的宽高是反的，只报分辨率会误导
+                                let lbl = if d.height > d.width {
+                                    format!("{}P（{}×{}）", d.value, d.width, d.height)
+                                } else {
+                                    format!("{}P", d.value)
+                                };
+                                menu = menu.item(
+                                    PopupMenuItem::new(lbl)
+                                        .checked(d.value == current)
+                                        .on_click(move |_, _, cx| {
+                                            let view = view.clone();
+                                            view.update(cx, |v, cx| {
+                                                v.switch_definition(Some(value), cx)
+                                            })
+                                        }),
+                                );
+                            }
+                            menu
+                        })
+                        .into_any_element()
+                }
+            })
             .child(
                 // 选集浮层入口（Tauri immersive 同款：带总集数；浮层贴按钮
                 // 向上弹，见 render_picker）
@@ -2058,13 +2190,50 @@ impl HomeView {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
             )
             .child(
-                Button::new("stage-mute")
-                    .label(if self.muted { "取消静音" } else { "静音" })
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
+                // 音量（Tauri VolumePopup 同款）：图标按钮单击=静音切换，
+                // 悬停向上弹竖向滑杆（弹层是按钮 wrapper 的子层，移过去
+                // 不会收）；拖到 0 即静音、拖离 0 自动解除静音
+                div()
+                    .id("volume-wrapper")
+                    .relative()
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        if this.volume_popup_open != *hovered {
+                            this.volume_popup_open = *hovered;
+                            cx.notify();
+                        }
+                    }))
+                    .child(
+                        Button::new("stage-mute")
+                            .icon(if self.muted || self.volume == 0.0 {
+                                gpui_kit::assets::IconName::VolumeX
+                            } else if self.volume < 0.5 {
+                                gpui_kit::assets::IconName::Volume1
+                            } else {
+                                gpui_kit::assets::IconName::Volume2
+                            })
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
+                    )
+                    .children(self.volume_popup_open.then(|| {
+                        v_flex()
+                            .absolute()
+                            .bottom(gpui_kit::px(36.0))
+                            // 右对齐向左展开：音量按钮贴窗口右缘，左锚会把
+                            // 弹层推出窗外
+                            .right_0()
+                            .items_center()
+                            .p_2()
+                            .rounded(gpui_kit::px(8.0))
+                            .bg(gpui_kit::rgba(0x171717f2))
+                            .child(
+                                Slider::new(&self.volume_slider)
+                                    .vertical()
+                                    .h(gpui_kit::px(96.0)),
+                            )
+                            .into_any_element()
+                    })),
             )
-            .child(Slider::new(&self.volume_slider).horizontal().w_24())
             .into_any_element()
     }
 
