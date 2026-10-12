@@ -486,15 +486,18 @@ impl SyncMft {
             let mut arr = [buf];
             let mut status = 0u32;
             let r = self.xform.ProcessOutput(0, &mut arr, &mut status);
-            let buf = &mut arr[0];
+            // 所有权先取回再分胜负：`NEED_MORE_INPUT` / `STREAM_CHANGE` 是
+            // pull 循环的常态收尾（拉到没输出为止），留在 ManuallyDrop 里
+            // 不取 = 每次漏一块 out_size 的原生内存（实测 1080p NV12 一路
+            // 每帧 3.1MB、25fps 80MB/s）。pEvents 同理（MFT 塞的事件对象
+            // 也归调用方释放）。
+            let s = std::mem::ManuallyDrop::take(&mut arr[0].pSample);
+            let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
             match r {
-                Ok(()) => {
-                    let s = std::mem::ManuallyDrop::take(&mut buf.pSample);
-                    Ok(match s {
-                        Some(s) => Pulled::Sample(s),
-                        None => Pulled::NeedMoreInput,
-                    })
-                }
+                Ok(()) => Ok(match s {
+                    Some(s) => Pulled::Sample(s),
+                    None => Pulled::NeedMoreInput,
+                }),
                 Err(e) if is_code(&e, MF_E_TRANSFORM_NEED_MORE_INPUT) => Ok(Pulled::NeedMoreInput),
                 Err(e) if is_code(&e, MF_E_TRANSFORM_STREAM_CHANGE) => Ok(Pulled::StreamChange),
                 Err(e) => Err(AppError::Media(format!(
@@ -583,12 +586,13 @@ impl AsyncMft {
                 pEvents: std::mem::ManuallyDrop::new(None),
             }];
             let mut status = 0u32;
-            hr(
-                self.xform.ProcessOutput(0, &mut arr, &mut status),
-                "ProcessOutput",
-            )?;
-            std::mem::ManuallyDrop::take(&mut arr[0].pSample)
-                .ok_or_else(|| AppError::Media("Media Foundation 输出样本缺失".into()))
+            let r = self.xform.ProcessOutput(0, &mut arr, &mut status);
+            // 所有权先取回再核错误（同 SyncMft::pull_once 的泄漏教训）：
+            // `?` 提前返回会把 ManuallyDrop 里的样本/事件漏在原地。
+            let s = std::mem::ManuallyDrop::take(&mut arr[0].pSample);
+            let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
+            hr(r, "ProcessOutput")?;
+            s.ok_or_else(|| AppError::Media("Media Foundation 输出样本缺失".into()))
         }
     }
 
@@ -707,6 +711,11 @@ impl Driver {
                     a.provides_samples =
                         (info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES.0 as u32) != 0;
                     a.out_size = info.cbSize;
+                    log::info!(
+                        "[Platform/mf] 异步 MFT 输出契约：provides_samples={}，单帧缓冲 {}B",
+                        a.provides_samples,
+                        a.out_size
+                    );
                     hr(
                         a.xform
                             .ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0),
