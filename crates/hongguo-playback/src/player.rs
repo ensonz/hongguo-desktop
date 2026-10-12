@@ -6,7 +6,8 @@
 //! 等事件。
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -128,26 +129,41 @@ impl Drop for PlayerHandle {
 /// 打开并起播。必须在 tokio 运行时上下文内 await（引擎任务经 `tokio::spawn`
 /// 挂在调用方的运行时上）。
 pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> {
+    // 起播链任何一段卡住，界面上都只是「一直转圈」——三个阶段各自打点，
+    // 卡在哪一段一目了然（实测有过音频设备打开前静默两位数的秒数）。
+    let t0 = std::time::Instant::now();
     let meta = open_stream(&opts.vid, opts.definition).await?;
     let video_info = meta.video;
+    log::info!(
+        "[Playback] 头部就绪（{}ms）：{}x{} 音频{}",
+        t0.elapsed().as_millis(),
+        video_info.width,
+        video_info.height,
+        meta.audio
+            .as_ref()
+            .map(|a| format!(" {}ch {}Hz", a.channels, a.sample_rate))
+            .unwrap_or_else(|| "无".into())
+    );
 
     // 时长 = 视/音两轨谁的尾巴长
     let video_end = media_end(&video_info);
     let audio_end = meta.audio.as_ref().map(media_end).unwrap_or(0.0);
     let duration = video_end.max(audio_end);
 
-    // 音频设备：建不出来就挂钟（有画面没声音仍可看，不该整场失败）
-    let (audio_out, feed): (Option<AudioOut>, Option<RingFeed>) =
-        match meta.audio.as_ref().map(|a| (a.channels, a.sample_rate)) {
-            Some((ch, sr)) if ch > 0 && sr > 0 => match AudioOut::open(ch, sr) {
-                Some((out, feed)) => (Some(out), Some(feed)),
-                None => {
-                    log::warn!("[Playback] 音频设备不可用，退化为无声播放（挂钟）");
-                    (None, None)
-                }
-            },
-            _ => (None, None),
-        };
+    // 音频设备：建不出来就挂钟（有画面没声音仍可看，不该整场失败）。
+    //
+    // **带超时**：cpal/CoreAudio 的建流会在 HAL 层实测卡住（本机见过 110 秒
+    // 不返回，栈停在 audio_unit_from_device），而它在起播的必经路径上——
+    // 卡住等于整条链路卡住：视频任务根本还没起，画面上只有封面一直盖着。
+    // 放到独立线程等一个上界，超时就按无声播放继续（设备慢到 5 秒没建起来，
+    // 这一集也别等了）。迟到建成的流在线程里落地即析构（设备随即释放）。
+    let t_audio = std::time::Instant::now();
+    let (audio_out, feed) = open_audio_bounded(meta.audio.as_ref());
+    log::info!(
+        "[Playback] 音频设备阶段结束（{}ms，累计 {}ms）",
+        t_audio.elapsed().as_millis(),
+        t0.elapsed().as_millis()
+    );
     let clock = match &audio_out {
         Some(out) => Arc::clone(&out.clock_src),
         None => Arc::new(Clock::wall()),
@@ -159,10 +175,7 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
         shutdown: AtomicBool::new(false),
         clock: Arc::clone(&clock),
         latest: parking_lot::Mutex::new(None),
-        dims: parking_lot::Mutex::new((
-            video_info.width as usize,
-            video_info.height as usize,
-        )),
+        dims: parking_lot::Mutex::new((video_info.width as usize, video_info.height as usize)),
         duration_secs: parking_lot::Mutex::new(duration),
         events: opts.events,
     });
@@ -204,6 +217,84 @@ fn media_end(info: &TrackInfo) -> f64 {
         return info.media_duration as f64 / f64::from(info.media_timescale);
     }
     info.sample_pts().last().copied().unwrap_or(0.0)
+}
+
+/// 建音频设备的上界等待。见 [`open`] 里该段的说明。
+const AUDIO_OPEN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 连续两次尝试之间至少要隔的时间。
+///
+/// 卡住的建流线程永远回不来（CoreAudio 的 HAL 调用没有超时语义），放任每集
+/// 都起一个新的就会叠出一堆僵尸线程、各自占着 HAL 连接。所以两次尝试之间
+/// 拉开这个间隔——但**不是永久放弃**：设备重新插拔/系统恢复后，下一次
+/// 尝试还能把声音找回来。
+const AUDIO_RETRY_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// 上一次建流尝试的时刻（Unix 毫秒；0 = 从未试过）。
+static AUDIO_LAST_ATTEMPT_MS: AtomicU64 = AtomicU64::new(0);
+
+/// 现在的 Unix 毫秒。
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 建音频输出，最多等 [`AUDIO_OPEN_TIMEOUT`]。
+///
+/// 返回 `(None, None)` = 这段起播走无声（挂钟）：音轨缺失、设备建不出来、
+/// 建流卡过超时、或距上次卡住的尝试还不够久，都归到这里——对画面都没有
+/// 影响，不阻断起播。
+fn open_audio_bounded(audio: Option<&TrackInfo>) -> (Option<AudioOut>, Option<RingFeed>) {
+    let Some((channels, sample_rate)) = audio.map(|a| (a.channels, a.sample_rate)) else {
+        return (None, None);
+    };
+    if channels == 0 || sample_rate == 0 {
+        return (None, None);
+    }
+    let now = now_millis();
+    let last = AUDIO_LAST_ATTEMPT_MS.load(Ordering::Acquire);
+    if last != 0 && now.saturating_sub(last) < AUDIO_RETRY_COOLDOWN.as_millis() as u64 {
+        log::info!(
+            "[Playback] 距上次音频建流尝试不足 {}s，本次直接无声起播",
+            AUDIO_RETRY_COOLDOWN.as_secs()
+        );
+        return (None, None);
+    }
+    AUDIO_LAST_ATTEMPT_MS.store(now, Ordering::Release);
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("hg-audio-open".into())
+        .spawn(move || {
+            // 接收端已弃（超时返回）时 send 失败即丢弃产物：设备随流析构释放
+            let _ = tx.send(AudioOut::open(channels, sample_rate));
+        });
+    if let Err(e) = spawned {
+        log::warn!("[Playback] 音频建流线程起不来（{e}），无声播放");
+        return (None, None);
+    }
+    match rx.recv_timeout(AUDIO_OPEN_TIMEOUT) {
+        Ok(Some(pair)) => {
+            // 建流成功：冷却重置，后续集数立刻可用
+            AUDIO_LAST_ATTEMPT_MS.store(0, Ordering::Release);
+            (Some(pair.0), Some(pair.1))
+        }
+        Ok(None) => {
+            log::warn!("[Playback] 音频设备不可用，退化为无声播放（挂钟）");
+            (None, None)
+        }
+        Err(_) => {
+            log::warn!(
+                "[Playback] 音频设备建流超过 {}s 未返回（CoreAudio 卡住），先出画；\
+                 {}s 内不再重试",
+                AUDIO_OPEN_TIMEOUT.as_secs(),
+                AUDIO_RETRY_COOLDOWN.as_secs()
+            );
+            (None, None)
+        }
+    }
 }
 
 /// 音频喂送循环：样本 → symphonia → 交错 f32 → 环形缓冲。
@@ -264,9 +355,7 @@ async fn audio_feeder(
             return;
         }
         // 暂停 = 停止喂（设备也停消费，时钟冻结）
-        while shared.paused.load(Ordering::Relaxed)
-            && !shared.shutdown.load(Ordering::Relaxed)
-        {
+        while shared.paused.load(Ordering::Relaxed) && !shared.shutdown.load(Ordering::Relaxed) {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         if shared.shutdown.load(Ordering::Relaxed) {
@@ -294,7 +383,11 @@ async fn audio_feeder(
             }
         };
         if idx % 100 == 0 {
-            log::debug!("[Playback][feed] 样本 {idx}（{:.1}s），clock={:.2}", pt, shared.clock.now());
+            log::debug!(
+                "[Playback][feed] 样本 {idx}（{:.1}s），clock={:.2}",
+                pt,
+                shared.clock.now()
+            );
         }
         let mut sbuf = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
         sbuf.copy_interleaved_ref(decoded);

@@ -18,6 +18,8 @@ mod bridge;
 mod home;
 mod http_client;
 mod rank;
+#[cfg(feature = "screenshot")]
+mod screenshot;
 mod shell;
 
 use std::sync::Arc;
@@ -59,7 +61,13 @@ fn main() {
             gpui_kit::size(gpui_kit::px(1024.), gpui_kit::px(680.)),
             cx,
         );
-        let (_, shell) = gpui_kit::open_window(
+        // 默认构建用不到这个句柄（只有 screenshot feature 抓帧要），
+        // 关掉 feature 时按「有意不用」放行，别为一个变量把 feature 拧到反。
+        #[cfg_attr(
+            not(feature = "screenshot"),
+            expect(unused_variables, reason = "句柄只有 screenshot feature 用")
+        )]
+        let (shell_window, shell) = gpui_kit::open_window(
             gpui_kit::WindowOptions {
                 window_bounds: Some(gpui_kit::WindowBounds::Windowed(bounds)),
                 // 标题空着的话任务栏是一条空白条目，用户根本认不出这个窗口
@@ -74,6 +82,9 @@ fn main() {
         )
         .expect("窗口创建失败");
         shell.update(cx, |shell, cx| shell.activate(cx));
+        // 图形链路取证：HONGGUO_SHOT=… 时进程内抓帧存 PNG（见截图模块头注释）
+        #[cfg(feature = "screenshot")]
+        screenshot::install(shell_window, cx);
     });
 }
 
