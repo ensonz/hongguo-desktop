@@ -15,6 +15,8 @@ authors.workspace = true
 
 # cargo test 会把无测试框架的 bin 当用例**直接执行**（本壳一跑就开窗口，
 # 把全仓测试挂死——实测发生过）。应用 bin 一律关掉 test 集成。
+# 需要测的东西放 tests/（集成测试，不碰 bin）：目前只有一条源码守卫——
+# 「造 RenderImage 只有 image_upload.rs 一处，且必须过 RGBA→BGRA」。
 [[bin]]
 name = "hongguo-gpui"
 test = false

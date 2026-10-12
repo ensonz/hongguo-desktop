@@ -17,7 +17,9 @@ mf::playback      播放专用解码 MFT（HEVC + AAC），专用线程 + 请求
                    首样本前插带内参数集（按 length_size 前缀）兜底
 渲染（home.rs）   macOS=surface()（gpui 仅 Apple 目标有视频 surface）；
                    Windows=事件任务里 NV12→RGBA（BT.709 limited，hongguo-media
-                   的纯函数转换）后按普通图像 img() 上传
+                   的纯函数转换，标准 NV12：U 在前、不做色度交换）后按普通
+                   图像 img() 上传；**上传前必须转 BGRA**（gpui 的 RenderImage
+                   约定帧缓冲是 BGRA，见 hongguo-gpui/src/image_upload.rs）
 ```
 
 ## 上机步骤
@@ -69,6 +71,10 @@ mf::playback      播放专用解码 MFT（HEVC + AAC），专用线程 + 请求
 - **gpui-kit Windows 构建**：`hongguo-gpui` 的 Windows 编译在本仓从未跑过
   （Makefile 的交叉 clippy 一直排除它）。首编的报错大概率在依赖树
   （bindgen/Windows SDK），不在业务代码。
+- **图片通道序**：手工造帧交给 `RenderImage::new` 前必须 RGBA→BGRA 交换
+  （`hongguo-gpui/src/image_upload.rs`），否则画面上 R/B 整体互换——视频
+  人物变蓝脸/蓝发变橙发、封面蓝底变橙底。排查手段：往视频帧里叠已知色带
+  （红绿蓝白）截屏读回，一眼看出走没走通道序。
 
 ## 门禁口径
 

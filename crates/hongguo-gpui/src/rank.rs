@@ -30,9 +30,12 @@ pub struct RankView {
     loading: bool,
     /// 是否已经拉过一次（首次进榜自动加载；失败后靠重试按钮）。
     loaded_once: bool,
-    /// 已解码的封面位图（名次 → RGBA；榜单行以名次为稳定域键）。
-    covers: std::collections::HashMap<u32, Arc<RenderImage>>,
-    covers_pending: std::collections::HashSet<u32>,
+    /// 已解码的封面位图（**系列 id** → 位图）。键曾经用名次，结果翻车：
+    /// 榜单名次会并列（本机实测榜里有两行同为「5」），按名次做键时第二行
+    /// 的封面加载被去重吞掉、渲染又取到第一行那张——那一行的封面就成了
+    /// 别的剧（用户看到的「封面不对」）。行列身份一律用系列 id。
+    covers: std::collections::HashMap<String, Arc<RenderImage>>,
+    covers_pending: std::collections::HashSet<String>,
 }
 
 impl RankView {
@@ -91,9 +94,15 @@ impl RankView {
 
     /// 逐行派发封面加载（阻塞池跑三级阶梯，与 FeedView 同一套）。
     fn load_covers(&mut self, items: &[hongguo_api::rank::RankItem], cx: &mut Context<Self>) {
-        for item in items {
-            let rank = item.rank;
-            if !self.covers_pending.insert(rank) {
+        for (index, item) in items.iter().enumerate() {
+            // 系列 id 缺失（理论上不该发生）时退回行下标：键必须唯一，
+            // 退回名次会重现「两行同键」。
+            let key = if item.series_id.is_empty() {
+                format!("row{index}")
+            } else {
+                item.series_id.clone()
+            };
+            if !self.covers_pending.insert(key.clone()) {
                 continue;
             }
             let remote = item.cover.clone();
@@ -104,13 +113,14 @@ impl RankView {
                 .await
                 .expect("阻塞池 join")
             });
+            let rank = item.rank;
             cx.spawn(async move |this, cx| {
                 let bytes: Vec<u8> = match rx.await.expect("tokio 桥不会丢弃发送端") {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         this.update(cx, |view, _| {
                             log::warn!("[Rank/Cover] 封面加载失败: {e}");
-                            view.covers_pending.remove(&rank);
+                            view.covers_pending.remove(&key);
                         })
                         .ok();
                         return;
@@ -118,14 +128,35 @@ impl RankView {
                 };
                 let _ = this.update(cx, |view, cx| match image::load_from_memory(&bytes) {
                     Ok(decoded) => {
-                        let frame = image::Frame::new(decoded.to_rgba8());
-                        view.covers
-                            .insert(rank, Arc::new(RenderImage::new(smallvec::smallvec![frame])));
+                        // 取证开关：HONGGUO_DUMP_COVER=<目录> 时落盘原始字节 +
+                        // 解码 PNG（rank 为名，离线对拍用）
+                        if let Ok(dir) = std::env::var("HONGGUO_DUMP_COVER") {
+                            let _ = std::fs::create_dir_all(&dir);
+                            let _ = std::fs::write(
+                                std::path::Path::new(&dir).join(format!("rank{rank}.bin")),
+                                &bytes,
+                            );
+                            let rgba = decoded.to_rgba8();
+                            let _ = rgba.save(
+                                std::path::Path::new(&dir).join(format!("rank{rank}.ours.png")),
+                            );
+                            let head: Vec<u8> = bytes.iter().take(12).copied().collect();
+                            log::info!(
+                                "[Rank/Cover] 落盘 rank{rank}（{}B，首字节 {head:02x?}，{}×{}）",
+                                bytes.len(),
+                                rgba.width(),
+                                rgba.height()
+                            );
+                        }
+                        view.covers.insert(
+                            key,
+                            Arc::new(crate::image_upload::render_image(decoded.to_rgba8())),
+                        );
                         cx.notify();
                     }
                     Err(e) => {
                         log::warn!("[Rank/Cover] 解码失败: {e}");
-                        view.covers_pending.remove(&rank);
+                        view.covers_pending.remove(&key);
                     }
                 });
             })
@@ -211,29 +242,38 @@ impl RankView {
                 .flex_1()
                 .overflow_y_scroll()
                 .child(
-                    v_flex()
-                        .py_2()
-                        .children(self.items.iter().map(|item| self.render_row(item, cx))),
+                    v_flex().py_2().children(
+                        self.items
+                            .iter()
+                            .enumerate()
+                            .map(|(index, item)| self.render_row(item, index, cx)),
+                    ),
                 )
                 .into_any_element(),
         }
     }
 
-    /// 一行榜单：名次 / 封面 / 标题+副题 / 热度。名次是稳定域序（榜单就是
-    /// 按名次给的），行 id 用名次；刷新后重排属数据变化，非内容重排。
+    /// 一行榜单：名次 / 封面 / 标题+副题 / 热度。行身份用**系列 id**（同
+    /// [`Self::load_covers`] 的口径）：名次会并列，拿名次做 id 会撞。
     fn render_row(
         &self,
         item: &hongguo_api::rank::RankItem,
+        index: usize,
         cx: &Context<Self>,
     ) -> gpui_kit::AnyElement {
         let theme = cx.theme();
+        let key = if item.series_id.is_empty() {
+            format!("row{index}")
+        } else {
+            item.series_id.clone()
+        };
         let rank_color = if item.rank <= 3 {
             theme.primary
         } else {
             theme.muted_foreground
         };
         h_flex()
-            .id(ElementId::from(format!("rank-row-{}", item.rank)))
+            .id(ElementId::from(format!("rank-row-{key}")))
             .items_center()
             .gap_3()
             .px_4()
@@ -255,7 +295,7 @@ impl RankView {
                     .rounded(theme.radius)
                     .bg(theme.secondary)
                     .flex_shrink_0()
-                    .child(match self.covers.get(&item.rank) {
+                    .child(match self.covers.get(&key) {
                         Some(bitmap) => img(gpui_kit::ImageSource::Render(Arc::clone(bitmap)))
                             .size_full()
                             .object_fit(ObjectFit::Cover)

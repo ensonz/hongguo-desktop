@@ -21,6 +21,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::Button;
@@ -180,6 +181,18 @@ pub struct HomeView {
     /// Apple 目标（CVPixelBuffer），Windows 走这条等价路径。
     #[cfg(target_os = "windows")]
     frame_image: Option<Arc<RenderImage>>,
+    /// 已下台、等 render 里 `window.drop_image` 回收的图像。gpui 的纹理按
+    /// `RenderImage::id` 常驻 sprite atlas（`paint_image` 只增不删），视频
+    /// 路径每帧一个新 id，不主动回收就是无上限的显存/内存泄漏。
+    #[cfg(target_os = "windows")]
+    retired_images: Vec<Arc<RenderImage>>,
+    /// 视频转换目标尺寸（宽,高；CSS px）。render_stage 按舞台显示区刷新，
+    /// 事件循环的 NV12→RGBA 按它缩放输出——769px 的视口出 1080p 纹理纯
+    /// 浪费：转换 CPU、图集纹理、回收压力都按面积走（8.3MB → ~1.3MB）。
+    #[cfg(target_os = "windows")]
+    video_target: Rc<Cell<(usize, usize)>>,
+    /// 舞台周期状态日志的上一跳（排障取证：frame/switching/image 状态）。
+    stage_diag_at: Cell<Instant>,
     /// 切换目标（switching 时 overlay 显示它的封面与标题）。
     pending_title: Option<String>,
 
@@ -254,6 +267,11 @@ impl HomeView {
             frame: None,
             #[cfg(target_os = "windows")]
             frame_image: None,
+            #[cfg(target_os = "windows")]
+            retired_images: Vec::new(),
+            #[cfg(target_os = "windows")]
+            video_target: Rc::new(Cell::new((1280, 720))),
+            stage_diag_at: Cell::new(Instant::now()),
             pending_title: None,
             rate: prefs.rate,
             volume: prefs.volume,
@@ -273,6 +291,28 @@ impl HomeView {
             stage_rects: Rc::new(Cell::new(None)),
         };
         view.subscribe_controls(cx);
+        // 取证心跳（HONGGUO_DIAG=1 时启用）：2s 一跳。这行停了 = 主线程/
+        // 前台执行器堵死（update 派发不到主线程），render 停跳的根因直接
+        // 归位。平时不开，不污染日志。
+        if std::env::var("HONGGUO_DIAG").is_ok() {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(2))
+                        .await;
+                    let ok = this
+                        .update(cx, |_, cx| {
+                            log::info!("[Home] 主线程心跳");
+                            cx.notify();
+                        })
+                        .is_ok();
+                    if !ok {
+                        return;
+                    }
+                }
+            })
+            .detach();
+        }
         view.load_feed(Source::Feed, false, cx);
         view.load_history(cx);
         view
@@ -325,6 +365,13 @@ impl HomeView {
                         feed.has_more = page.has_more;
                         feed.items = page.items.iter().map(StreamItem::from).collect();
                         feed.failed = None;
+                        // 取证：dump 开关时把整页封面都预载落盘（离线对拍用）
+                        if std::env::var("HONGGUO_DUMP_COVER").is_ok() {
+                            let items: Vec<StreamItem> = feed.items.clone();
+                            for item in items.iter().take(12) {
+                                view.load_cover_of(item, cx);
+                            }
+                        }
                     }
                     Err(e) => {
                         feed.failed = Some(format!("推荐流加载失败：{e}"));
@@ -610,9 +657,7 @@ impl HomeView {
         // 旧的帧立即退场：切换期间画面上是新目标的封面，不是上一部的残帧
         self.frame = None;
         #[cfg(target_os = "windows")]
-        {
-            self.frame_image = None;
-        }
+        self.clear_frame_image();
         self.pending_title = Some(if item.title.is_empty() {
             "正在准备…".to_string()
         } else {
@@ -627,6 +672,11 @@ impl HomeView {
         let (events, rx) = mpsc::channel::<PlayerEvent>(64);
         let epoch = self.epoch;
         // 事件循环先于引擎起：Channel 关闭（引擎丢弃 → 发送端清零）即自然退出
+        #[cfg(target_os = "windows")]
+        let video_target = Rc::clone(&self.video_target);
+        #[cfg(target_os = "windows")]
+        self.spawn_event_loop(epoch, rx, video_target, cx);
+        #[cfg(not(target_os = "windows"))]
         self.spawn_event_loop(epoch, rx, cx);
         let done = bridge::spawn(Self::play_task(
             state,
@@ -656,6 +706,7 @@ impl HomeView {
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
+                        log::info!("[Home] 引擎就位（epoch={epoch}），switching 解除");
                     }
                     Err(e) => {
                         log::warn!("[Home] 起播失败: {e}");
@@ -776,54 +827,148 @@ impl HomeView {
         &mut self,
         epoch: u64,
         mut events: mpsc::Receiver<PlayerEvent>,
+        #[cfg(target_os = "windows")] video_target: Rc<Cell<(usize, usize)>>,
         cx: &mut Context<Self>,
     ) {
         cx.spawn(async move |this, cx| {
-            while let Some(event) = events.recv().await {
-                // Windows：NV12→RGBA 在事件任务里转换（每帧几毫秒，不占
-                // UI 线程）；macOS 是 CVPixelBuffer 零拷贝，无需转换
-                #[cfg(target_os = "windows")]
-                let converted = match &event {
-                    PlayerEvent::Frame(frame) => Self::render_image_of(frame),
-                    _ => None,
-                };
-                let ok = this
-                    .update(cx, |view, cx| {
-                        if view.epoch != epoch {
-                            return;
+            while let Some(first) = events.recv().await {
+                // 合并积压：Frame 只保最新一批里的最后一帧（1080p 转换 ~50ms、
+                // 上屏只认最新，旧帧转换纯属浪费），其余事件一个不丢、按序处理。
+                let mut batch = Vec::with_capacity(4);
+                batch.push(first);
+                while let Ok(next) = events.try_recv() {
+                    batch.push(next);
+                }
+                let last_frame = batch.iter().rposition(|e| matches!(e, PlayerEvent::Frame(_)));
+                'batch: for (i, event) in batch.into_iter().enumerate() {
+                    if matches!(event, PlayerEvent::Frame(_)) && Some(i) != last_frame {
+                        continue;
+                    }
+                    // Windows：NV12→RGBA 在事件任务里转换（每帧几十毫秒，不占
+                    // UI 线程）；macOS 是 CVPixelBuffer 零拷贝，无需转换
+                    #[cfg(target_os = "windows")]
+                    let converted = match &event {
+                        PlayerEvent::Frame(frame) => {
+                            Self::render_image_of(frame, video_target.get())
                         }
-                        #[cfg(target_os = "windows")]
-                        if let Some(image) = converted {
-                            view.frame_image = Some(image);
-                        }
-                        view.on_player_event(event, cx);
-                    })
-                    .is_ok();
-                if !ok {
-                    break;
+                        _ => None,
+                    };
+                    let ok = this
+                        .update(cx, |view, cx| {
+                            if view.epoch != epoch {
+                                log::warn!(
+                                    "[Home] 事件被纪元弃置（loop={epoch}，view={}）——事件到得了 view 却进不去",
+                                    view.epoch
+                                );
+                                return;
+                            }
+                            #[cfg(target_os = "windows")]
+                            if let Some(image) = converted {
+                                view.set_frame_image(image);
+                            }
+                            view.on_player_event(event, cx);
+                        })
+                        .is_ok();
+                    if !ok {
+                        break 'batch;
+                    }
                 }
             }
         })
         .detach();
     }
 
-    /// Windows 渲染转换：NV12（BT.709 limited）→ RGBA 图像。转换跑在本
-    /// 事件任务线程，渲染只按普通图像上传。
+    /// 换上新渲染产物，旧图送进回收队列（见 `retired_images` 头注释：
+    /// gpui 纹理只增不删，必须显式 `drop_image`）。
     #[cfg(target_os = "windows")]
-    fn render_image_of(frame: &VideoFrame) -> Option<Arc<RenderImage>> {
-        let FrameBuffer::Nv12(nv12) = &frame.buffer else {
-            return None;
-        };
-        let rgba = hongguo_media::nv12_rgba::nv12_to_rgba_bt709(
+    fn set_frame_image(&mut self, image: Arc<RenderImage>) {
+        // 兜底上限：render 排不上队（后台/卡顿）时，回收队列也不能无界涨
+        //（被挤掉的旧图其纹理可能滞留图集，代价有界：≤16 × 输出尺寸）
+        const RETIRED_KEEP: usize = 16;
+        while self.retired_images.len() >= RETIRED_KEEP {
+            self.retired_images.remove(0);
+        }
+        if let Some(old) = self.frame_image.replace(image) {
+            self.retired_images.push(old);
+        }
+    }
+
+    /// 渲染产物退场（切剧/连播），旧图同样进回收队列。
+    #[cfg(target_os = "windows")]
+    fn clear_frame_image(&mut self) {
+        if let Some(old) = self.frame_image.take() {
+            self.retired_images.push(old);
+        }
+    }
+
+    /// contain 适配：源 (w,h) 缩进目标盒（不放大、保宽高比、至少 2px）。
+    #[cfg(target_os = "windows")]
+    fn contain_fit(w: usize, h: usize, box_w: usize, box_h: usize) -> (usize, usize) {
+        let scale = (box_w as f64 / w as f64)
+            .min(box_h as f64 / h as f64)
+            .min(1.0);
+        (
+            (w as f64 * scale).round().max(2.0) as usize,
+            (h as f64 * scale).round().max(2.0) as usize,
+        )
+    }
+
+    /// Windows 渲染转换：NV12（BT.709 limited）→ RGBA 图像，**按舞台显示
+    /// 尺寸缩放输出**（见 `video_target` 头注释）。转换跑在本事件任务线程。
+    #[cfg(target_os = "windows")]
+    fn render_image_of(frame: &VideoFrame, target: (usize, usize)) -> Option<Arc<RenderImage>> {
+        // Windows 目标上 FrameBuffer 只有 Nv12 一个变体（可驳尽，同 mac 侧
+        // CVPixelBuffer 的口径）
+        static CONVERTED: AtomicU32 = AtomicU32::new(0);
+        let t0 = Instant::now();
+        let FrameBuffer::Nv12(nv12) = &frame.buffer;
+        let (tw, th) = Self::contain_fit(nv12.width, nv12.height, target.0, target.1);
+        let rgba = hongguo_media::nv12_rgba::nv12_to_rgba_bt709_scaled(
             &nv12.data,
             nv12.stride,
             nv12.width,
             nv12.height,
+            tw,
+            th,
         );
-        let buf = image::RgbaImage::from_raw(nv12.width as u32, nv12.height as u32, rgba)?;
-        Some(Arc::new(RenderImage::new(smallvec::smallvec![
-            image::Frame::new(buf)
-        ])))
+        let buf = image::RgbaImage::from_raw(tw as u32, th as u32, rgba)?;
+        // 取证开关：HONGGUO_DUMP_NV12=<前缀> 时第 0/200/600 帧落盘 NV12 +
+        // 我们的转换 PNG（与 ffmpeg 参照对拍用；多时刻采样，抓"某些帧才
+        // 错"类问题——首帧对不代表全程对）
+        static DUMPED: AtomicU32 = AtomicU32::new(0);
+        let n_dump = DUMPED.fetch_add(1, Ordering::Relaxed);
+        if n_dump.is_multiple_of(500)
+            && let Ok(prefix) = std::env::var("HONGGUO_DUMP_NV12")
+        {
+            let tag = if n_dump == 0 {
+                "f0".to_string()
+            } else {
+                format!("f{n_dump}")
+            };
+            let _ = std::fs::write(
+                std::path::PathBuf::from(&prefix).with_extension(format!("{tag}.nv12")),
+                nv12.data.as_slice(),
+            );
+            let _ = buf
+                .save(std::path::PathBuf::from(&prefix).with_extension(format!("{tag}.ours.png")));
+            log::info!(
+                "[Home] NV12 取证 #{n_dump} 已落盘：{prefix}.{tag}.nv12/.ours.png（{}×{} stride {}，转换目标 {tw}×{th}）",
+                nv12.width,
+                nv12.height,
+                nv12.stride
+            );
+        }
+        let image = Arc::new(crate::image_upload::render_image(buf));
+        let n = CONVERTED.fetch_add(1, Ordering::Relaxed);
+        if n < 3 || n.is_multiple_of(200) {
+            log::info!(
+                "[Home] NV12→RGBA 转换 #{n} 耗时 {:.1}ms（{tw}×{th}，源 {}×{}）",
+                t0.elapsed().as_secs_f64() * 1000.0,
+                nv12.width,
+                nv12.height
+            );
+        }
+        Some(image)
     }
 
     fn on_player_event(&mut self, event: PlayerEvent, cx: &mut Context<Self>) {
@@ -833,6 +978,10 @@ impl HomeView {
                 self.prefetch_next_stream(cx);
             }
             PlayerEvent::Frame(frame) => {
+                let first = self.frame.is_none();
+                if first {
+                    log::info!("[Home] 首帧进入 view——video_ready 即为 true");
+                }
                 self.frame = Some(frame);
                 self.save_progress_maybe();
                 // 相邻剧分集档案预取（换剧秒回，Tauri 同节奏）
@@ -1021,9 +1170,7 @@ impl HomeView {
     fn advance_after_end(&mut self, cx: &mut Context<Self>) {
         self.frame = None;
         #[cfg(target_os = "windows")]
-        {
-            self.frame_image = None;
-        }
+        self.clear_frame_image();
         // 防重入：Ended 只在时钟走完才发，但引擎收尾、通道重连都可能让同一集
         // 的 Ended 再来一次——那时 vid_index 还停在旧值，会把刚起播的下一集
         // 又推进一格（连着跳集，看着就是「内容来回变」）。切换途中直接吞掉。
@@ -1182,9 +1329,38 @@ impl HomeView {
             };
             let _ = this.update(cx, |view, cx| match image::load_from_memory(&bytes) {
                 Ok(decoded) => {
-                    let frame = image::Frame::new(decoded.to_rgba8());
-                    view.covers
-                        .insert(sid, Arc::new(RenderImage::new(smallvec::smallvec![frame])));
+                    // 取证开关：HONGGUO_DUMP_COVER=<目录> 时每个封面都落盘
+                    // 原始字节 + 我们的解码 PNG（sid 做文件名；离线与 ffmpeg
+                    // 参照对拍用）
+                    if let Ok(dir) = std::env::var("HONGGUO_DUMP_COVER") {
+                        let _ = std::fs::create_dir_all(&dir);
+                        let tag: String = sid
+                            .chars()
+                            .rev()
+                            .take(8)
+                            .collect::<String>()
+                            .chars()
+                            .rev()
+                            .collect();
+                        let _ = std::fs::write(
+                            std::path::Path::new(&dir).join(format!("{tag}.bin")),
+                            &bytes,
+                        );
+                        let rgba = decoded.to_rgba8();
+                        let _ =
+                            rgba.save(std::path::Path::new(&dir).join(format!("{tag}.ours.png")));
+                        let head: Vec<u8> = bytes.iter().take(12).copied().collect();
+                        log::info!(
+                            "[Home] 封面落盘 {tag}（{}B，首字节 {head:02x?}，{}×{}）",
+                            bytes.len(),
+                            rgba.width(),
+                            rgba.height()
+                        );
+                    }
+                    view.covers.insert(
+                        sid,
+                        Arc::new(crate::image_upload::render_image(decoded.to_rgba8())),
+                    );
                     cx.notify();
                 }
                 Err(e) => {
@@ -1248,10 +1424,10 @@ impl HomeView {
 
     /// 沉浸舞台：**同一时刻只画一层内容**——出画了画视频，没出画画封面。
     ///
-    /// 两层都是绝对定位铺满舞台。曾经把两层都画上、让封面盖在视频上面，
-    /// 结果是封面「在图片之上」的语义依赖渲染器，一旦封面比视频先画或
-    /// 视频带黑边（object-contain 留黑），封面就从留白里透出来——用户看到
-    /// 的正是「上下各一条封面夹着中间的画面」。二选一渲染，结构上不可能叠。
+    /// 两层都是绝对定位铺满舞台，谁盖谁由元素顺序决定。曾经两层都画、封面
+    /// 垫在视频下面：视频是 object-contain（上下留黑边），封面就从黑边里
+    /// 透出来——用户看到的正是「上下各一条封面夹着中间的画面」。二选一
+    /// 渲染，结构上不可能叠。
     ///
     /// 层序仍与 Tauri `player-page.tsx` 一致：有画面时是画面，没有时是封面；
     /// 取流/解码的间隙看到的是这部剧的封面而不是黑屏。
@@ -1260,6 +1436,34 @@ impl HomeView {
     fn render_stage(&self, cx: &Context<Self>) -> gpui_kit::Div {
         let theme = cx.theme();
         let video_ready = self.frame.is_some() && !self.switching;
+        // 视频输出尺寸跟随舞台显示区（上一帧的布局矩形，Paint 后才精确；
+        // contain 保宽高比在转换端算）
+        #[cfg(target_os = "windows")]
+        if let Some([w, h, ..]) = self.stage_rects.get()
+            && w >= 2.0
+            && h >= 2.0
+        {
+            self.video_target.set((w as usize, h as usize));
+        }
+        // 周期状态取证（5s 一跳）：封面收不收、帧/图/切换位各在哪一档，
+        // 一行钉死——排障不用再猜是事件没到还是渲染没跟上。
+        if self.stage_diag_at.get().elapsed() >= Duration::from_secs(5) {
+            self.stage_diag_at.set(Instant::now());
+            #[cfg(target_os = "windows")]
+            let image_state = format!(
+                "image={}（待回收 {}）",
+                self.frame_image.is_some(),
+                self.retired_images.len()
+            );
+            #[cfg(not(target_os = "windows"))]
+            let image_state = "image=n/a".to_string();
+            log::info!(
+                "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={}",
+                self.frame.is_some(),
+                self.switching,
+                self.epoch
+            );
+        }
         // 占位封面取**目标剧**（游标位）：切剧瞬间游标已指向下一部，先出
         // 它的封面；无封面条目（书架种子）退回首帧方向已在播的那部。
         let cover_sid = self
@@ -1277,10 +1481,15 @@ impl HomeView {
             Some(bitmap) => div()
                 .absolute()
                 .size_full()
+                .overflow_hidden()
                 .child(
                     img(ImageSource::Render(Arc::clone(bitmap)))
                         .absolute()
                         .size_full()
+                        // 竖版封面铺满横屏舞台走 Cover（裁切，不拉伸）——与
+                        // Tauri `player-page.tsx` 的 object-cover 同语义。
+                        // 别用 Fill：那是拉伸，400×572 的海报会被横向拉宽
+                        // ~1.7 倍（人物变胖）。
                         .object_fit(ObjectFit::Cover),
                 )
                 .child(div().absolute().size_full().bg(gpui_kit::rgba(0x00000073)))
@@ -1314,8 +1523,8 @@ impl HomeView {
                 .object_fit(ObjectFit::Contain)
                 .into_any_element()
         };
-        let video: gpui_kit::AnyElement = match (&self.frame, video_ready) {
-            (Some(frame), true) => div()
+        let video: gpui_kit::AnyElement = if video_ready {
+            div()
                 .absolute()
                 .size_full()
                 .id("stage-video")
@@ -1323,6 +1532,7 @@ impl HomeView {
                 .child({
                     #[cfg(target_os = "macos")]
                     {
+                        let frame = self.frame.as_ref().expect("video_ready 已验帧在");
                         video_layer(frame)
                     }
                     #[cfg(target_os = "windows")]
@@ -1335,14 +1545,15 @@ impl HomeView {
                         }
                     }
                 })
-                .into_any_element(),
-            _ => h_flex()
+                .into_any_element()
+        } else {
+            h_flex()
                 .absolute()
                 .size_full()
                 .items_center()
                 .justify_center()
                 .child(Spinner::new())
-                .into_any_element(),
+                .into_any_element()
         };
         // 缓冲角标（右上）：引擎水位状态机的 Buffering 事件驱动，区别于左上
         // 的切剧提示
@@ -1686,9 +1897,24 @@ impl HomeView {
 impl gpui_kit::Render for HomeView {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
+        // 取证：render 调用率（64 次一跳）。绘制饿死时这行不涨而事件仍在流。
+        static RENDERS: AtomicU32 = AtomicU32::new(0);
+        let n = RENDERS.fetch_add(1, Ordering::Relaxed);
+        if n.is_multiple_of(64) {
+            log::info!("[Home] render #{n}");
+        }
+        // 纹理回收口：gpui 的 sprite atlas 按 RenderImage::id 常驻（paint 只增
+        // 不删），视频每帧一个新 id——不在这里显式 drop，显存/内存就无上限
+        // 涨（实测 5 分钟 5.5GB）。只在 render 时有 Window 句柄可调。
+        #[cfg(target_os = "windows")]
+        for old in std::mem::take(&mut self.retired_images) {
+            if let Err(e) = window.drop_image(old) {
+                log::warn!("[Home] 纹理回收失败: {e}");
+            }
+        }
         // render_tabs 要 &mut cx，先取（theme 借的是 cx 的不可变引用）
         let tabs = self.render_tabs(cx);
         let theme = cx.theme();
