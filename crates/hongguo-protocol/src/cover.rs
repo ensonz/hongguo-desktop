@@ -115,7 +115,8 @@ fn ensure_cache_dir() -> Result<(), String> {
 
 /// 取回「必定可渲染」的字节：先嗅探透传，不行再进 HEIC 转码阶梯。
 /// 返回 `(字节, 缓存扩展名, Content-Type)`。
-fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String> {    let mut downloaded: Option<Vec<u8>> = None;
+fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String> {
+    let mut downloaded: Option<Vec<u8>> = None;
 
     // 0) 魔数嗅探透传：已经是 WebView 可直接渲染的格式就不折腾
     //    （无扩展名头像实测多为 jpeg，2026-10-10 curl 实证）

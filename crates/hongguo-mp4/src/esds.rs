@@ -51,8 +51,7 @@ pub fn decoder_specific_info(esds_payload: &[u8]) -> AppResult<Vec<u8>> {
             }
             // 不规范的封装把 DecoderConfigDescriptor 放在顶层：照样认
             0x04 => {
-                if let Some(asc) = find_in_body(esds_payload, body_start + 13, body_end, 0x05, 0)
-                {
+                if let Some(asc) = find_in_body(esds_payload, body_start + 13, body_end, 0x05, 0) {
                     return Ok(esds_payload[asc.0..asc.1].to_vec());
                 }
             }
@@ -118,7 +117,9 @@ fn next_descriptor(data: &[u8], pos: usize, end: usize) -> Option<(u8, usize, us
 /// 校验（≥8 且不越 entry），音频 entry 里这个四字符码不存在歧义。
 pub fn decoder_config_from_stsd(data: &[u8], start: usize, size: usize) -> Option<Vec<u8>> {
     // stsd 每轨只装一个 sample entry：取第一个，找不到就是没有
-    let b = parse_boxes(data, start + 8, start + size).into_iter().next()?;
+    let b = parse_boxes(data, start + 8, start + size)
+        .into_iter()
+        .next()?;
     let entry_end = b.start + b.size;
     // 扩展区从固定体的保守下限（ISO 24）起扫
     let from = b.start + 24;
@@ -127,8 +128,8 @@ pub fn decoder_config_from_stsd(data: &[u8], start: usize, size: usize) -> Optio
     }
     for i in from..=entry_end - 12 {
         if &data[i..i + 4] == b"esds" {
-            let size = u32::from_be_bytes([data[i - 4], data[i - 3], data[i - 2], data[i - 1]])
-                as usize;
+            let size =
+                u32::from_be_bytes([data[i - 4], data[i - 3], data[i - 2], data[i - 1]]) as usize;
             // size 覆盖整个 box 且不越 entry 才认
             if size >= 12 && i - 4 + size <= entry_end {
                 let payload = data.get(i + 4..i - 4 + size)?;
@@ -148,8 +149,13 @@ mod tests {
     fn extracts_specific_info_from_nested_descriptors() {
         let asc = [0x12, 0x10];
         // DecoderConfigDescriptor 体：objType(1)+streamType(1)+bufferSizeDB(3)+maxBr(4)+avgBr(4)
-        let dcd_body: Vec<u8> = [[0x40u8, 0x15].as_slice(), &[0, 0, 0], &[0, 0, 1, 0], &[0, 0, 1, 0]]
-            .concat();
+        let dcd_body: Vec<u8> = [
+            [0x40u8, 0x15].as_slice(),
+            &[0, 0, 0],
+            &[0, 0, 1, 0],
+            &[0, 0, 1, 0],
+        ]
+        .concat();
         // 0x04 的长度含整个 0x05 子描述符（tag 1 + len 1 + 载荷 2）
         let dcd: Vec<u8> = [[0x04].as_slice(), &[(dcd_body.len() + 2 + asc.len()) as u8]]
             .concat()
@@ -158,11 +164,15 @@ mod tests {
             .chain([0x05, asc.len() as u8])
             .chain(asc.iter().copied())
             .collect();
-        let es_body: Vec<u8> = [[0x03].as_slice(), &[dcd.len() as u8 + 3], &[0x00, 0x01, 0x00]]
-            .concat()
-            .into_iter()
-            .chain(dcd.iter().copied())
-            .collect();
+        let es_body: Vec<u8> = [
+            [0x03].as_slice(),
+            &[dcd.len() as u8 + 3],
+            &[0x00, 0x01, 0x00],
+        ]
+        .concat()
+        .into_iter()
+        .chain(dcd.iter().copied())
+        .collect();
         let mut payload = vec![0, 0, 0, 0]; // version + flags
         payload.extend_from_slice(&es_body);
 

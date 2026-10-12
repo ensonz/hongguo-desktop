@@ -170,7 +170,10 @@ pub async fn prepare(
     let runtime = runtime.clone();
     let handle = runtime.handle.clone();
     handle.spawn(async move {
-        let filled = fill(&runtime, c, &owned, &owned_key, want, &play, &settings, false).await;
+        let filled = fill(
+            &runtime, c, &owned, &owned_key, want, &play, &settings, false,
+        )
+        .await;
         // 取流权一直持有到数据落盘：中途放开会让并发的第二个请求以为
         // 「没人管这一档」而重新下一遍。
         c.end_fetch(&owned, want);
@@ -249,7 +252,10 @@ pub async fn prefetch_stream(
     let settings = settings.clone();
     let handle = runtime.handle.clone();
     handle.spawn(async move {
-        let filled = fill(&runtime, c, &owned, &owned_key, want, &play, &settings, true).await;
+        let filled = fill(
+            &runtime, c, &owned, &owned_key, want, &play, &settings, true,
+        )
+        .await;
         c.end_fetch(&owned, want);
         if let Err(e) = filled {
             log::warn!("[Online] 预取填充 {owned} 失败: {e}");
