@@ -20,6 +20,35 @@ pub(crate) struct PlaybackPrefs {
     pub(crate) volume: f32,
     /// 静音独立于音量（对齐 Tauri：静音后音量值保留）。
     pub(crate) muted: bool,
+    /// 弹幕开关（Tauri readDanmakuEnabled 同语义）。
+    pub(crate) danmaku_on: bool,
+    /// 弹幕文字不透明度 0.1–1（Tauri DanmakuDisplaySettings.opacity）。
+    pub(crate) dm_opacity: f32,
+    /// 弹幕字号缩放 0.5–2（1 = 基准字号）。
+    pub(crate) dm_font_scale: f32,
+    /// 弹幕密度 0–1（1 = 全部显示，入场按比例丢弃）。
+    pub(crate) dm_density: f32,
+    /// 弹幕显示区域 0.25–1（占画面顶部高度比例）。
+    pub(crate) dm_area: f32,
+}
+
+/// 弹幕显示参数默认值（Tauri DANMAKU_DEFAULTS 同款）。
+pub(crate) const DM_DEFAULTS: DanmakuPrefs = DanmakuPrefs {
+    on: true,
+    opacity: 0.9,
+    font_scale: 1.0,
+    density: 1.0,
+    area: 1.0,
+};
+
+/// 弹幕显示参数（与播放偏好同文件承载）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct DanmakuPrefs {
+    pub(crate) on: bool,
+    pub(crate) opacity: f32,
+    pub(crate) font_scale: f32,
+    pub(crate) density: f32,
+    pub(crate) area: f32,
 }
 
 impl Default for PlaybackPrefs {
@@ -28,6 +57,11 @@ impl Default for PlaybackPrefs {
             rate: 1.0,
             volume: 1.0,
             muted: false,
+            danmaku_on: DM_DEFAULTS.on,
+            dm_opacity: DM_DEFAULTS.opacity,
+            dm_font_scale: DM_DEFAULTS.font_scale,
+            dm_density: DM_DEFAULTS.density,
+            dm_area: DM_DEFAULTS.area,
         }
     }
 }
@@ -54,6 +88,27 @@ pub(crate) fn load_from(path: &Path) -> PlaybackPrefs {
                 }
             }
             "muted" => prefs.muted = value.trim() == "true",
+            "dm_on" => prefs.danmaku_on = value.trim() == "true",
+            "dm_opacity" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    prefs.dm_opacity = v.clamp(0.1, 1.0);
+                }
+            }
+            "dm_font" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    prefs.dm_font_scale = v.clamp(0.5, 2.0);
+                }
+            }
+            "dm_density" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    prefs.dm_density = v.clamp(0.0, 1.0);
+                }
+            }
+            "dm_area" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    prefs.dm_area = v.clamp(0.25, 1.0);
+                }
+            }
             _ => {}
         }
     }
@@ -64,8 +119,15 @@ pub(crate) fn load_from(path: &Path) -> PlaybackPrefs {
 pub(crate) fn save_to(path: &Path, prefs: &PlaybackPrefs) {
     let tmp = path.with_extension("tmp");
     let text = format!(
-        "rate={}\nvolume={}\nmuted={}\n",
-        prefs.rate, prefs.volume, prefs.muted
+        "rate={}\nvolume={}\nmuted={}\ndm_on={}\ndm_opacity={}\ndm_font={}\ndm_density={}\ndm_area={}\n",
+        prefs.rate,
+        prefs.volume,
+        prefs.muted,
+        prefs.danmaku_on,
+        prefs.dm_opacity,
+        prefs.dm_font_scale,
+        prefs.dm_density,
+        prefs.dm_area
     );
     if std::fs::write(&tmp, text)
         .and_then(|_| std::fs::rename(&tmp, path))

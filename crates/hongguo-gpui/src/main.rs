@@ -91,7 +91,7 @@ fn main() {
                 ..Default::default()
             },
             cx,
-            |_, cx| cx.new(|cx| shell::Shell::new(state.clone(), cx)),
+            |window, cx| cx.new(|cx| shell::Shell::new(state.clone(), window, cx)),
         )
         .expect("窗口创建失败");
         shell.update(cx, |shell, cx| shell.activate(cx));

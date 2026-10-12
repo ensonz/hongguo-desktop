@@ -26,6 +26,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
 use gpui_kit::component::spinner::Spinner;
@@ -36,9 +37,10 @@ use gpui_kit::surface;
 use gpui_kit::{
     ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
 };
+use hongguo_api::danmaku::{Danmaku, fetch_danmaku_all};
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
-use hongguo_api::interact::fetch_bookshelf;
+use hongguo_api::interact::{fetch_bookshelf, send_danmaku};
 use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_common::AppResult;
 use hongguo_common::model::VideoDefinition;
@@ -155,6 +157,8 @@ struct NowPlaying {
     definitions: Vec<VideoDefinition>,
     /// 实际在播的档位（0 = 尚未取到）
     definition: u32,
+    /// 本集的 vid（弹幕 group_id）
+    vid: String,
 }
 
 // ---------------------------------------------------------------- 视图
@@ -233,6 +237,45 @@ pub struct HomeView {
     intros_pending: HashSet<String>,
     /// 简介展开态（Tauri introExpanded：超过 40 字可展开/收起）。
     intro_expanded: bool,
+    /// 弹幕总开关（Tauri danmakuOn，随偏好落盘）。
+    danmaku_on: bool,
+    /// 弹幕文字不透明度 0.1–1。
+    dm_opacity: f32,
+    /// 弹幕字号缩放 0.5–2。
+    dm_font_scale: f32,
+    /// 弹幕密度 0–1（入场按比例随机丢弃）。
+    dm_density: f32,
+    /// 弹幕显示区域 0.25–1（占舞台顶部高度比例）。
+    dm_area: f32,
+    /// 弹幕设置面板开着。
+    dm_panel_open: bool,
+    /// 当前集的弹幕（offset_ms 升序；每次进集重拉，Tauri useDanmaku 同款）。
+    danmaku_items: Arc<Vec<Danmaku>>,
+    /// 已拉取弹幕的集（vid）——同集不重拉，换集必重拉。
+    danmaku_vid: String,
+    danmaku_fetching: bool,
+    /// 已入场游标（items 下标；seek 时二分重置）。
+    danmaku_cursor: usize,
+    /// 在飞的弹幕（泳道 + 入场墙钟）。
+    danmaku_flights: Vec<DmFlight>,
+    /// 每条泳道「最早可再入场」的媒体秒（hgplayer laneFreeAt 同款）。
+    danmaku_lane_free: Vec<f64>,
+    /// 上一帧的播放位置（seek 跳变检测用）。
+    danmaku_last_pos: f64,
+    /// tick 的上次时刻（推进在飞弹幕的 dt 源）。
+    danmaku_last_tick: Option<std::time::Instant>,
+    /// 密度抽样的 LCG 状态。
+    dm_rng: u64,
+    /// 弹幕发送框输入（需要 window 创建，见 HomeView::new）。
+    danmaku_input: Option<Entity<InputState>>,
+    danmaku_sending: bool,
+    /// 发送成功后清空输入框（set_value 需要 window，渲染期执行）。
+    danmaku_clear_input: bool,
+    /// 弹幕设置滑杆（透明度/字号/密度/面积）。
+    dm_opacity_slider: Entity<SliderState>,
+    dm_font_slider: Entity<SliderState>,
+    dm_density_slider: Entity<SliderState>,
+    dm_area_slider: Entity<SliderState>,
     /// 音量悬停弹层开着（Tauri VolumePopup 同款，随 wrapper hover 开合）。
     volume_popup_open: bool,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
@@ -268,8 +311,63 @@ pub struct HomeView {
     stage_rects: Rc<Cell<Option<[f32; 4]>>>,
 }
 
+/// 在飞的弹幕：泳道 + 入场墙钟 + 估宽。位置每渲染帧按「播放中才走的
+/// 墙钟」推进——暂停即冻结（无 Frame 事件），倍速不改变滚动速度
+///（hgplayer 同款：它家倍速下弹幕也不变速）。progress 以「屏宽」为单位的
+/// 滚动进度：x = stage_w − progress × (stage_w + 估宽)，progress ≥ 1 出屏。
+struct DmFlight {
+    text: String,
+    lane: usize,
+    width: f32,
+    progress: f64,
+}
+
+impl DmFlight {
+    /// 相对舞台左缘的横向偏移（像素，可为负 = 已滚出左沿）。
+    fn x_offset(&self, stage_w: f64) -> f64 {
+        stage_w - self.progress * (stage_w + self.width as f64)
+    }
+}
+
+/// 弹幕估宽：CJK 记一字宽，其余记 0.55 字宽（无预渲染测量，误差对
+/// 出屏回收无感）。
+fn dm_text_width(text: &str, font_px: f32) -> f32 {
+    let units: f32 = text
+        .chars()
+        .map(|c| if is_wide_char(c) { 1.0 } else { 0.55 })
+        .sum();
+    units * font_px
+}
+
+/// 宽字符判定（CJK/谚文/全形；估宽够用，不引 unicode-width 依赖——
+/// gpui 依赖树里它与 unicode-properties 的版本钉子有过冲突史）。
+fn is_wide_char(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x2E80..=0x9FFF
+            | 0xAC00..=0xD7AF
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x20000..=0x2FFFD
+    )
+}
+
+/// 滚过一屏的时长（hgplayer durationMs 默认 9000）。
+const DM_CROSS_MS: f64 = 9000.0;
+/// 同一泳道相邻两条的入场间隔（视频秒）。
+const DM_LANE_BUSY_S: f64 = 1.4;
+/// 泳道高 = 字号 + 10（hgplayer top 计算同款）。
+const DM_LANE_GAP: f32 = 10.0;
+/// 泳道数下限。
+const DM_MIN_LANES: usize = 4;
+/// 基准字号范围（hgplayer 默认上限 22px）。
+const DM_FONT_MIN: f32 = 15.0;
+const DM_FONT_MAX: f32 = 22.0;
+
 impl HomeView {
-    pub fn new(state: Arc<AppStateInner>, cx: &mut Context<Self>) -> Self {
+    pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut feeds = HashMap::new();
         let mut indexes = HashMap::new();
         for s in Source::ALL {
@@ -319,6 +417,48 @@ impl HomeView {
             intros: HashMap::new(),
             intros_pending: HashSet::new(),
             intro_expanded: false,
+            danmaku_on: prefs.danmaku_on,
+            dm_opacity: prefs.dm_opacity,
+            dm_font_scale: prefs.dm_font_scale,
+            dm_density: prefs.dm_density,
+            dm_area: prefs.dm_area,
+            dm_panel_open: false,
+            danmaku_items: Arc::new(Vec::new()),
+            danmaku_vid: String::new(),
+            danmaku_fetching: false,
+            danmaku_cursor: 0,
+            danmaku_flights: Vec::new(),
+            danmaku_lane_free: Vec::new(),
+            danmaku_last_pos: 0.0,
+            danmaku_last_tick: None,
+            dm_rng: 0x853c49e6748fea9b,
+            danmaku_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("弹幕内容"))),
+            danmaku_sending: false,
+            danmaku_clear_input: false,
+            dm_opacity_slider: cx.new(|_| {
+                SliderState::new()
+                    .min(0.1)
+                    .max(1.0)
+                    .default_value(prefs.dm_opacity)
+            }),
+            dm_font_slider: cx.new(|_| {
+                SliderState::new()
+                    .min(0.5)
+                    .max(2.0)
+                    .default_value(prefs.dm_font_scale)
+            }),
+            dm_density_slider: cx.new(|_| {
+                SliderState::new()
+                    .min(0.0)
+                    .max(1.0)
+                    .default_value(prefs.dm_density)
+            }),
+            dm_area_slider: cx.new(|_| {
+                SliderState::new()
+                    .min(0.25)
+                    .max(1.0)
+                    .default_value(prefs.dm_area)
+            }),
             volume_popup_open: false,
             buffering: false,
             controls_until: None,
@@ -797,6 +937,8 @@ impl HomeView {
                             view.binge = None;
                         }
                         view.load_intro(now.series_id.clone(), cx);
+                        // 弹幕按集重拉（vid 变了才拉；社交态不缓存复用）
+                        view.load_danmaku(now.vid.clone(), cx);
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
@@ -929,6 +1071,7 @@ impl HomeView {
                 badge: item.badge,
                 definitions: prepared.definitions,
                 definition: prepared.definition,
+                vid: ep.vid.clone(),
             },
         ))
     }
@@ -965,6 +1108,161 @@ impl HomeView {
             });
         })
         .detach();
+    }
+
+    /// 拉当前集的全部弹幕（group_id = vid，book_id = series_id；社交态
+    /// 不缓存，每次进集都重拉——Tauri useDanmaku 同款）。拉完游标归零，
+    /// 由 tick 按「当前播放位置之前的不补放」自然对齐。
+    fn load_danmaku(&mut self, vid: String, cx: &mut Context<Self>) {
+        if self.danmaku_fetching || self.danmaku_vid == vid {
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        self.danmaku_fetching = true;
+        self.danmaku_vid = vid.clone();
+        // 新集清空在飞与游标（当前播放位置之前的不会补放）
+        self.danmaku_cursor = 0;
+        self.danmaku_flights.clear();
+        self.danmaku_lane_free.clear();
+        let state = Arc::clone(&self.state);
+        let sid = now.series_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_danmaku_all(&vid, &sid, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.danmaku_fetching = false;
+                match result {
+                    Ok(items) => {
+                        log::debug!(
+                            "[Home] 弹幕拉取 {} 条（{}）offsets={:?}",
+                            items.len(),
+                            view.danmaku_vid,
+                            items.iter().map(|d| d.offset_ms).collect::<Vec<_>>()
+                        );
+                        view.danmaku_items = Arc::new(items);
+                        view.danmaku_cursor = 0;
+                    }
+                    Err(e) => {
+                        // 拉取失败留空列表（装饰性数据，不影响主功能），
+                        // 同集内不自动重试
+                        log::warn!("[Home] 弹幕拉取失败: {e}");
+                        view.danmaku_items = Arc::new(Vec::new());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 弹幕 tick（每个 Frame 事件驱动，播放中 ~30fps）：seek 跳变检测 →
+    /// 入场（offset 落在 (上一帧, 当前] 的按密度抽样发射）→ 在飞推进与
+    /// 出屏回收。暂停时没有 Frame 事件，位置自然冻结。
+    fn danmaku_tick(&mut self, cx: &mut Context<Self>) {
+        if !self.danmaku_on || self.danmaku_items.is_empty() {
+            return;
+        }
+        let Some(player) = &self.player else {
+            return;
+        };
+        let pos = player.position_secs();
+        let paused = player.is_paused();
+        // seek 跳变（倒跳/大幅前跳）：游标二分重置 + 清空在飞
+        if pos < self.danmaku_last_pos - 0.05 || pos > self.danmaku_last_pos + 1.5 {
+            self.danmaku_cursor = self
+                .danmaku_items
+                .partition_point(|d| (d.offset_ms as f64) / 1000.0 <= pos);
+            self.danmaku_flights.clear();
+            self.danmaku_lane_free.clear();
+        }
+        self.danmaku_last_pos = pos;
+
+        let now = std::time::Instant::now();
+        let dt = self
+            .danmaku_last_tick
+            .replace(now)
+            .map_or(0.0, |t| now.duration_since(t).as_secs_f64());
+        let stage_w = self
+            .stage_rects
+            .get()
+            .and_then(|r| r.first().copied())
+            .unwrap_or(1024.0) as f64;
+        // 在飞推进（暂停不推进 = 冻结）与出屏回收（progress ≥ 1 滚完一屏）
+        if !paused && !self.danmaku_flights.is_empty() {
+            let step = dt / DM_CROSS_MS;
+            for f in &mut self.danmaku_flights {
+                f.progress += step;
+            }
+        }
+        self.danmaku_flights.retain(|f| f.progress < 1.0);
+
+        // 入场：offset 落在 (上一帧, 当前] 的按密度抽样发射（随机均匀：
+        // 丢哪条无所谓，要的是同屏条数按比例变稀）
+        let ms = (pos * 1000.0) as u64;
+        let font_px = self.dm_font_px(stage_w as f32);
+        let lanes = self.dm_lane_count(stage_w as f32);
+        if self.danmaku_lane_free.len() != lanes {
+            self.danmaku_lane_free = vec![0.0; lanes];
+        }
+        let mut spawned = 0usize;
+        while self.danmaku_cursor < self.danmaku_items.len() {
+            let d = self.danmaku_items[self.danmaku_cursor].clone();
+            if d.offset_ms > ms {
+                break;
+            }
+            self.danmaku_cursor += 1;
+            if d.text.is_empty() || self.dm_rand() > self.dm_density {
+                continue;
+            }
+            // 泳道：挑最早空出来的那条并占位（叠满时自然排队）
+            let mut pick = 0usize;
+            for (i, free) in self.danmaku_lane_free.iter().enumerate() {
+                if *free < self.danmaku_lane_free[pick] {
+                    pick = i;
+                }
+            }
+            if let Some(free) = self.danmaku_lane_free.get_mut(pick) {
+                *free = pos + DM_LANE_BUSY_S;
+            }
+            self.danmaku_flights.push(DmFlight {
+                text: d.text.clone(),
+                lane: pick,
+                width: dm_text_width(&d.text, font_px),
+                progress: 0.0,
+            });
+            spawned += 1;
+        }
+        if spawned > 0 {
+            log::debug!("[Home] 弹幕入场 {} 条（pos={pos:.1}s）", spawned);
+            cx.notify();
+        }
+    }
+
+    /// 密度抽样的廉价伪随机（LCG；只用于「丢不丢这一条」，无需质量）。
+    fn dm_rand(&mut self) -> f32 {
+        self.dm_rng = self
+            .dm_rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((self.dm_rng >> 33) as f32) / (u32::MAX as f32)
+    }
+
+    /// 基准字号（hgplayer：height/30，钳 15–22）× 用户缩放。
+    fn dm_font_px(&self, stage_h: f32) -> f32 {
+        let base = (stage_h / 30.0).clamp(DM_FONT_MIN, DM_FONT_MAX);
+        (base * self.dm_font_scale).max(10.0).round()
+    }
+
+    /// 泳道数：显示区域高度 ÷（字号 + 10），下限 4。
+    fn dm_lane_count(&self, stage_h: f32) -> usize {
+        let font_px = self.dm_font_px(stage_h);
+        let lanes = ((stage_h * self.dm_area) / (font_px + DM_LANE_GAP)).floor() as usize;
+        lanes.max(DM_MIN_LANES)
     }
 
     /// 引擎事件循环（每个引擎一个，epoch 封口：换剧后陈旧事件自然断流）。
@@ -1129,6 +1427,8 @@ impl HomeView {
                 }
                 self.frame = Some(frame);
                 self.save_progress_maybe();
+                // 弹幕 tick：入场 + 在飞推进（Frame 事件即渲染节拍）
+                self.danmaku_tick(cx);
                 // 相邻剧分集档案预取（换剧秒回，Tauri 同节奏）
                 self.prefetch_neighbor_archives();
             }
@@ -1185,6 +1485,125 @@ impl HomeView {
                 this.on_volume_event(event, cx);
             },
         )
+        .detach();
+        // 弹幕设置滑杆：Change 即生效，Release 落盘（音量滑杆同节奏）
+        let dm_sliders = [
+            (&self.dm_opacity_slider, 0u8),
+            (&self.dm_font_slider, 1),
+            (&self.dm_density_slider, 2),
+            (&self.dm_area_slider, 3),
+        ];
+        for (slider, which) in dm_sliders {
+            cx.subscribe(
+                slider,
+                move |this: &mut Self, _: Entity<SliderState>, event: &SliderEvent, cx| {
+                    this.on_dm_slider_event(which, event, cx);
+                },
+            )
+            .detach();
+        }
+        // 弹幕发送框：Enter 提交
+        if let Some(input) = &self.danmaku_input {
+            cx.subscribe(
+                input,
+                |this: &mut Self, _: Entity<InputState>, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.submit_danmaku(cx);
+                    }
+                },
+            )
+            .detach();
+        }
+    }
+
+    /// 弹幕设置滑杆：更新对应显示参数；Release 落盘。
+    fn on_dm_slider_event(&mut self, which: u8, event: &SliderEvent, cx: &mut Context<Self>) {
+        let SliderValue::Single(v) = (match event {
+            SliderEvent::Change(v) | SliderEvent::Release(v) => v,
+        }) else {
+            return;
+        };
+        match which {
+            0 => self.dm_opacity = *v,
+            1 => self.dm_font_scale = *v,
+            2 => self.dm_density = *v,
+            3 => self.dm_area = *v,
+            _ => {}
+        }
+        if matches!(event, SliderEvent::Release(_)) {
+            self.persist_prefs();
+        }
+        cx.notify();
+    }
+
+    /// 提交弹幕（发送框 Enter 或发送按钮）：未登录给日志指路（壳无 toast
+    /// 基建），成功后本地乐观插入（ hgplayer 同款：发送的弹幕立刻上屏）。
+    fn submit_danmaku(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = &self.danmaku_input else {
+            return;
+        };
+        let text = input.read(cx).value().trim().to_string();
+        if text.is_empty() || self.danmaku_sending {
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        if now.vid.is_empty() {
+            return;
+        }
+        let logged_in = self
+            .state
+            .settings()
+            .account
+            .as_ref()
+            .is_some_and(|a| !a.user_id.is_empty());
+        if !logged_in {
+            log::info!("[Home] 弹幕发送需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(player) = &self.player else {
+            return;
+        };
+        let offset_ms = (player.position_secs() * 1000.0) as u64;
+        self.danmaku_sending = true;
+        let state = Arc::clone(&self.state);
+        let (vid, sid) = (now.vid.clone(), now.series_id.clone());
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            send_danmaku(&vid, &sid, &text, offset_ms, &env)
+                .await
+                .map(|cid| (text, offset_ms, cid))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.danmaku_sending = false;
+                match result {
+                    Ok((text, offset_ms, cid)) => {
+                        log::info!("[Home] 弹幕已发送 cid={cid}");
+                        // 本地乐观插入：排序进 items（cursor 会自然捡起上屏）。
+                        // 拉取任务还握着 Arc 时插不进去就算了——飞行已直接上屏
+                        let item = Danmaku {
+                            comment_id: cid,
+                            text: text.clone(),
+                            offset_ms,
+                            digg_count: 0,
+                        };
+                        if let Some(items) = Arc::get_mut(&mut view.danmaku_items) {
+                            let at = items.partition_point(|d| d.offset_ms <= offset_ms);
+                            items.insert(at, item);
+                        }
+                        // 输入框清空走渲染期（set_value 需要 window），这里只立标志
+                        view.danmaku_clear_input = true;
+                    }
+                    Err(e) => {
+                        log::warn!("[Home] 弹幕发送失败: {e}");
+                    }
+                }
+                cx.notify();
+            });
+        })
         .detach();
     }
 
@@ -1248,6 +1667,11 @@ impl HomeView {
             rate: self.rate,
             volume: self.volume,
             muted: self.muted,
+            danmaku_on: self.danmaku_on,
+            dm_opacity: self.dm_opacity,
+            dm_font_scale: self.dm_font_scale,
+            dm_density: self.dm_density,
+            dm_area: self.dm_area,
         };
         bridge::spawn(async move {
             let path = hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
@@ -1842,6 +2266,39 @@ impl HomeView {
         // 控制条（底部悬浮，鼠标活动时可见）
         let controls =
             (self.player.is_some() && self.controls_visible()).then(|| self.render_controls(cx));
+        // 弹幕层（画面上方滚动；开着才渲染，层本身不吃任何指针事件）
+        let danmaku_layer = (self.danmaku_on && self.player.is_some()).then(|| {
+            let stage_w = self
+                .stage_rects
+                .get()
+                .and_then(|r| r.first().copied())
+                .unwrap_or(1024.0) as f64;
+            let stage_h = self
+                .stage_rects
+                .get()
+                .and_then(|r| r.get(1).copied())
+                .unwrap_or(576.0);
+            let font_px = self.dm_font_px(stage_h);
+            let layer_opacity = self.dm_opacity;
+            div()
+                .absolute()
+                .size_full()
+                .overflow_hidden()
+                .opacity(layer_opacity)
+                .children(self.danmaku_flights.iter().map(|f| {
+                    let top = f.lane as f32 * (font_px + DM_LANE_GAP);
+                    let x = f.x_offset(stage_w) as f32;
+                    div()
+                        .absolute()
+                        .left(gpui_kit::px(x))
+                        .top(gpui_kit::px(top))
+                        .whitespace_nowrap()
+                        .text_size(gpui_kit::px(font_px))
+                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                        .text_color(gpui_kit::rgb(0xffffff))
+                        .child(SharedString::from(f.text.clone()))
+                }))
+        });
         // 信息叠加层（左下）：剧名/集数/热度/简介——闲置淡出与控制条
         // 同时机（Tauri chromeShown 同款，静默期不亮）
         let overlay = self.controls_visible().then(|| self.render_overlay(cx));
@@ -1888,6 +2345,7 @@ impl HomeView {
                 // 会让日志恒报「视频层 0」，哨兵就成了假警报源
                 div().absolute().size_full().into_any_element()
             })
+            .children(danmaku_layer)
             .children(overlay)
             .children(buffering_badge)
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
@@ -2207,6 +2665,15 @@ impl HomeView {
                     .text_color(gpui_kit::rgba(0xffffffcc))
                     .child(Self::fmt_secs(duration)),
             )
+            .children(self.danmaku_input.as_ref().map(|input| {
+                // 弹幕发送框（hgplayer 同款：常驻控制栏左段；Enter 提交，
+                // 订阅在 subscribe_controls）
+                Input::new(input)
+                    .h(gpui_kit::px(28.0))
+                    .w(gpui_kit::px(176.0))
+                    .text_xs()
+                    .rounded_full()
+            }))
             .child(
                 Button::new("stage-rate")
                     .label(Self::fmt_rate(self.rate))
@@ -2337,6 +2804,89 @@ impl HomeView {
                             .into_any_element()
                     })),
             )
+            .child({
+                // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
+                Button::new("stage-danmaku")
+                    .icon(gpui_kit::assets::IconName::MessageSquare)
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.danmaku_on = !this.danmaku_on;
+                        // 关=清屏+游标落当前位（重开不补放积压）；落盘
+                        this.danmaku_flights.clear();
+                        this.danmaku_cursor = this
+                            .player
+                            .as_ref()
+                            .map(|p| {
+                                this.danmaku_items.partition_point(|d| {
+                                    (d.offset_ms as f64) / 1000.0 <= p.position_secs()
+                                })
+                            })
+                            .unwrap_or(0);
+                        this.persist_prefs();
+                        cx.notify();
+                    }))
+            })
+            .child({
+                // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）
+                div()
+                    .id("dm-settings")
+                    .relative()
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        if this.dm_panel_open != *hovered {
+                            this.dm_panel_open = *hovered;
+                            cx.notify();
+                        }
+                    }))
+                    .child(
+                        Button::new("stage-dm-settings")
+                            .icon(IconName::Settings2)
+                            .ghost()
+                            .small(),
+                    )
+                    .children(self.dm_panel_open.then(|| {
+                        v_flex()
+                            .absolute()
+                            .right_0()
+                            .bottom(gpui_kit::px(36.0))
+                            .w(gpui_kit::px(240.0))
+                            .gap_3()
+                            .p_4()
+                            .rounded(gpui_kit::px(12.0))
+                            .bg(gpui_kit::rgba(0x171717f2))
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Left,
+                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                            )
+                            .child(self.dm_setting_row("不透明度", &self.dm_opacity_slider))
+                            .child(self.dm_setting_row("字号", &self.dm_font_slider))
+                            .child(self.dm_setting_row("密度", &self.dm_density_slider))
+                            .child(self.dm_setting_row("显示区域", &self.dm_area_slider))
+                            .into_any_element()
+                    }))
+                    .into_any_element()
+            })
+            .into_any_element()
+    }
+
+    /// 弹幕设置面板的一行（标签 + 滑杆）。
+    fn dm_setting_row(
+        &self,
+        label: impl Into<SharedString>,
+        slider: &Entity<SliderState>,
+    ) -> gpui_kit::AnyElement {
+        h_flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .w(gpui_kit::px(52.0))
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(gpui_kit::rgba(0xffffffcc))
+                    .child(label.into()),
+            )
+            .child(Slider::new(slider))
             .into_any_element()
     }
 
@@ -2630,6 +3180,13 @@ impl gpui_kit::Render for HomeView {
         if !self.focus_seeded && !self.focus.is_focused(window) {
             self.focus_seeded = true;
             window.focus(&self.focus, cx);
+        }
+        // 弹幕发送成功后的输入框清空（set_value 要 window，这里补执行）
+        if self.danmaku_clear_input
+            && let Some(input) = &self.danmaku_input
+        {
+            self.danmaku_clear_input = false;
+            input.update(cx, |state, cx| state.set_value("", window, cx));
         }
         let theme = cx.theme();
         let feed = self.feeds.get(&self.active).expect("源已初始化");

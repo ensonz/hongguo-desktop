@@ -29,8 +29,8 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn new(state: Arc<AppStateInner>, cx: &mut Context<Self>) -> Self {
-        let feed = cx.new(|cx| HomeView::new(state.clone(), cx));
+    pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）
         let dest = if std::env::var("HONGGUO_RANK").is_ok() {
