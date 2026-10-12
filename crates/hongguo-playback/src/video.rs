@@ -1,18 +1,23 @@
-//! 视频轨：VT 逐帧解码 + 按主时钟上屏。
+//! 视频轨：VT 逐帧解码 + 按主时钟、**按显示序**上屏。
 //!
 //! 解码从**起点前的最近关键帧**起步（关键帧之前的样本是必需参考帧，产物
-//! 帧按 PTS 过滤掉不上屏），节奏完全对主时钟：`now() >= 帧 PTS` 才把帧放进
-//! 上屏槽并通知宿主。同步解码吐出的是解码序，每帧按自带 PTS 对表，不按吐出
-//! 顺序排位（与转码链同一纪律）。
+//! 帧按 PTS 过滤掉不上屏）。节奏对主时钟：`now() >= 帧显示时间` 才发出去。
+//!
+//! **显示序重排**：VTDecompressionSession 按解码序吐帧，而带 B 帧的码流里
+//! 显示序 ≠ 解码序（`ctts` 偏移可以为负）。解出一帧就上屏的话，画面会在
+//! 相邻几秒之间来回跳（10s→8s→9s），观感正是「同样的内容重放几遍」。
+//! 所以：解出的帧先按显示时间排进重排缓冲，等「已解码的 dts 水位」越过
+//! 安全线（水位 - 最大负偏移）才定稿，定稿后按显示时间升序、到点才上屏。
+//! 无 `ctts` 的流（绝大多数）安全线即时成立，行为与逐帧直发一致。
 
-use std::sync::atomic::Ordering;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use hongguo_media_platform::platform::vt::HevcFrameDecoder;
+use hongguo_media_platform::platform::vt::{DecodedFrame, HevcFrameDecoder};
 use hongguo_mp4::sample_table::TrackInfo;
 
-use crate::audio::Clock;
-use crate::player::Shared;
+use crate::player::{PlayerEvent, Shared};
 use crate::source::SampleSource;
 
 /// 起播样本号：起点前最近的**关键帧**（全关键帧轨直接取第一个 ≥ 起点的样本）。
@@ -20,7 +25,17 @@ pub(crate) fn start_index(info: &TrackInfo, start_secs: f64) -> usize {
     let pts = info.sample_pts();
     let eps = 1e-6;
     match &info.stss {
-        None => pts.partition_point(|&p| p < start_secs - eps),
+        None => {
+            // 全关键帧轨：按**解码时间**找起点。pts 在带 B 帧时非单调，
+            // partition_point 会指错；dts 恒递增，越过它前先多解一帧无害
+            //（显示时间早于起点的产物帧由下面的过滤丢掉）。
+            let dts = info.sample_dts();
+            if dts.is_empty() {
+                pts.partition_point(|&p| p < start_secs - eps)
+            } else {
+                dts.partition_point(|&d| d < start_secs - eps)
+            }
+        }
         Some(sync) => {
             let mut best = 0usize;
             for &n in sync {
@@ -34,10 +49,95 @@ pub(crate) fn start_index(info: &TrackInfo, start_secs: f64) -> usize {
     }
 }
 
+/// 重排缓冲装得下的东西：能读出显示时间即可。
+///
+/// 抽成 trait 是为了让重排逻辑可单测——`DecodedFrame` 只能从解码器出来
+///（没有公开构造器），测试里造不出真帧，但重排的正确性（显示序单调）
+/// 必须能脱离解码器验证。
+pub(crate) trait HasDisplayTime {
+    fn display_secs(&self) -> f64;
+}
+
+impl HasDisplayTime for DecodedFrame {
+    fn display_secs(&self) -> f64 {
+        self.pts_secs
+    }
+}
+
+/// 按显示时间把帧插进升序缓冲（同刻保持到达序，`partition_point` 是上界）。
+pub(crate) fn insert_by_pts<F: HasDisplayTime>(pending: &mut Vec<F>, frame: F) {
+    let at = pending.partition_point(|f| f.display_secs() <= frame.display_secs());
+    pending.insert(at, frame);
+}
+
+/// 定稿：显示时间不晚于水位（`已解码 dts - 最大负偏移`）的帧，不可能再有
+/// 更早的帧解出来，可以进上屏队列。保持显示序升序。
+///
+/// 返回本批条数（0 = 还没到定稿线）。
+pub(crate) fn commit_ready<F: HasDisplayTime>(
+    pending: &mut Vec<F>,
+    watermark: f64,
+    ready: &mut VecDeque<F>,
+) -> usize {
+    let n = pending.partition_point(|f| f.display_secs() <= watermark);
+    ready.extend(pending.drain(..n));
+    n
+}
+
+/// 把已定稿的帧按显示序、到点发出去。返回 `false` = 收到停机信号。
+async fn flush_due(
+    ready: &mut VecDeque<DecodedFrame>,
+    shared: &Shared,
+    first_sent: &mut bool,
+    shown_frames: &AtomicU64,
+) -> bool {
+    while let Some(front) = ready.front() {
+        let due = front.pts_secs;
+        // 时钟经 shared 取：音频设备迟到接管时会换主时钟，这里自动跟上
+        while shared.now() < due {
+            if shared.shutdown.load(Ordering::Relaxed) {
+                return false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+        }
+        if shared.shutdown.load(Ordering::Relaxed) {
+            return false;
+        }
+        let frame = ready.pop_front().expect("front 刚看过");
+        let (w, h) = frame.dims();
+        // 帧槽留给「随手取最新帧」的调用方；事件里带一份给事件驱动的宿主
+        //（CVPixelBuffer 克隆只是引用计数 +1，不搬数据）
+        *shared.latest.lock() = Some(frame.clone());
+        if !*first_sent {
+            *first_sent = true;
+            log::info!(
+                "[Playback] 首帧 {w}x{h}（显示时间 {:.2}s，时长 {:.1}s）",
+                frame.pts_secs,
+                *shared.duration_secs.lock()
+            );
+            shared
+                .emit(PlayerEvent::FirstFrame {
+                    width: w,
+                    height: h,
+                })
+                .await;
+        }
+        let shown = shown_frames.fetch_add(1, Ordering::Relaxed);
+        if shown.is_multiple_of(100) {
+            log::debug!(
+                "[Playback][video] 已上屏 {shown} 帧（{:.2}s），clock={:.2}",
+                frame.pts_secs,
+                shared.now()
+            );
+        }
+        shared.emit(PlayerEvent::Frame(frame)).await;
+    }
+    true
+}
+
 /// 视频主循环。返回自然播完（中途退出由停机/事件错误控制）。
 pub(crate) async fn run(
     shared: Arc<Shared>,
-    clock: Arc<Clock>,
     mut source: SampleSource,
     info: TrackInfo,
     parameter_sets: Vec<Vec<u8>>,
@@ -54,19 +154,28 @@ pub(crate) async fn run(
     *shared.dims.lock() = (info.width as usize, info.height as usize);
 
     let mut pts = info.sample_pts();
+    let dts = info.sample_dts();
     if pts.is_empty() {
         let fps = info.average_framerate().unwrap_or(25.0);
         pts = (0..info.samples.len()).map(|i| i as f64 / fps).collect();
     }
     let frame_dur = 1.0 / info.average_framerate().unwrap_or(25.0);
+    // B 帧重排的安全线：显示时间早于「已解码 dts 水位 - 本值」的帧，
+    // 不可能再有更早的帧解出来，可以定稿。无 ctts 时为 0。
+    let reorder_secs = info.max_reorder_secs();
+    if reorder_secs > 0.0 {
+        log::info!(
+            "[Playback] 流带 B 帧重排（最大负偏移 {:.3}s），按显示序上屏",
+            reorder_secs
+        );
+    }
     let mut first_sent = false;
-    let shown_frames = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let shown_frames = AtomicU64::new(0);
+    // 重排缓冲（显示序升序）与已定稿待上屏队列（显示序升序）
+    let mut pending: Vec<DecodedFrame> = Vec::new();
+    let mut ready: VecDeque<DecodedFrame> = VecDeque::new();
 
-    for (idx, &pt) in pts.iter().enumerate().skip(begin_at).take(source.len()) {
-        // 等到这一帧的显示时刻（时钟冻结在暂停时，这里自然一起停）
-        while clock.now() < pt && !shared.shutdown.load(Ordering::Relaxed) {
-            tokio::time::sleep(std::time::Duration::from_millis(3)).await;
-        }
+    for (idx, _) in pts.iter().enumerate().skip(begin_at).take(source.len()) {
         if shared.shutdown.load(Ordering::Relaxed) {
             return;
         }
@@ -77,7 +186,7 @@ pub(crate) async fn run(
                 return;
             }
         };
-        let frames = match decoder.decode(&sample, pt, frame_dur) {
+        let frames = match decoder.decode(&sample, pts[idx], frame_dur) {
             Ok(frames) => frames,
             Err(e) => {
                 shared.fail(format!("视频样本 {idx} 解码失败: {e}")).await;
@@ -89,27 +198,14 @@ pub(crate) async fn run(
             if frame.pts_secs < start_secs - frame_dur {
                 continue;
             }
-            let (w, h) = frame.dims();
-            *shared.latest.lock() = Some(frame);
-            if !first_sent {
-                first_sent = true;
-                log::info!(
-                    "[Playback] 首帧 {w}x{h}（起点 {start_secs:.1}s，时长 {:.1}s）",
-                    *shared.duration_secs.lock()
-                );
-                shared
-                    .emit(crate::player::PlayerEvent::FirstFrame { width: w, height: h })
-                    .await;
-            }
-            let shown = shown_frames.fetch_add(1, Ordering::Relaxed);
-            if shown.is_multiple_of(100) {
-                log::debug!(
-                    "[Playback][video] 已上屏 {shown} 帧（{:.2}s），clock={:.2}",
-                    pt,
-                    clock.now()
-                );
-            }
-            shared.emit(crate::player::PlayerEvent::Frame).await;
+            insert_by_pts(&mut pending, frame);
+        }
+        // 定稿：水位 = 本样本解码时间 - 最大负偏移（无 stts 时退化为该样本
+        // 显示时间，即逐帧直发）
+        let watermark = dts.get(idx).copied().unwrap_or(pts[idx]) - reorder_secs;
+        commit_ready(&mut pending, watermark, &mut ready);
+        if !flush_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
+            return;
         }
     }
     match decoder.finish() {
@@ -118,17 +214,113 @@ pub(crate) async fn run(
                 if frame.pts_secs < start_secs - frame_dur {
                     continue;
                 }
-                *shared.latest.lock() = Some(frame);
-                shared.emit(crate::player::PlayerEvent::Frame).await;
+                insert_by_pts(&mut pending, frame);
             }
         }
         Err(e) => log::warn!("[Playback] 解码收尾失败: {e}"),
     }
+    // 流没有更多帧了：剩余全部定稿，按显示序发完
+    ready.extend(pending.drain(..));
+    if !flush_due(&mut ready, &shared, &mut first_sent, &shown_frames).await {
+        return;
+    }
 
     // 等时钟走到结尾再宣布结束（音频尾音放完）
     let end = *shared.duration_secs.lock();
-    while clock.now() < end && !shared.shutdown.load(Ordering::Relaxed) {
+    while shared.now() < end && !shared.shutdown.load(Ordering::Relaxed) {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    shared.emit(crate::player::PlayerEvent::Ended).await;
+    shared.emit(PlayerEvent::Ended).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 轻量帧载体：`DecodedFrame` 只能从解码器出来，重排逻辑本身不需要它。
+    #[derive(Debug, Clone, PartialEq)]
+    struct Fake(f64);
+    impl HasDisplayTime for Fake {
+        fn display_secs(&self) -> f64 {
+            self.0
+        }
+    }
+
+    /// B 帧流的核心不变量：**无论解码序如何乱，出口必须是显示序升序**。
+    /// 这正是「同样的内容来回重放」的根源——解出一帧就发的话，
+    /// 显示时间是 [0, 2d, d]，画面就在 0→2d→d 之间跳。
+    #[test]
+    fn reorder_emits_display_order_not_decode_order() {
+        let d = 1.0 / 30.0;
+        // 解码序（dts 递增）：I(dts 0) P(dts 2d) B(dts d)
+        // 对应显示时间：I=0, P=2d, B=d —— 非单调，就是 B 帧
+        let decode_order = [Fake(0.0), Fake(2.0 * d), Fake(d)];
+        let dtss = [0.0, 2.0 * d, d];
+        let reorder = d; // 最大负偏移 = 1 帧
+
+        let mut pending: Vec<Fake> = Vec::new();
+        let mut ready: VecDeque<Fake> = VecDeque::new();
+        let mut emitted: Vec<f64> = Vec::new();
+
+        for (frame, dts) in decode_order.into_iter().zip(dtss) {
+            insert_by_pts(&mut pending, frame);
+            commit_ready(&mut pending, dts - reorder, &mut ready);
+            while let Some(f) = ready.pop_front() {
+                emitted.push(f.0);
+            }
+        }
+        emitted.extend(ready.drain(..).map(|f| f.0));
+        emitted.extend(pending.drain(..).map(|f| f.0));
+
+        assert!(
+            emitted.windows(2).all(|w| w[1] > w[0]),
+            "上屏顺序必须是显示序升序，实际 {emitted:?}"
+        );
+        assert_eq!(emitted.len(), 3, "一帧都不许丢");
+    }
+
+    /// 没有 B 帧（无 ctts → 水位即时成立）的流必须逐帧立刻定稿，
+    /// 不能因为引入重排就让画面迟一帧。
+    #[test]
+    fn without_ctts_each_frame_commits_immediately() {
+        let mut pending: Vec<Fake> = Vec::new();
+        let mut ready: VecDeque<Fake> = VecDeque::new();
+        for i in 0..5 {
+            let t = i as f64 / 30.0;
+            insert_by_pts(&mut pending, Fake(t));
+            // reorder_secs = 0：水位就是本样本的 dts，等于显示时间
+            let n = commit_ready(&mut pending, t, &mut ready);
+            assert_eq!(n, 1, "第 {i} 帧应立刻定稿");
+            assert!(pending.is_empty());
+        }
+        assert_eq!(ready.len(), 5);
+    }
+
+    /// 同刻帧保持到达序：乱序插入不能改变同一显示时间的相对顺序。
+    #[test]
+    fn insert_is_stable_for_equal_timestamps() {
+        let mut pending: Vec<Fake> = Vec::new();
+        insert_by_pts(&mut pending, Fake(1.0));
+        insert_by_pts(&mut pending, Fake(0.0));
+        insert_by_pts(&mut pending, Fake(1.0));
+        insert_by_pts(&mut pending, Fake(0.5));
+
+        let times: Vec<f64> = pending.iter().map(|f| f.0).collect();
+        assert_eq!(times, vec![0.0, 0.5, 1.0, 1.0]);
+    }
+
+    /// 水位不到就不许定稿——提前放行等于把还没到的帧排到前面去。
+    #[test]
+    fn commit_waits_for_the_watermark() {
+        let d = 1.0 / 30.0;
+        let mut pending: Vec<Fake> = Vec::new();
+        let mut ready: VecDeque<Fake> = VecDeque::new();
+
+        insert_by_pts(&mut pending, Fake(2.0 * d));
+        insert_by_pts(&mut pending, Fake(0.0));
+        // 解码到 dts=d，最大负偏移 1 帧 → 水位 0：只该放行显示时间 0 的那帧
+        assert_eq!(commit_ready(&mut pending, d - d, &mut ready), 1);
+        assert_eq!(ready.pop_front().map(|f| f.0), Some(0.0));
+        assert_eq!(pending.len(), 1, "后一帧还没到定稿线");
+    }
 }

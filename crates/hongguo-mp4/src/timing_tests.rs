@@ -202,6 +202,42 @@ fn sample_pts_fold_in_ctts_offsets() {
 }
 
 #[test]
+fn sample_dts_is_monotonic_where_pts_is_not() {
+    // 播放端做 B 帧重排的水位只能按 dts 算：pts 非单调（上面那例已证），
+    // dts 必须严格递增，且与 pts 同一套平移（两者都从 0 起）。
+    let mut info = cfr_info(3);
+    info.ctts = vec![(1, 0), (1, 512), (1, -512)];
+
+    let dts = info.sample_dts();
+    let pts = info.sample_pts();
+    let d = 1.0 / 30.0;
+
+    assert_eq!(dts.len(), 3);
+    assert!(dts.windows(2).all(|w| w[1] > w[0]), "dts 必须递增: {dts:?}");
+    assert!((dts[0] - 0.0).abs() < 1e-9, "dts 从 0 起步: {dts:?}");
+    // 同一套平移：平移量相同，逐项差值等于 ctts 偏移
+    assert!((pts[2] - dts[2] + d).abs() < 1e-9, "pts 与 dts 必须对齐");
+}
+
+#[test]
+fn max_reorder_secs_reads_the_worst_negative_offset() {
+    let mut info = cfr_info(4);
+    assert_eq!(info.max_reorder_secs(), 0.0, "没有 ctts 就没有重排");
+
+    info.ctts = vec![(1, 0), (2, 1024), (1, -2048)];
+    let expect = 2048.0 / f64::from(info.media_timescale);
+    assert!(
+        (info.max_reorder_secs() - expect).abs() < 1e-9,
+        "应取最大负偏移的绝对值，实际 {}",
+        info.max_reorder_secs()
+    );
+
+    // 只有正偏移（无 B 帧语义）：不用为不存在的重排留水位
+    info.ctts = vec![(4, 512)];
+    assert_eq!(info.max_reorder_secs(), 0.0);
+}
+
+#[test]
 fn sample_pts_without_stts_is_empty() {
     let mut info = info_with_samples(10);
     info.media_timescale = 15_360;

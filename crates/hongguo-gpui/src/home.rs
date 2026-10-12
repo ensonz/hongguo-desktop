@@ -146,8 +146,11 @@ pub struct HomeView {
     player: Option<PlayerHandle>,
     now: Option<NowPlaying>,
     switching: bool,
-    /// 首帧出画（收封面占位）。
-    frame_ready: bool,
+    /// 当前可上屏的帧；`None` = 还没出画（画封面占位）。
+    ///
+    /// 出画与否**只认这一处**：曾经另立过 `frame_ready` 标志，和「引擎就位」
+    /// 更新互相抢时序——首帧先到置 true、就位后到又清 false，封面从此永远
+    /// 收不掉（画面上封面与视频叠着）。帧直接来自事件，没有第二处状态。
     frame: Option<DecodedFrame>,
     /// 切换目标（switching 时 overlay 显示它的封面与标题）。
     pending_title: Option<String>,
@@ -192,7 +195,6 @@ impl HomeView {
             player: None,
             now: None,
             switching: false,
-            frame_ready: false,
             frame: None,
             pending_title: None,
             wheel_at: None,
@@ -538,7 +540,8 @@ impl HomeView {
             }
         );
         self.switching = true;
-        self.frame_ready = false;
+        // 旧的帧立即退场：切换期间画面上是新目标的封面，不是上一部的残帧
+        self.frame = None;
         self.pending_title = Some(if item.title.is_empty() {
             "正在准备…".to_string()
         } else {
@@ -570,12 +573,12 @@ impl HomeView {
                 }
                 match result {
                     Ok((handle, now)) => {
-                        // 新引擎就位：旧的连同它的帧一起退场
+                        // 新引擎就位（帧随后由它的 Frame 事件送到，这里不清帧：
+                        // 起了才清的写法会把先到的首帧抹掉，封面从此收不掉）。
+                        // 切换途中旧帧已清，到这里的画面本来就是封面占位。
                         view.player = Some(handle);
-                        view.frame = None;
                         view.now = Some(now);
                         view.switching = false;
-                        view.frame_ready = false;
                     }
                     Err(e) => {
                         log::warn!("[Home] 起播失败: {e}");
@@ -635,16 +638,36 @@ impl HomeView {
                 }
             }
         };
-        let ep = series
-            .episodes
-            .iter()
-            .find(|e| e.vid_index == vid_index)
-            .or_else(|| series.episodes.iter().find(|e| e.vid_index == 1))
-            .ok_or_else(|| hongguo_common::AppError::Media("分集表里没有可播的集".into()))?;
+        // 找集号：连播是「上一集接着往下」——目标集不存在时必须报错，绝不能
+        // 回落到第 1 集（那是「又从头播一遍」的来源，用户看到的正是重复）。
+        // 只有起点决策（forced_next_ep 为空）才允许回落到第 1 集。
+        let ep = match series.episodes.iter().find(|e| e.vid_index == vid_index) {
+            Some(ep) => ep,
+            None if forced_next_ep.is_some() => {
+                return Err(hongguo_common::AppError::Media(format!(
+                    "第 {vid_index} 集不在分集表里（表里 {} 集），不回落重播",
+                    series.episodes.len()
+                )));
+            }
+            None => series
+                .episodes
+                .iter()
+                .find(|e| e.vid_index == 1)
+                .ok_or_else(|| hongguo_common::AppError::Media("分集表里没有可播的集".into()))?,
+        };
         if ep.vid.trim().is_empty() {
             return Err(hongguo_common::AppError::Media("该集没有 vid".into()));
         }
         let progress_key = format!("{}:{}", item.series_id, ep.vid_index);
+        // 实际要播的 vid：比对「同一集被播了两遍」与「恰好落在第一集」的
+        // 唯一凭证（重复内容投诉时先看这行，再看起播目标那行）
+        log::info!(
+            "[Home] 起播 {} 第 {} 集（vid={}）起点 {:.1}s",
+            item.series_id,
+            ep.vid_index,
+            ep.vid,
+            start_secs
+        );
         let prepared = prepare(&runtime, &ep.vid, &progress_key, None, settings, &env).await?;
         let handle = hongguo_playback::open(OpenOptions {
             vid: ep.vid.clone(),
@@ -699,12 +722,11 @@ impl HomeView {
     fn on_player_event(&mut self, event: PlayerEvent, cx: &mut Context<Self>) {
         match event {
             PlayerEvent::FirstFrame { .. } => {
-                self.frame_ready = true;
-                self.frame = self.player.as_ref().and_then(|h| h.latest_frame());
+                // 帧由紧随其后的 Frame 事件带上；这里只做「出画了」的副作用
                 self.prefetch_next_stream(cx);
             }
-            PlayerEvent::Frame => {
-                self.frame = self.player.as_ref().and_then(|h| h.latest_frame());
+            PlayerEvent::Frame(frame) => {
+                self.frame = Some(frame);
                 self.save_progress_maybe();
                 // 相邻剧分集档案预取（换剧秒回，Tauri 同节奏）
                 self.prefetch_neighbor_archives();
@@ -739,7 +761,12 @@ impl HomeView {
     /// 连播：下一集；末集接流内下一部（剧终接力的跨季/换批语义后续对齐）。
     fn advance_after_end(&mut self, cx: &mut Context<Self>) {
         self.frame = None;
-        self.frame_ready = false;
+        // 防重入：Ended 只在时钟走完才发，但引擎收尾、通道重连都可能让同一集
+        // 的 Ended 再来一次——那时 vid_index 还停在旧值，会把刚起播的下一集
+        // 又推进一格（连着跳集，看着就是「内容来回变」）。切换途中直接吞掉。
+        if self.switching {
+            return;
+        }
         if let Some(now) = self.now.clone()
             && (now.vid_index as usize) < now.episode_count
         {
@@ -956,21 +983,20 @@ impl HomeView {
             .into_any_element()
     }
 
-    /// 沉浸舞台：封面占位层 + 视频层 + 信息层三层**全部绝对定位**叠在同一个
-    /// 盒子里，铺满舞台。
+    /// 沉浸舞台：**同一时刻只画一层内容**——出画了画视频，没出画画封面。
     ///
-    /// 三层都必须 absolute：舞台是 v_flex（块级流），封面层一旦是普通流内
-    /// 子元素就会按图片固有高度占位（1080 宽 → 1544 高），把后面的视频层
-    /// 整个顶到舞台外面压出去——看到的就是「封面在上一半、视频在下半截」。
-    /// Tauri 侧同款写法：`absolute inset-0`（那里不存在流式占位这一说）。
+    /// 两层都是绝对定位铺满舞台。曾经把两层都画上、让封面盖在视频上面，
+    /// 结果是封面「在图片之上」的语义依赖渲染器，一旦封面比视频先画或
+    /// 视频带黑边（object-contain 留黑），封面就从留白里透出来——用户看到
+    /// 的正是「上下各一条封面夹着中间的画面」。二选一渲染，结构上不可能叠。
     ///
-    /// 层序对齐 Tauri `player-page.tsx`：封面在视频**之上**（z-5），出画前与
-    /// 切剧期间盖着（取流/解码间隙看到的是这部剧的封面而不是黑屏），首帧
-    /// 出画且不在切换中就整层收掉。
+    /// 层序仍与 Tauri `player-page.tsx` 一致：有画面时是画面，没有时是封面；
+    /// 取流/解码的间隙看到的是这部剧的封面而不是黑屏。
     ///
     /// 返回 `Div`（不是 AnyElement）：调用方要挂滚轮监听与 `.id`。
     fn render_stage(&self, cx: &Context<Self>) -> gpui_kit::Div {
         let theme = cx.theme();
+        let video_ready = self.frame.is_some() && !self.switching;
         // 占位封面取**目标剧**（游标位）：切剧瞬间游标已指向下一部，先出
         // 它的封面；无封面条目（书架种子）退回首帧方向已在播的那部。
         let cover_sid = self
@@ -978,12 +1004,11 @@ impl HomeView {
             .get(self.cursor())
             .map(|i| i.series_id.clone())
             .or_else(|| self.now.as_ref().map(|n| n.series_id.clone()));
-        let cover_shown = !self.frame_ready || self.switching;
         // 封面层：图 + 压暗（Tauri 的 `brightness-[0.55]`；GPUI 没有亮度滤镜，
         // 用等价的 45% 黑罩）。
         let cover: gpui_kit::AnyElement = match cover_sid
             .as_ref()
-            .filter(|_| cover_shown)
+            .filter(|_| !video_ready)
             .and_then(|s| self.covers.get(s))
         {
             Some(bitmap) => div()
@@ -999,16 +1024,17 @@ impl HomeView {
                 .into_any_element(),
             None => div().absolute().size_full().into_any_element(),
         };
-        // 层序对齐 Tauri `player-page.tsx`：绘画序 = 树序，视频在下、封面在
-        // **上**（z-5）——取流/解码的空档与切剧期间盖住的是新一部剧的封面，
-        // 而不是上一部剧的残帧或黑屏；首帧出画且不在切换中整层让位。
-        let video: gpui_kit::AnyElement = match &self.frame {
-            Some(frame) => surface(frame.buffer())
+        // 视频层：surface 是**无 measure 函数的布局叶子**，尺寸全靠样式给——
+        // 不给 size 就是 0×0 盒子（taffy 对无上下文的叶子返回零尺寸），
+        // paint_surface 画了个寂寞：解码、音频、封面全正常，唯独画面不见。
+        // Tauri 侧同款写法是 `absolute inset-0 size-full object-contain`。
+        let video: gpui_kit::AnyElement = match (&self.frame, video_ready) {
+            (Some(frame), true) => surface(frame.buffer())
                 .absolute()
                 .size_full()
                 .object_fit(ObjectFit::Contain)
                 .into_any_element(),
-            None => h_flex()
+            _ => h_flex()
                 .absolute()
                 .size_full()
                 .items_center()
@@ -1025,17 +1051,24 @@ impl HomeView {
             .bg(gpui_kit::rgb(0x000000))
             .relative()
             .overflow_hidden()
-            .child(video)
             .child(cover)
+            .child(if video_ready {
+                video
+            } else {
+                // 占位层也要铺满舞台：哨兵读的是子层矩形，给个 0×0 的 div
+                // 会让日志恒报「视频层 0」，哨兵就成了假警报源
+                div().absolute().size_full().into_any_element()
+            })
             .child(overlay)
             // 布局哨兵：子层矩形只在这里可见，两次准备绘制之间比对（见字段注释）。
-            // 绘画序是「视频、封面、叠加层」，前两个就是这两层。
+            // 第一个子层是封面槽（恒在、恒为舞台整块），出画时第二个是视频层、
+            // 尺寸必须与它一致——不一致就是布局回归。
             .on_children_prepainted(move |bounds, _window, _cx| {
-                let Some(video) = bounds.first() else { return };
+                let Some(cover) = bounds.first() else { return };
                 let size = |b: &gpui_kit::Bounds<gpui_kit::Pixels>| {
                     [b.size.width.to_f64() as f32, b.size.height.to_f64() as f32]
                 };
-                let (v, c) = (size(video), bounds.get(1).map(size).unwrap_or([0.0; 2]));
+                let (c, v) = (size(cover), bounds.get(1).map(size).unwrap_or([0.0; 2]));
                 let sample = [c[0], c[1], v[0], v[1]];
                 if rects.get() != Some(sample) {
                     rects.set(Some(sample));

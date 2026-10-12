@@ -504,6 +504,18 @@ impl Clone for DecodedFrame {
     }
 }
 
+// 手写而非 derive：帧的身份是「分辨率 + 显示时间」，指针地址对日志没有意义，
+// 而事件枚举要能 Debug 打印（宿主排查用）。
+impl std::fmt::Debug for DecodedFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (w, h) = self.dims();
+        f.debug_struct("DecodedFrame")
+            .field("dims", &format_args!("{w}x{h}"))
+            .field("pts_secs", &self.pts_secs)
+            .finish()
+    }
+}
+
 /// HEVC 逐帧解码器（播放末端；转码链走 [`transcode_h264`]，不经这里）。
 ///
 /// 同步解码：[`HevcFrameDecoder::decode`] 返回即该样本的全部输出已就绪。
