@@ -15,11 +15,10 @@
 //! 播放（帧流 → GPU 纹理）是 §5.3 spike，另行立项。
 
 mod bridge;
-mod feed;
+mod home;
 mod http_client;
 mod rank;
 mod shell;
-mod spike;
 
 use std::sync::Arc;
 use std::sync::OnceLock;

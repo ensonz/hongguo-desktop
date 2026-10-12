@@ -11,10 +11,10 @@ use gpui_kit::prelude::*;
 use gpui_kit::{App, Entity, Window};
 use hongguo_service::app_state::AppStateInner;
 
-use crate::feed::FeedView;
+use crate::home::HomeView;
 use crate::rank::RankView;
 
-/// 侧栏目的地（Tauri 客户端的首页 / 排行榜；找剧 / 书架 / 播放待后续迭代）。
+/// 侧栏目的地（Tauri 客户端的信息架构；找剧 / 书架 / 播放待后续迭代）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dest {
     Feed,
@@ -24,13 +24,13 @@ pub enum Dest {
 /// 壳窗口实体：持有两个视图，切换当前目的地。服务面由视图各自持有。
 pub struct Shell {
     dest: Dest,
-    feed: Entity<FeedView>,
+    feed: Entity<HomeView>,
     rank: Entity<RankView>,
 }
 
 impl Shell {
     pub fn new(state: Arc<AppStateInner>, cx: &mut Context<Self>) -> Self {
-        let feed = cx.new(|cx| FeedView::new(state.clone(), cx));
+        let feed = cx.new(|cx| HomeView::new(state.clone(), cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
         Self {
             dest: Dest::Feed,
