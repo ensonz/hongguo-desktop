@@ -53,12 +53,7 @@ pub fn serve(raw_path: &str) -> Result<ProtocolResponse, String> {
     // 写缓存前必须确保目录存在：cover-cache 没有任何启动/清理路径会创建
     // （兼容转码缓存有转码服务负责建，这里没有）——全新安装的机器上目录
     // 不存在，下载转码全部成功也会死在最后一步写盘，且曾是零日志静默 404。
-    let dir = hongguo_store::paths::cover_cache_dir();
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        let msg = format!("创建封面缓存目录失败: {e}");
-        log::warn!("[Cover] {msg}");
-        return Err(msg);
-    }
+    ensure_cache_dir()?;
     // 先写临时文件再改名：转一半的图不该被缓存住
     let final_path = cache_path(&remote, ext);
     let tmp = cache_tmp(&remote);
@@ -108,10 +103,19 @@ pub fn acquire_renderable(remote: &str) -> Result<(Vec<u8>, &'static str), Strin
     Ok((bytes, ct))
 }
 
+/// 缓存目录就位（每次写盘前查一次，存在时是一次 exists 开销）。
+fn ensure_cache_dir() -> Result<(), String> {
+    let dir = hongguo_store::paths::cover_cache_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        let msg = format!("创建封面缓存目录失败: {e}");
+        log::warn!("[Cover] {msg}");
+        msg
+    })
+}
+
 /// 取回「必定可渲染」的字节：先嗅探透传，不行再进 HEIC 转码阶梯。
 /// 返回 `(字节, 缓存扩展名, Content-Type)`。
-fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String> {
-    let mut downloaded: Option<Vec<u8>> = None;
+fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String> {    let mut downloaded: Option<Vec<u8>> = None;
 
     // 0) 魔数嗅探透传：已经是 WebView 可直接渲染的格式就不折腾
     //    （无扩展名头像实测多为 jpeg，2026-10-10 curl 实证）
@@ -134,6 +138,10 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
 
     // 2) ffmpeg 级：直接吃 http 输入，一步到位
     if let Some(ffmpeg) = hongguo_media_platform::ffmpeg::probe::ffmpeg_path() {
+        // ffmpeg 自己不会建目录：tmp 落在 cover-cache 里，全新安装/新壳数据域
+        // 下目录不存在，转码会死在「Could not open file」（bbae897 修了
+        // respond 写盘路径，这里当时漏了同一刀）
+        ensure_cache_dir()?;
         let tmp = cache_tmp(remote);
         let out = std::process::Command::new(ffmpeg)
             .args([
