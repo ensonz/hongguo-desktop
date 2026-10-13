@@ -13,6 +13,8 @@ Makefile 是入口（`make help` 看全量）：
 | 命令                           | 作用                                                          |
 | ------------------------------ | ------------------------------------------------------------- |
 | `make dev`                     | `pnpm tauri dev`，Vite + Tauri 联调                           |
+| `make gpui`                    | 启动 GPUI 壳（与 Tauri dev 并存，数据根不同不撞库）           |
+| `make gpui-preview`            | GPUI 壳离屏预览矩阵出 PNG——界面改动的标准验收（见「调试」）   |
 | `make build`                   | 前端产物（`tsc -b && vite build`）                            |
 | `make test` / `make test-rust` | vitest / cargo test                                           |
 | `make lint`                    | **质量闸门、一票否决**：ESLint + Prettier + cargo clippy×3    |
@@ -53,6 +55,20 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 - CDP 与 computer-use 分工：CDP 够用就 CDP（DOM/网络/求值可断言）；原生窗口装饰、系统对话框、无 CDP 的已运行实例才走 computer-use。
 - 已知坑：纯数字 search 参数会被 JSON.parse 成 number——新路由照抄 `/detail` 的 `validateSearch` 兜底；视频帧进不了截图（WebView 合成层），播放验证用 `requestVideoFrameCallback`。
 
+### GPUI 壳（离屏预览矩阵——界面改动的标准验收）
+
+GPUI 壳（`crates/hongguo-gpui`）的界面验收**不靠起真壳人工看**：`make gpui-preview` 无头渲染真实 `Shell` + 假数据快照，逐场景出 PNG，逐张目检。机制、场景矩阵与已知边界见 `crates/hongguo-gpui/src/preview/mod.rs` 头注释。
+
+```bash
+make gpui-preview   # 18 张场景 PNG → /tmp/hongguo-gpui-preview/（首页基底/选集/系列剧/下载/评论/登录/弹幕面板/失败/空态/排行榜±空/小屏 480×270/125%·150% 字号 × 浅深主题）
+```
+
+- 与真实壳同一套视图/主题/布局代码，只有数据源不同（合成封面 + API 模型假快照，`preview/fixtures.rs`）；离线、确定、不碰真实数据根（`hongguo-gpui-preview-<pid>` 临时目录跑完即删）。
+- 预览边界（图里的预期形态，不是 bug）：进度条恒 00:00、弹幕无在飞条目、评论头像走首字占位；gpui 无头渲染器仅 Metal（macOS）/wgpu（Linux），Windows 上截图报错退出。
+- 扩展矩阵（新页面/新面板必做）：`preview/scenes.rs` 加场景（键名唯一）→ `home/preview_seed.rs` 加种子分支 → `tests/preview_scenes.rs` 的 `SCENE_KEYS` 同步补键（覆盖率测试盯着失同步）。种子必须长在 home 树内（视图字段私有，`impl HomeView` 才够得着）；下载假任务灌**真实队列**（`state.replace_queue`），直接种 `self.downloads` 会被 Render 每帧的 `tasks_of` 刷新覆盖。
+- 与 `screenshot.rs` 取证（HONGGUO_SHOT）分工：预览矩阵验布局/主题/面板的全分支（离线、无引擎）；抓帧对**运行中**窗口验真实数据与播放链路。互补，不互替。
+- 首轮预览就抓过真实回归：150% 字号下控制条图标溢出窗口（`feed-150-dark.png`）——这类 DPI 布局问题正是矩阵的价值所在。
+
 ### Rust 后端
 
 - `RUST_LOG=debug` 看日志；诊断快照见 `src-tauri/src/diagnostics.rs`。
@@ -68,6 +84,7 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 - **提交前的门禁命令必须裸跑确认退出码**——`pnpm x | tail && commit` 这类管道会吞掉失败，曾把坏状态带进提交。Windows 下写文件后有可见性延迟：写完等 1 秒再验证。
 - 每 commit 编译绿：前端 `pnpm typecheck && pnpm test && pnpm lint`；后端 `cargo check && cargo test`。阶段收尾跑 `make lint` 全闸门 + `pnpm build`。
 - 播放器（features/player）改动收尾做冒烟：首页→详情→起播→切集/清晰度→弹幕。
+- `crates/hongguo-gpui` 界面改动收尾：`make gpui-preview` 目检受影响场景（见「调试 → GPUI 壳」）；动了场景矩阵/种子分发再跑 `cargo test -p hongguo-gpui --test preview_scenes`。
 
 ## 发版
 

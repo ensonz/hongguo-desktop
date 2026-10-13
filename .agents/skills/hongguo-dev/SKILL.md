@@ -15,6 +15,7 @@ Tauri 2 桌面应用（Windows/macOS）。前端 `src/`：React 19 + TS + Vite +
 | 新增（或改动）IPC 命令、事件、外部 API 端点        | `references/ipc.md`                                               |
 | 写前端：组件、hooks、查询、store、样式、i18n、路由 | `references/frontend.md`                                          |
 | 写后端：command、service、store、迁移、测试        | `references/backend.md`                                           |
+| 写 GPUI 壳界面 / 界面视觉验收（crates/hongguo-gpui） | `references/workflow.md`「调试 → GPUI 壳」：`make gpui-preview` 离屏预览矩阵是标准验收；设计规范另见 gpui-ui-design skill |
 | 对接官方 App 接口（抓包/端点/参数）                | `docs/hongguo-api-endpoints.md`（仓库文档，改 domain/api 前必读） |
 | 逆向分析官方 APK / hgplayer（协议/端点考证）       | `references/reverse.md`                                           |
 
@@ -24,6 +25,8 @@ Tauri 2 桌面应用（Windows/macOS）。前端 `src/`：React 19 + TS + Vite +
 
 ```bash
 make dev          # 启动开发模式（Vite + Tauri，端口 1420 固定、单实例）
+make gpui         # 启动 GPUI 壳
+make gpui-preview # GPUI 壳界面验收：离屏预览矩阵出 PNG（改界面后必跑，见 workflow.md）
 make test         # 前端 vitest
 make test-rust    # cargo test
 make lint         # 质量闸门（一票否决）：ESLint + Prettier + cargo clippy×3（含 macOS 双目标交叉）
