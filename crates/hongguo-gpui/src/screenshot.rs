@@ -30,16 +30,23 @@ pub(crate) fn install(
     // ——控制条 3s 自隐、互动栏随它显隐，无人值守抓帧永远抓不到 UI；
     // 要验 UI 视觉（图标/布局）就开这个。
     let pause_ui = std::env::var("HONGGUO_SHOT_PAUSE").is_ok();
-    // HONGGUO_SHOT_PANEL=downloads：抓帧前打开下载面板（验任务行 UI）。
-    let open_downloads = std::env::var("HONGGUO_SHOT_PANEL").is_ok_and(|v| v == "downloads");
+    // HONGGUO_SHOT_PANEL=downloads：抓帧前打开下载面板（验任务行 UI）；
+    // =picker：打开选集浮层系列剧 tab（验季卡片/预约按钮）。
+    let panel = std::env::var("HONGGUO_SHOT_PANEL").unwrap_or_default();
 
     cx.spawn(async move |cx| {
         cx.background_executor().timer(start_delay).await;
         if pause_ui {
-            let _ = feed.update(cx, |shell, cx| shell.debug_pause_player(cx));
+            feed.update(cx, |shell, cx| shell.debug_pause_player(cx));
         }
-        if open_downloads {
-            let _ = feed.update(cx, |shell, cx| shell.debug_open_downloads(cx));
+        match panel.as_str() {
+            "downloads" => {
+                feed.update(cx, |shell, cx| shell.debug_open_downloads(cx));
+            }
+            "picker" => {
+                feed.update(cx, |shell, cx| shell.debug_open_picker(cx));
+            }
+            _ => {}
         }
         for i in 1..=count {
             let shot = window.update(cx, |_, window, cx| {

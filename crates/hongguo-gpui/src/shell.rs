@@ -61,6 +61,12 @@ impl Shell {
             .update(cx, |home, cx| home.debug_open_downloads(cx));
     }
 
+    /// 取证辅助（screenshot feature）：打开选集浮层系列剧 tab。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_picker(&self, cx: &mut App) {
+        self.feed.update(cx, |home, cx| home.debug_open_picker(cx));
+    }
+
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
         Sidebar::new("shell-nav").children(vec![
             SidebarMenuItem::new("首页")

@@ -49,6 +49,7 @@ use hongguo_api::interact::{
     fetch_interaction_state, send_comment, send_danmaku, send_reply,
 };
 use hongguo_api::recommend::fetch_recommend_feed;
+use hongguo_api::reservation::{fetch_reservations, reserve_series};
 use hongguo_common::AppResult;
 use hongguo_common::model::{DownloadTask, VideoDefinition};
 use hongguo_media_platform::platform::video::{FrameBuffer, VideoFrame};
@@ -317,6 +318,12 @@ pub struct HomeView {
     related_loading: HashSet<String>,
     /// 选集浮层当前 tab：true = 系列剧。
     picker_tab_series: bool,
+    /// 已预约季（服务端离线预约列表 + 本地预约成功即插；未上线季按钮态）。
+    reserved_ids: HashSet<String>,
+    /// 预约请求在途（防重复提交）。
+    reserve_pending: HashSet<String>,
+    /// 离线预约列表是否已拉（会话级一次；预约按钮的已约态数据源）。
+    reservations_loaded: bool,
     /// 回复目标：Some((comment_id, reply_to_reply_id, 被回复人昵称))。
     reply_to: Option<(String, Option<String>, String)>,
     /// 评论输入框（与弹幕发送框同款 InputState）。
@@ -531,6 +538,9 @@ impl HomeView {
             related_seasons: HashMap::new(),
             related_loading: HashSet::new(),
             picker_tab_series: false,
+            reserved_ids: HashSet::new(),
+            reserve_pending: HashSet::new(),
+            reservations_loaded: false,
             reply_to: None,
             comment_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("说点什么…"))),
             comment_sending: false,
@@ -1560,6 +1570,20 @@ impl HomeView {
                 .map(|n| n.series_id.clone())
                 .unwrap_or_default(),
         ));
+        cx.notify();
+    }
+
+    /// 取证辅助（screenshot feature 的 HONGGUO_SHOT_PANEL=picker）：打开
+    /// 选集浮层的系列剧 tab 并装载数据（无人值守抓季卡片/预约按钮）。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_picker(&mut self, cx: &mut Context<Self>) {
+        self.picker_open = true;
+        self.picker_tab_series = true;
+        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        if let Some(now) = self.now.clone() {
+            self.load_related_seasons(now.series_id.clone(), cx);
+            self.load_reservations(cx);
+        }
         cx.notify();
     }
 
@@ -2613,6 +2637,7 @@ impl HomeView {
             && let Some(now) = self.now.clone()
         {
             self.load_related_seasons(now.series_id.clone(), cx);
+            self.load_reservations(cx);
         }
         cx.notify();
     }
@@ -5400,9 +5425,65 @@ impl HomeView {
             .into_any_element()
     }
 
+    /// 拉离线预约列表（会话级一次；系列季 tab「已预约」态的数据源，
+    /// Tauri useReservations(false) 同口径）。
+    fn load_reservations(&mut self, cx: &mut Context<Self>) {
+        if self.reservations_loaded || !self.logged_in() {
+            return;
+        }
+        self.reservations_loaded = true;
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_reservations(false, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            if let Ok(page) = result {
+                let _ = this.update(cx, |view, cx| {
+                    for item in page.items {
+                        view.reserved_ids.insert(item.series_id);
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 预约一个未上线季（乐观置「已预约」，失败回滚；Tauri useReserveSeries
+    /// 同口径——只做预约，取消预约在日历页，浮层里没有入口）。
+    fn reserve_season(&mut self, series_id: String, cx: &mut Context<Self>) {
+        if !self.logged_in()
+            || self.reserved_ids.contains(&series_id)
+            || !self.reserve_pending.insert(series_id.clone())
+        {
+            return;
+        }
+        self.reserved_ids.insert(series_id.clone());
+        cx.notify();
+        let state = Arc::clone(&self.state);
+        let sid = series_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            reserve_series(&sid, true, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.reserve_pending.remove(&series_id);
+                if let Err(e) = result {
+                    view.reserved_ids.remove(&series_id);
+                    log::warn!("[Home] 预约失败: {e}");
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// 系列剧 tab：各季卡片（当前季红框高亮「播放中」；未上线季灰卡
-    /// 「即将上线」；可播季点击换剧）。封面用首字圆形占位（远程图随
-    /// img 远程源对齐补）；预约按钮随预约 API 对齐补。
+    /// 「即将上线」+ 预约按钮；可播季点击换剧）。封面用首字圆形占位。
     fn render_seasons_tab(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let (current_sid, seasons) = self.seasons_of();
         v_flex()
@@ -5482,10 +5563,51 @@ impl HomeView {
                                     .child("播放中")
                             }))
                             .children(unreleased.then(|| {
+                                // 未上线季：预约按钮（Tauri BellRing 圆胶囊同款；
+                                // 已预约置灰禁点，预约在途防重复）
+                                let sid = item.series_id.clone();
+                                let reserved = self.reserved_ids.contains(&item.series_id);
+                                let pending = self.reserve_pending.contains(&item.series_id);
                                 div()
+                                    .id(gpui_kit::ElementId::from(format!(
+                                        "season-reserve-{}",
+                                        item.series_id
+                                    )))
+                                    .h_7()
+                                    .px_3()
+                                    .rounded_full()
+                                    .border_1()
+                                    .border_color(if reserved {
+                                        gpui_kit::rgba(0xffffff26)
+                                    } else {
+                                        gpui_kit::rgba(0x525252ff)
+                                    })
+                                    .flex()
+                                    .items_center()
+                                    .gap_1p5()
                                     .text_xs()
-                                    .text_color(gpui_kit::rgba(0xffffff73))
-                                    .child("即将上线")
+                                    .text_color(if reserved {
+                                        gpui_kit::rgba(0xffffff73)
+                                    } else {
+                                        gpui_kit::rgb(0xffffff)
+                                    })
+                                    .when(!reserved && !pending, |s| {
+                                        s.cursor_pointer()
+                                            .hover(|s| s.bg(gpui_kit::rgba(0x333333cc)))
+                                    })
+                                    .when(!reserved && !pending, |s| {
+                                        s.on_click(cx.listener(move |this, _, _, cx| {
+                                            this.reserve_season(sid.clone(), cx);
+                                        }))
+                                    })
+                                    .child(Icon::new(gpui_kit::assets::IconName::BellRing).size_3())
+                                    .child(if reserved {
+                                        "已预约"
+                                    } else if pending {
+                                        "预约中…"
+                                    } else {
+                                        "预约"
+                                    })
                             })),
                     )
                     .child(
@@ -5497,6 +5619,12 @@ impl HomeView {
                                     .text_xs()
                                     .text_color(gpui_kit::rgba(0xffffff99))
                                     .child(SharedString::from(item.tag.clone()))
+                            }))
+                            .children(unreleased.then(|| {
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff73))
+                                    .child("即将上线")
                             }))
                             .children((item.episode_cnt > 0).then(|| {
                                 div()
