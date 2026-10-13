@@ -24,6 +24,7 @@ pub enum Dest {
 /// 壳窗口实体：持有两个视图，切换当前目的地。服务面由视图各自持有。
 pub struct Shell {
     dest: Dest,
+    state: Arc<AppStateInner>,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
 }
@@ -39,7 +40,12 @@ impl Shell {
         } else {
             Dest::Feed
         };
-        Self { dest, feed, rank }
+        Self {
+            dest,
+            state,
+            feed,
+            rank,
+        }
     }
 
     /// 给 main 的启动回调：把窗口提到前台。
@@ -74,7 +80,14 @@ impl Shell {
             .update(cx, |home, cx| home.debug_open_comments(cx));
     }
 
+    /// 取证辅助（screenshot feature）：打开登录面板。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_login(&self, cx: &mut App) {
+        self.feed.update(cx, |home, cx| home.debug_open_login(cx));
+    }
+
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
+        let logged_in = self.state.settings().account.is_some();
         Sidebar::new("shell-nav").children(vec![
             SidebarMenuItem::new("首页")
                 .icon(gpui_kit::assets::IconName::House)
@@ -92,6 +105,17 @@ impl Shell {
                     this.dest = Dest::Rank;
                     this.rank.update(cx, RankView::load);
                     cx.notify();
+                })),
+            // 登录入口（未登录打开登录面板，已登录直接退出；评论/删除/
+            // 预约/点赞全靠登录态）
+            SidebarMenuItem::new(if logged_in { "退出登录" } else { "登录" })
+                .icon(gpui_kit::assets::IconName::User)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if logged_in {
+                        this.feed.update(cx, |home, cx| home.login_logout(cx));
+                    } else {
+                        this.feed.update(cx, |home, cx| home.toggle_login_panel(cx));
+                    }
                 })),
         ])
     }

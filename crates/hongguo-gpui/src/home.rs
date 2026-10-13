@@ -336,6 +336,14 @@ pub struct HomeView {
     comment_clear_input: bool,
     /// 评论面板的表情选择器开着（笑脸按钮 toggle；连选不关面板）。
     emoji_picker_open: bool,
+    // —— 壳内登录（SMS；Tauri 登录页对齐的最小面）——
+    login_panel_open: bool,
+    login_mobile: Option<Entity<InputState>>,
+    login_code: Option<Entity<InputState>>,
+    login_busy: bool,
+    login_message: Option<String>,
+    /// MFA 上行短信重试上下文（retry_tag, sms_code_key）。
+    mfa_retry: Option<(String, String)>,
     /// 待确认删除目标：Some((id, 父评论 id——回复场景才有))，Tauri
     /// deleteTarget 同构；id 是 comment_id 或 reply_id（同走 comment/del
     /// service_id=4）。
@@ -554,6 +562,14 @@ impl HomeView {
             comment_sending: false,
             comment_clear_input: false,
             emoji_picker_open: false,
+            login_panel_open: false,
+            login_mobile: Some(
+                cx.new(|cx| InputState::new(window, cx).placeholder("手机号（11 位）")),
+            ),
+            login_code: Some(cx.new(|cx| InputState::new(window, cx).placeholder("验证码"))),
+            login_busy: false,
+            login_message: None,
+            mfa_retry: None,
             comment_delete_target: None,
             comment_deleting: false,
             downloads_open: false,
@@ -1607,6 +1623,15 @@ impl HomeView {
         cx.notify();
     }
 
+    /// 取证辅助（screenshot feature 的 HONGGUO_SHOT_PANEL=login）：打开
+    /// 登录面板（无人值守抓登录 UI）。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_login(&mut self, cx: &mut Context<Self>) {
+        self.login_panel_open = true;
+        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        cx.notify();
+    }
+
     /// 点赞当前集（裸 vid 为点赞对象）：乐观翻转 + 计数 ±1，失败回滚。
     fn toggle_digg(&mut self, cx: &mut Context<Self>) {
         if !self.logged_in() {
@@ -2134,6 +2159,166 @@ impl HomeView {
         if self.comment_delete_target.take().is_some() {
             cx.notify();
         }
+    }
+
+    // —— 壳内登录（SMS）——
+
+    /// 打开/关闭登录面板（Shell 侧栏入口）。
+    pub(crate) fn toggle_login_panel(&mut self, cx: &mut Context<Self>) {
+        self.login_panel_open = !self.login_panel_open;
+        self.login_message = None;
+        cx.notify();
+    }
+
+    /// 退出登录（settings.account 清空落库；Tauri login_logout 同口径）。
+    pub(crate) fn login_logout(&mut self, cx: &mut Context<Self>) {
+        if let Err(e) = hongguo_service::login_service::account::persist_account(&self.state, None)
+        {
+            log::warn!("[Login] 退出失败: {e}");
+            return;
+        }
+        self.mfa_retry = None;
+        self.login_message = Some("已退出登录".to_string());
+        log::info!("[Login] 已退出登录");
+        cx.notify();
+    }
+
+    /// 发送短信验证码（发码下发的 csrf Cookie 暂存 state，sms_login 消费；
+    /// Tauri login_send_code 同款编排）。
+    fn login_send_code(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = &self.login_mobile else {
+            return;
+        };
+        let mobile = input.read(cx).value().trim().to_string();
+        if mobile.len() != 11 || !mobile.starts_with('1') || self.login_busy {
+            self.login_message = Some("手机号格式不正确".into());
+            cx.notify();
+            return;
+        }
+        self.login_busy = true;
+        self.login_message = None;
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            hongguo_api::login::send_sms_code(&env, &mobile).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.login_busy = false;
+                match result {
+                    Ok(outcome) => {
+                        log::info!("[Login] 发码成功: {}", outcome.message);
+                        if !outcome.csrf_cookie.is_empty() {
+                            *view.state.login_csrf.write() = Some(outcome.csrf_cookie);
+                        }
+                        view.login_message = Some(format!("{}（注意查收短信）", outcome.message));
+                    }
+                    Err(e) => {
+                        log::warn!("[Login] 发码失败: {e}");
+                        view.login_message = Some(format!("发码失败：{e}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 短信验证码登录：成功落库账号（persist_account 无 tauri 依赖）+
+    /// 后台拉一次 user_info 刷新昵称/头像；MFA（风控短信上行）转「重试
+    /// 登录」路径——点重试用暂存的 retry 上下文原样重发。
+    fn login_submit(&mut self, cx: &mut Context<Self>) {
+        let Some(mobile_input) = &self.login_mobile else {
+            return;
+        };
+        let Some(code_input) = &self.login_code else {
+            return;
+        };
+        let mobile = mobile_input.read(cx).value().trim().to_string();
+        let code = code_input.read(cx).value().trim().to_string();
+        if mobile.len() != 11 || !mobile.starts_with('1') {
+            self.login_message = Some("手机号格式不正确".into());
+            cx.notify();
+            return;
+        }
+        if code.is_empty() || self.login_busy {
+            return;
+        }
+        self.login_busy = true;
+        self.login_message = None;
+        let state = Arc::clone(&self.state);
+        let mfa = self.mfa_retry.clone();
+        let mobile_for_api = mobile.clone();
+        let rx = bridge::spawn(async move {
+            let env = hongguo_service::login_service::csrf::with_csrf(&state, state.api_env());
+            let mfa = mfa.as_ref().map(|(t, k)| (t.as_str(), k.as_str()));
+            hongguo_api::login::sms_login(&env, &mobile_for_api, &code, mfa).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| match result {
+                Err(e) => {
+                    view.login_busy = false;
+                    log::warn!("[Login] 登录失败: {e}");
+                    view.login_message = Some(format!("登录失败：{e}"));
+                    cx.notify();
+                }
+                Ok(hongguo_api::login::LoginOutcome::Success {
+                    cookies,
+                    user,
+                    token,
+                }) => {
+                    view.login_busy = false;
+                    log::info!("[Login] 登录成功: {} ({})", user.name, user.user_id);
+                    let account = hongguo_service::login_service::account::account_from_login(
+                        mobile, cookies, &user, token,
+                    );
+                    if let Err(e) = hongguo_service::login_service::account::persist_account(
+                        &view.state,
+                        Some(account),
+                    ) {
+                        log::warn!("[Login] 账号落库失败: {e}");
+                        view.login_message = Some(format!("账号落库失败：{e}"));
+                        cx.notify();
+                        return;
+                    }
+                    view.mfa_retry = None;
+                    // 后台拉 user_info 刷新昵称/头像（sms_login 只给默认
+                    // 档案；refresh_profile_after_login 耦合 tauri runtime，
+                    // 这里自行编排——失败只记日志）
+                    let state = Arc::clone(&view.state);
+                    cx.spawn(async move |this, cx| {
+                        let refreshed =
+                            hongguo_service::login_service::account::fetch_and_refresh_user(&state)
+                                .await;
+                        let _ = this.update(cx, |view, cx| {
+                            match refreshed {
+                                Ok(user) => {
+                                    view.login_message = Some(format!("登录成功：{}", user.name));
+                                }
+                                Err(e) => {
+                                    log::warn!("[Login] 用户资料刷新失败: {e}");
+                                    view.login_message = Some("登录成功".into());
+                                }
+                            }
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                }
+                Ok(hongguo_api::login::LoginOutcome::Mfa(ctx)) => {
+                    view.login_busy = false;
+                    view.mfa_retry = Some((ctx.retry_tag.clone(), ctx.sms_code_key.clone()));
+                    log::info!("[Login] 需要短信上行验证");
+                    view.login_message =
+                        Some("风控需短信上行验证：按短信提示回复后，点「重试登录」".into());
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// 确认删除：comment/del service_id=4（评论与回复同款，data_type=9）。
@@ -3059,6 +3244,120 @@ impl HomeView {
         .detach();
     }
 
+    /// 登录面板（居中卡片）：已登录显示账号+退出；未登录显示手机号/验证码
+    /// 表单 + 登录按钮。点遮罩收起。
+    fn render_login_panel(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let account = self.state.settings().account;
+        v_flex()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui_kit::rgba(0x00000099))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.login_panel_open = false;
+                    cx.notify();
+                }),
+            )
+            .child({
+                let mobile_input = self.login_mobile.clone();
+                let code_input = self.login_code.clone();
+                v_flex()
+                    .w(gpui_kit::px(300.0))
+                    .p_5()
+                    .gap_3()
+                    .rounded(gpui_kit::px(12.0))
+                    .bg(gpui_kit::rgb(0x1f1f1f))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child(match &account {
+                                Some(a) => SharedString::from(format!("账号：{}", a.user_name)),
+                                None => "登录红果".into(),
+                            }),
+                    )
+                    .when_some(account.clone(), |s, a| {
+                        s.child(
+                            div()
+                                .text_xs()
+                                .text_color(gpui_kit::rgba(0xffffff99))
+                                .child(SharedString::from(format!("UID {}", a.user_id))),
+                        )
+                        .child(
+                            Button::new("login-logout")
+                                .label("退出登录")
+                                .danger()
+                                .small()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.login_logout(cx);
+                                    this.login_panel_open = false;
+                                    cx.notify();
+                                })),
+                        )
+                    })
+                    .when(account.is_none(), |s| {
+                        s.children(
+                            mobile_input
+                                .as_ref()
+                                .map(|input| Input::new(input).h(gpui_kit::px(32.0)).text_sm()),
+                        )
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .children(code_input.as_ref().map(|input| {
+                                    Input::new(input).flex_1().h(gpui_kit::px(32.0)).text_sm()
+                                }))
+                                .child(
+                                    Button::new("login-send-code")
+                                        .label(if self.login_busy {
+                                            "发送中…"
+                                        } else {
+                                            "发送验证码"
+                                        })
+                                        .ghost()
+                                        .small()
+                                        .disabled(self.login_busy)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.login_send_code(cx);
+                                        })),
+                                ),
+                        )
+                        .child(
+                            Button::new("login-submit")
+                                .label(if self.mfa_retry.is_some() {
+                                    "重试登录"
+                                } else {
+                                    "登录"
+                                })
+                                .primary()
+                                .small()
+                                .disabled(self.login_busy)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.login_submit(cx);
+                                })),
+                        )
+                    })
+                    .children(self.login_message.clone().map(|msg| {
+                        div()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0x93c5fdff))
+                            .child(SharedString::from(msg))
+                    }))
+                    .into_any_element()
+            })
+            .into_any_element()
+    }
+
     /// 头像元素：有图用图（圆形裁切），无图/未加载退回昵称首字圆形占位。
     /// 外层固定尺寸框是必须的——img 直接 size_full 在无约束 flex 里会撑爆。
     fn render_avatar(&self, url: &str, name: &str, size: f32) -> gpui_kit::AnyElement {
@@ -3516,6 +3815,8 @@ impl HomeView {
                 (self.picker_open && !in_mini && self.player.is_some())
                     .then(|| self.render_picker(cx)),
             )
+            // 登录面板（居中卡片，盖整窗；壳侧栏「登录/退出登录」入口开关）
+            .children(self.login_panel_open.then(|| self.render_login_panel(cx)))
             // 布局哨兵：子层矩形只在这里可见，两次准备绘制之间比对（见字段注释）。
             // 第一个子层是封面槽（恒在、恒为舞台整块），出画时第二个是视频层、
             // 尺寸必须与它一致——不一致就是布局回归。

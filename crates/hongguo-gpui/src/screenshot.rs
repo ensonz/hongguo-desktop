@@ -49,6 +49,9 @@ pub(crate) fn install(
             "comments" => {
                 feed.update(cx, |shell, cx| shell.debug_open_comments(cx));
             }
+            "login" => {
+                feed.update(cx, |shell, cx| shell.debug_open_login(cx));
+            }
             _ => {}
         }
         for i in 1..=count {
