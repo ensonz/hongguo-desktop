@@ -299,9 +299,10 @@ impl super::HomeView {
         ))
     }
 
-    /// 拉当前剧的简介（video_detail 的 series_intro，Tauri
-    /// useSeriesDetailMeta 同源）：装饰性信息，失败静默降级、允许重试；
-    /// 每剧只拉一次（Tauri staleTime 10 分钟同语义的会话内缓存）。
+    /// 拉当前剧的简介与全剧收藏数（video_detail 的 series_intro /
+    /// followed_cnt，Tauri useSeriesDetailMeta 同源）：装饰性信息，失败
+    /// 静默降级、允许重试；每剧只拉一次（Tauri staleTime 10 分钟同语义
+    /// 的会话内缓存）。followed_cnt 是互动栏「收藏」键的计数源。
     fn load_intro(&mut self, series_id: String, cx: &mut Context<Self>) {
         if self.intros.contains_key(&series_id) || !self.intros_pending.insert(series_id.clone()) {
             return;
@@ -312,17 +313,18 @@ impl super::HomeView {
             let sid = series_id.clone();
             hongguo_api::detail::fetch_series_meta(&sid, &env)
                 .await
-                .map(|meta| (sid.clone(), meta.intro))
+                .map(|meta| (sid.clone(), meta.intro, meta.followed_cnt))
                 .map_err(|e| (sid, e))
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, _| match result {
-                Ok((sid, intro)) => {
+                Ok((sid, intro, followed_cnt)) => {
                     view.intros_pending.remove(&sid);
                     if !intro.is_empty() {
-                        view.intros.insert(sid, intro);
+                        view.intros.insert(sid.clone(), intro);
                     }
+                    view.follow_count = followed_cnt;
                 }
                 Err((sid, e)) => {
                     // 失败不算数：允许下次起播重试（rank.rs 同款记一条 warn）

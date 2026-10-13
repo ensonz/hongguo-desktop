@@ -86,10 +86,7 @@ impl super::HomeView {
                         // 归零的话 tick 会把开头到当前位置的弹幕**全部一次性
                         // 入场**——续播（起点 >3s）/中途进集必现「弹幕糊一脸」，
                         // 这正是本函数头注释承诺的「自然对齐」该有的样子
-                        let pos = view
-                            .player
-                            .as_ref()
-                            .map_or(0.0, |p| p.position_secs());
+                        let pos = view.player.as_ref().map_or(0.0, |p| p.position_secs());
                         view.danmaku_items = Arc::new(items);
                         view.danmaku_cursor = view
                             .danmaku_items

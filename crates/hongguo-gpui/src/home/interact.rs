@@ -52,7 +52,10 @@ impl super::HomeView {
                     // 这两个计数，一行钉死）
                     log::info!(
                         "[Home] 集级公开计数（{}#{}）：评论={} 点赞={}",
-                        view.now.as_ref().map(|n| n.series_id.as_str()).unwrap_or("?"),
+                        view.now
+                            .as_ref()
+                            .map(|n| n.series_id.as_str())
+                            .unwrap_or("?"),
                         view.now.as_ref().map(|n| n.vid_index).unwrap_or(0),
                         comment_count,
                         digg_count
@@ -292,7 +295,9 @@ impl super::HomeView {
             .child(self.rail_item(
                 "comments",
                 RailItem {
-                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::MessageCircleMore),
+                    icon: gpui_kit::component::Icon::new(
+                        gpui_kit::assets::IconName::MessageCircleMore,
+                    ),
                     count: comment_count,
                     active: false,
                     active_color: gpui_kit::rgba(0xffffffff),
@@ -361,7 +366,9 @@ impl super::HomeView {
             } else {
                 gpui_kit::rgb(0xffffff)
             })
-            .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx))
+            .tooltip(move |window, cx| {
+                gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            })
             // 互动栏悬浮在画面之上，而 gpui 对重叠 bounds 的兄弟分支都会派发
             // 鼠标事件——不拦的话点互动键会同时触发「点画面暂停」
             .on_mouse_down(

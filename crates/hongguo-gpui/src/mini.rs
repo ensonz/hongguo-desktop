@@ -12,8 +12,8 @@ use gpui_kit::Window;
 
 #[cfg(target_os = "windows")]
 use crate::win32::{
-    HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE,
-    SW_RESTORE, border_offset, hwnd_of, set_window_pos, set_window_pos_raw, show_window,
+    HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, border_offset, hwnd_of, set_window_pos, set_window_pos_raw, show_window,
     window_rect, work_area,
 };
 

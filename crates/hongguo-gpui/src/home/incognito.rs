@@ -15,8 +15,8 @@
 
 use std::time::Duration;
 
-use gpui_kit::prelude::*;
 use gpui_kit::Window;
+use gpui_kit::prelude::*;
 
 /// 轮询间隔：再快肉眼无感，再慢「回来」会迟半拍（Tauri INCOGNITO_POLL_MS）。
 const POLL_MS: u64 = 120;
@@ -26,12 +26,7 @@ impl super::HomeView {
     /// 可能正处在隐藏态的窗口带回前台并补上欠账（Tauri set_incognito(false)
     /// 同款——它对「挂载同步」的防重入在这里不存在：本壳只有这一个开关入口，
     /// 关的时候窗口一定在恢复路径上）。
-    pub(super) fn set_incognito(
-        &mut self,
-        on: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn set_incognito(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.incognito == on {
             return;
         }
@@ -113,8 +108,7 @@ impl super::HomeView {
         let Some((x, y, w, h)) = crate::win32::window_rect(hwnd) else {
             return true;
         };
-        let inside =
-            cx_pos >= x && cy_pos >= y && cx_pos < x + w && cy_pos < y + h;
+        let inside = cx_pos >= x && cy_pos >= y && cx_pos < x + w && cy_pos < y + h;
         let visible = crate::win32::is_window_visible(hwnd);
         if inside == visible {
             return true;

@@ -171,9 +171,11 @@ impl super::HomeView {
                             })
                             .ghost()
                             .xsmall()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_incognito(window, cx)
-                            })),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.toggle_incognito(window, cx)
+                                }),
+                            ),
                     )
                     .child(
                         Button::new("mini-pin")
@@ -236,6 +238,7 @@ impl super::HomeView {
                 self.picker_open = false;
                 self.picker_group_override = None;
                 self.volume_popup_open = false;
+                self.danmaku_emoji_open = false;
                 self.wake_controls(cx);
                 log::info!("[Home] 进入小屏 480×270（工作区右下角）");
             }

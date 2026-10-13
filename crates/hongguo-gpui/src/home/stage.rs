@@ -138,12 +138,7 @@ impl super::HomeView {
 
     /// 懒加载一张剧封面进 covers 表（全屏占位与选集系列剧卡片共用；
     /// HEIC 签名 URL 走 cover 管线，失败静默允许重试）。
-    pub(super) fn load_cover(
-        &mut self,
-        series_id: String,
-        remote: String,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn load_cover(&mut self, series_id: String, remote: String, cx: &mut Context<Self>) {
         let sid = series_id.clone();
         if remote.is_empty()
             || self.covers.contains_key(&sid)
@@ -275,8 +270,14 @@ impl super::HomeView {
                 self.epoch,
                 window.viewport_size().width.to_f64(),
                 window.viewport_size().height.to_f64(),
-                self.player.as_ref().map(|p| p.position_secs()).unwrap_or(0.0),
-                self.player.as_ref().map(|p| p.duration_secs()).unwrap_or(0.0),
+                self.player
+                    .as_ref()
+                    .map(|p| p.position_secs())
+                    .unwrap_or(0.0),
+                self.player
+                    .as_ref()
+                    .map(|p| p.duration_secs())
+                    .unwrap_or(0.0),
             );
         }
         // 占位封面取**目标剧**（游标位）：切剧瞬间游标已指向下一部，先出
@@ -560,39 +561,41 @@ impl super::HomeView {
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
             // 「< 第N集」，点它解除锁定；显隐跟随悬浮层总闸）；小屏不渲染
             //（集数信息在紧凑条里，480 宽叠不下）
-            .children((self.in_binge() && !in_mini && self.controls_visible()).then(|| {
-                let now = self.now.as_ref().expect("in_binge 已验 now 在");
-                h_flex()
-                    .id("binge-pill")
-                    .absolute()
-                    .top_3()
-                    .left_3()
-                    .items_center()
-                    .gap_1()
-                    .pl_2()
-                    .pr_3()
-                    .py_1()
-                    .rounded_full()
-                    .bg(gpui_kit::rgba(0x0000004d))
-                    .text_xs()
-                    .text_color(gpui_kit::rgb(0xffffff))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(gpui_kit::rgba(0x00000080)))
-                    .on_mouse_down(
-                        gpui_kit::MouseButton::Left,
-                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.binge = None;
-                        cx.notify();
-                    }))
-                    .child(
-                        Icon::new(IconName::ChevronLeft)
-                            .small()
-                            .text_color(gpui_kit::rgb(0xffffff)),
-                    )
-                    .child(format!("第{}集", now.vid_index))
-            }))
+            .children(
+                (self.in_binge() && !in_mini && self.controls_visible()).then(|| {
+                    let now = self.now.as_ref().expect("in_binge 已验 now 在");
+                    h_flex()
+                        .id("binge-pill")
+                        .absolute()
+                        .top_3()
+                        .left_3()
+                        .items_center()
+                        .gap_1()
+                        .pl_2()
+                        .pr_3()
+                        .py_1()
+                        .rounded_full()
+                        .bg(gpui_kit::rgba(0x0000004d))
+                        .text_xs()
+                        .text_color(gpui_kit::rgb(0xffffff))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(gpui_kit::rgba(0x00000080)))
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Left,
+                            cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.binge = None;
+                            cx.notify();
+                        }))
+                        .child(
+                            Icon::new(IconName::ChevronLeft)
+                                .small()
+                                .text_color(gpui_kit::rgb(0xffffff)),
+                        )
+                        .child(format!("第{}集", now.vid_index))
+                }),
+            )
             // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层
             // 拦下鼠标下传（舞台的播放/暂停与信息层都不该收到这次点击）
             .children(

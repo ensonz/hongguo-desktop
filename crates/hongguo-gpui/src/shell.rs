@@ -21,8 +21,8 @@ use gpui_kit::prelude::*;
 use gpui_kit::{App, ElementId, Entity, Window, div};
 use hongguo_service::app_state::AppStateInner;
 
-use crate::home::feed::Source;
 use crate::home::HomeView;
+use crate::home::feed::Source;
 use crate::rank::RankView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
@@ -275,7 +275,8 @@ impl Shell {
                 .text_color(muted_fg)
                 .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
                 .hover(|s| {
-                    s.text_color(fg).bg(if danger_hue { danger } else { secondary_hover })
+                    s.text_color(fg)
+                        .bg(if danger_hue { danger } else { secondary_hover })
                 })
                 .child(gpui_kit::component::Icon::new(icon).small())
                 .into_any_element()
@@ -315,7 +316,11 @@ impl Shell {
                     })
                     .ghost()
                     .small()
-                    .tooltip(if pinned { "取消置顶" } else { "置顶窗口" })
+                    .tooltip(if pinned {
+                        "取消置顶"
+                    } else {
+                        "置顶窗口"
+                    })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.feed
                             .update(cx, |home, cx| home.toggle_pinned(window, cx));
@@ -336,7 +341,11 @@ impl Shell {
                     IconName::WindowMaximize
                 },
                 gpui_kit::WindowControlArea::Max,
-                if maximized { "向下还原" } else { "最大化" },
+                if maximized {
+                    "向下还原"
+                } else {
+                    "最大化"
+                },
                 false,
             ))
             .child(window_button(

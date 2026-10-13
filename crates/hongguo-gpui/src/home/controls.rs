@@ -325,16 +325,12 @@ impl super::HomeView {
             }
             menu
         };
-        h_flex()
+        v_flex()
             .id("stage-controls")
             .absolute()
             .bottom_0()
             .left_0()
             .right_0()
-            .items_center()
-            .gap_3()
-            .px_4()
-            .py_2()
             .bg(gpui_kit::rgba(0x000000aa))
             // 悬在控制栏本体上不倒计时（Tauri onControlsEnter 同款：拖进度/
             // 悬停音量时静止超时收起 = 抢走控件）；移出照常走台内静止 3s
@@ -361,300 +357,423 @@ impl super::HomeView {
                     cx.stop_propagation();
                 }),
             )
-            .child(
-                Button::new("stage-toggle-play")
-                    .icon(play_icon)
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx))),
-            )
-            .child(
-                // 上一集/下一集（Tauri 控制栏同位）：连播语义——越过第 1 集
-                // 原地不动，越过末集跟随换剧
-                Button::new("stage-prev-episode")
-                    .icon(gpui_kit::assets::IconName::SkipBack)
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.step_episode(-1, cx))),
-            )
-            .child(
-                Button::new("stage-next-episode")
-                    .icon(gpui_kit::assets::IconName::SkipForward)
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.step_episode(1, cx))),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .font_family("monospace")
-                    .text_color(gpui_kit::rgba(0xffffffcc))
-                    .child(Self::fmt_secs(position)),
-            )
+            // 进度条横贯控制栏顶边（Tauri PlayerControls 同款：细条独立一条
+            // 在按钮行之上，不夹在按钮中间）
             .child(self.render_progress_track(cx))
             .child(
-                div()
-                    .text_xs()
-                    .font_family("monospace")
-                    .text_color(gpui_kit::rgba(0xffffffcc))
-                    .child(Self::fmt_secs(duration)),
-            )
-            .children(self.danmaku_input.as_ref().map(|input| {
-                // 弹幕发送框（hgplayer 同款：常驻控制栏左段；Enter 提交，
-                // 订阅在 subscribe_controls）
-                Input::new(input)
-                    .h(gpui_kit::px(28.0))
-                    .w(gpui_kit::px(176.0))
-                    .text_xs()
-                    .rounded_full()
-            }))
-            .child(
-                // 发送按钮（Tauri 控制栏同款：输入框右侧实心小钮）
-                Button::new("stage-danmaku-send")
-                    .label("发送")
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.submit_danmaku(cx))),
-            )
-            .child(
-                Button::new("stage-rate")
-                    .label(Self::fmt_rate(self.rate))
-                    .ghost()
-                    .small()
-                    .dropdown_menu(rate_menu),
-            )
-            .child({
-                // 清晰度菜单（Tauri 同款）：自动 + 本集全部档位；本地集
-                // 没有档位表，按钮置灰并保持可见（不渲染会让用户以为
-                // 「这个功能本来就没有」，在线流那集它又出现了）
-                let defs = self
-                    .now
-                    .as_ref()
-                    .map(|n| n.definitions.clone())
-                    .unwrap_or_default();
-                let current = self.now.as_ref().map(|n| n.definition).unwrap_or(0);
-                let label = match self.now.as_ref() {
-                    Some(n) if n.definition > 0 => format!("{}P", n.definition),
-                    _ => "自动".to_string(),
-                };
-                if defs.is_empty() {
-                    // 无档位表（本地集）：置灰保持可见——直接不渲染会让用户
-                    // 以为「这个功能本来就没有」，在线流那集它又出现了
-                    div()
-                        .px_2()
-                        .text_xs()
-                        .text_color(gpui_kit::rgba(0xffffff66))
-                        .child(label)
-                        .into_any_element()
-                } else {
-                    let view = cx.entity();
-                    Button::new("stage-definition")
-                        .label(label)
-                        .ghost()
-                        .small()
-                        .dropdown_menu(move |menu, _window, _cx| {
-                            let mut menu = menu.label("清晰度");
-                            menu = menu.item(
-                                PopupMenuItem::new("自动").checked(current == 0).on_click({
-                                    let view = view.clone();
-                                    move |_, _, cx| {
-                                        view.update(cx, |v, cx| v.switch_definition(None, cx))
-                                    }
-                                }),
-                            );
-                            for d in &defs {
-                                let view = view.clone();
-                                let value = d.value;
-                                // 竖屏剧的宽高是反的，只报分辨率会误导
-                                let lbl = if d.height > d.width {
-                                    format!("{}P（{}×{}）", d.value, d.width, d.height)
-                                } else {
-                                    format!("{}P", d.value)
-                                };
-                                menu = menu.item(
-                                    PopupMenuItem::new(lbl)
-                                        .checked(d.value == current)
-                                        .on_click(move |_, _, cx| {
-                                            let view = view.clone();
-                                            view.update(cx, |v, cx| {
-                                                v.switch_definition(Some(value), cx)
-                                            })
-                                        }),
-                                );
-                            }
-                            menu
-                        })
-                        .into_any_element()
-                }
-            })
-            .child(
-                // 选集浮层入口（Tauri immersive 同款：带总集数；浮层贴按钮
-                // 向上弹，见 render_picker）
-                Button::new("stage-picker")
-                    .label(match self.now.as_ref() {
-                        Some(now) if now.episode_count > 0 => {
-                            format!("选集 · 全{}集", now.episode_count)
-                        }
-                        _ => "选集".to_string(),
-                    })
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
-            )
-            .child(
-                // 音量（Tauri VolumePopup 同款）：图标按钮单击=静音切换，
-                // 悬停向上弹竖向滑杆（弹层是按钮 wrapper 的子层，移过去
-                // 不会收）；拖到 0 即静音、拖离 0 自动解除静音
-                div()
-                    .id("volume-wrapper")
-                    .relative()
-                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                        if this.volume_popup_open != *hovered {
-                            this.volume_popup_open = *hovered;
-                            cx.notify();
-                        }
-                    }))
+                h_flex()
+                    .id("stage-controls-row")
+                    .items_center()
+                    .gap_3()
+                    .px_4()
+                    .pt_0p5()
+                    .pb_1p5()
                     .child(
-                        Button::new("stage-mute")
-                            .icon(if self.muted || self.volume == 0.0 {
-                                gpui_kit::assets::IconName::VolumeX
-                            } else if self.volume < 0.5 {
-                                gpui_kit::assets::IconName::Volume1
-                            } else {
-                                gpui_kit::assets::IconName::Volume2
+                        Button::new("stage-toggle-play")
+                            .icon(play_icon)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx))),
+                    )
+                    .child(
+                        // 上一集/下一集（Tauri 控制栏同位）：连播语义——越过
+                        // 第 1 集原地不动，越过末集跟随换剧
+                        Button::new("stage-prev-episode")
+                            .icon(gpui_kit::assets::IconName::SkipBack)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.step_episode(-1, cx))),
+                    )
+                    .child(
+                        Button::new("stage-next-episode")
+                            .icon(gpui_kit::assets::IconName::SkipForward)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.step_episode(1, cx))),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_family("monospace")
+                            .text_color(gpui_kit::rgba(0xffffffcc))
+                            .child(format!(
+                                "{} / {}",
+                                Self::fmt_secs(position),
+                                Self::fmt_secs(duration)
+                            )),
+                    )
+                    .child(
+                        // 弹幕发送 pill（Tauri 同款）：无框输入 + 内嵌表情 +
+                        // 发送；表情弹层从 pill 上方拉起（与评论面板同源
+                        // 表情表，光标处插入 [名字]，上屏由弹幕渲染分段画）
+                        div()
+                            .id("danmaku-box")
+                            .relative()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .pl_3()
+                                    .pr_1()
+                                    .h(gpui_kit::px(30.0))
+                                    .rounded_full()
+                                    .bg(gpui_kit::rgba(0xffffff1a))
+                                    .children(self.danmaku_input.as_ref().map(|input| {
+                                        Input::new(input)
+                                            .bordered(false)
+                                            .h(gpui_kit::px(26.0))
+                                            .w(gpui_kit::px(150.0))
+                                            .text_xs()
+                                    }))
+                                    .child(
+                                        Button::new("stage-danmaku-emoji")
+                                            .icon(gpui_kit::assets::IconName::FaceGrinning)
+                                            .ghost()
+                                            .small()
+                                            .tooltip("表情")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.danmaku_emoji_open = !this.danmaku_emoji_open;
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("stage-danmaku-send")
+                                            .label("发送")
+                                            .small()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.submit_danmaku(cx)
+                                            })),
+                                    ),
+                            )
+                            .children(self.danmaku_emoji_open.then(|| {
+                                // 表情网格（评论面板同款：连选不关面板、光标处
+                                // 插入不夺焦；点外部 on_mouse_down_out 收起）
+                                let danmaku_input = self.danmaku_input.clone();
+                                v_flex()
+                                    .absolute()
+                                    .left_0()
+                                    .bottom(gpui_kit::px(38.0))
+                                    .w(gpui_kit::px(264.0))
+                                    .p_2()
+                                    .rounded(gpui_kit::px(12.0))
+                                    .bg(gpui_kit::rgba(0x000000d9))
+                                    .border_1()
+                                    .border_color(gpui_kit::rgba(0xffffff14))
+                                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                        this.danmaku_emoji_open = false;
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        div()
+                                            .id("danmaku-emoji-grid")
+                                            .max_h(gpui_kit::px(176.0))
+                                            .overflow_y_scroll()
+                                            .flex()
+                                            .flex_wrap()
+                                            .gap_0p5()
+                                            .children(
+                                                crate::danmaku_emoji::EMOJI_FILES.iter().map(
+                                                    |(name, _)| {
+                                                        let code = name.to_string();
+                                                        let emoji =
+                                                            crate::danmaku_emoji::emoji_by_name(
+                                                                name,
+                                                            );
+                                                        div()
+                                                            .id(gpui_kit::ElementId::from(format!(
+                                                                "dm-emoji-{}",
+                                                                code
+                                                            )))
+                                                            .size_8()
+                                                            .flex()
+                                                            .items_center()
+                                                            .justify_center()
+                                                            .rounded(gpui_kit::px(6.0))
+                                                            .cursor_pointer()
+                                                            .hover(|s| {
+                                                                s.bg(gpui_kit::rgba(0xffffff26))
+                                                            })
+                                                            .on_click({
+                                                                let input = danmaku_input.clone();
+                                                                move |_, window, cx| {
+                                                                    if let Some(input) = &input {
+                                                                        // 光标处插入 [名字]
+                                                                        input.update(
+                                                                            cx,
+                                                                            |state, cx| {
+                                                                                state.insert(
+                                                                                    code.clone(),
+                                                                                    window,
+                                                                                    cx,
+                                                                                );
+                                                                            },
+                                                                        );
+                                                                    }
+                                                                }
+                                                            })
+                                                            .children(emoji.map(|bitmap| {
+                                                                gpui_kit::img(
+                                                                    gpui_kit::ImageSource::Render(
+                                                                        bitmap,
+                                                                    ),
+                                                                )
+                                                                .size_6()
+                                                            }))
+                                                    },
+                                                ),
+                                            ),
+                                    )
+                                    .into_any_element()
+                            })),
+                    )
+                    .child(
+                        Button::new("stage-rate")
+                            .label(Self::fmt_rate(self.rate))
+                            .ghost()
+                            .small()
+                            .dropdown_menu(rate_menu),
+                    )
+                    .child({
+                        // 清晰度菜单（Tauri 同款）：自动 + 本集全部档位；本地集
+                        // 没有档位表，按钮置灰并保持可见（不渲染会让用户以为
+                        // 「这个功能本来就没有」，在线流那集它又出现了）
+                        let defs = self
+                            .now
+                            .as_ref()
+                            .map(|n| n.definitions.clone())
+                            .unwrap_or_default();
+                        let current = self.now.as_ref().map(|n| n.definition).unwrap_or(0);
+                        let label = match self.now.as_ref() {
+                            Some(n) if n.definition > 0 => format!("{}P", n.definition),
+                            _ => "自动".to_string(),
+                        };
+                        if defs.is_empty() {
+                            // 无档位表（本地集）：置灰保持可见——直接不渲染会让用户
+                            // 以为「这个功能本来就没有」，在线流那集它又出现了
+                            div()
+                                .px_2()
+                                .text_xs()
+                                .text_color(gpui_kit::rgba(0xffffff66))
+                                .child(label)
+                                .into_any_element()
+                        } else {
+                            let view = cx.entity();
+                            Button::new("stage-definition")
+                                .label(label)
+                                .ghost()
+                                .small()
+                                .dropdown_menu(move |menu, _window, _cx| {
+                                    let mut menu = menu.label("清晰度");
+                                    menu = menu.item(
+                                        PopupMenuItem::new("自动").checked(current == 0).on_click(
+                                            {
+                                                let view = view.clone();
+                                                move |_, _, cx| {
+                                                    view.update(cx, |v, cx| {
+                                                        v.switch_definition(None, cx)
+                                                    })
+                                                }
+                                            },
+                                        ),
+                                    );
+                                    for d in &defs {
+                                        let view = view.clone();
+                                        let value = d.value;
+                                        // 竖屏剧的宽高是反的，只报分辨率会误导
+                                        let lbl = if d.height > d.width {
+                                            format!("{}P（{}×{}）", d.value, d.width, d.height)
+                                        } else {
+                                            format!("{}P", d.value)
+                                        };
+                                        menu = menu.item(
+                                            PopupMenuItem::new(lbl)
+                                                .checked(d.value == current)
+                                                .on_click(move |_, _, cx| {
+                                                    let view = view.clone();
+                                                    view.update(cx, |v, cx| {
+                                                        v.switch_definition(Some(value), cx)
+                                                    })
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                })
+                                .into_any_element()
+                        }
+                    })
+                    .child(
+                        // 选集浮层入口（Tauri immersive 同款：带总集数；浮层贴按钮
+                        // 向上弹，见 render_picker）
+                        Button::new("stage-picker")
+                            .label(match self.now.as_ref() {
+                                Some(now) if now.episode_count > 0 => {
+                                    format!("选集 · 全{}集", now.episode_count)
+                                }
+                                _ => "选集".to_string(),
                             })
                             .ghost()
                             .small()
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
                     )
-                    .children(self.volume_popup_open.then(|| {
-                        v_flex()
-                            .absolute()
-                            .bottom(gpui_kit::px(36.0))
-                            // 右对齐向左展开：音量按钮贴窗口右缘，左锚会把
-                            // 弹层推出窗外
-                            .right_0()
-                            .items_center()
-                            .p_2()
-                            .rounded(gpui_kit::px(8.0))
-                            .bg(gpui_kit::rgba(0x171717f2))
-                            .child(
-                                Slider::new(&self.volume_slider)
-                                    .vertical()
-                                    .h(gpui_kit::px(96.0)),
-                            )
-                            .into_any_element()
-                    })),
-            )
-            .child({
-                // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
-                Button::new("stage-danmaku")
-                    .icon(gpui_kit::assets::IconName::MessageSquare)
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.danmaku_on = !this.danmaku_on;
-                        // 关=清屏+游标落当前位（重开不补放积压）；落盘
-                        this.danmaku_flights.clear();
-                        this.danmaku_cursor = this
-                            .player
-                            .as_ref()
-                            .map(|p| {
-                                this.danmaku_items.partition_point(|d| {
-                                    (d.offset_ms as f64) / 1000.0 <= p.position_secs()
-                                })
-                            })
-                            .unwrap_or(0);
-                        this.persist_prefs();
-                        cx.notify();
-                    }))
-            })
-            .child({
-                // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）
-                div()
-                    .id("dm-settings")
-                    .relative()
-                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                        if this.dm_panel_open != *hovered {
-                            this.dm_panel_open = *hovered;
-                            cx.notify();
-                        }
-                    }))
                     .child(
-                        Button::new("stage-dm-settings")
-                            .icon(IconName::Settings2)
-                            .ghost()
-                            .small(),
-                    )
-                    .children(self.dm_panel_open.then(|| {
-                        v_flex()
-                            .absolute()
-                            .right_0()
-                            .bottom(gpui_kit::px(36.0))
-                            .w(gpui_kit::px(240.0))
-                            .gap_3()
-                            .p_4()
-                            .rounded(gpui_kit::px(12.0))
-                            .bg(gpui_kit::rgba(0x171717f2))
-                            .on_mouse_down(
-                                gpui_kit::MouseButton::Left,
-                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                        // 音量（Tauri VolumePopup 同款）：图标按钮单击=静音切换，
+                        // 悬停向上弹竖向滑杆（弹层是按钮 wrapper 的子层，移过去
+                        // 不会收）；拖到 0 即静音、拖离 0 自动解除静音
+                        div()
+                            .id("volume-wrapper")
+                            .relative()
+                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                if this.volume_popup_open != *hovered {
+                                    this.volume_popup_open = *hovered;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(
+                                Button::new("stage-mute")
+                                    .icon(if self.muted || self.volume == 0.0 {
+                                        gpui_kit::assets::IconName::VolumeX
+                                    } else if self.volume < 0.5 {
+                                        gpui_kit::assets::IconName::Volume1
+                                    } else {
+                                        gpui_kit::assets::IconName::Volume2
+                                    })
+                                    .ghost()
+                                    .small()
+                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
                             )
-                            .child(self.dm_setting_row("不透明度", &self.dm_opacity_slider))
-                            .child(self.dm_setting_row("字号", &self.dm_font_slider))
-                            .child(self.dm_setting_row("密度", &self.dm_density_slider))
-                            .child(self.dm_setting_row("显示区域", &self.dm_area_slider))
+                            .children(self.volume_popup_open.then(|| {
+                                v_flex()
+                                    .absolute()
+                                    .bottom(gpui_kit::px(36.0))
+                                    // 右对齐向左展开：音量按钮贴窗口右缘，左锚会把
+                                    // 弹层推出窗外
+                                    .right_0()
+                                    .items_center()
+                                    .p_2()
+                                    .rounded(gpui_kit::px(8.0))
+                                    .bg(gpui_kit::rgba(0x171717f2))
+                                    .child(
+                                        Slider::new(&self.volume_slider)
+                                            .vertical()
+                                            .h(gpui_kit::px(96.0)),
+                                    )
+                                    .into_any_element()
+                            })),
+                    )
+                    .child({
+                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
+                        Button::new("stage-danmaku")
+                            .icon(gpui_kit::assets::IconName::MessageSquare)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.danmaku_on = !this.danmaku_on;
+                                // 关=清屏+游标落当前位（重开不补放积压）；落盘
+                                this.danmaku_flights.clear();
+                                this.danmaku_cursor = this
+                                    .player
+                                    .as_ref()
+                                    .map(|p| {
+                                        this.danmaku_items.partition_point(|d| {
+                                            (d.offset_ms as f64) / 1000.0 <= p.position_secs()
+                                        })
+                                    })
+                                    .unwrap_or(0);
+                                this.persist_prefs();
+                                cx.notify();
+                            }))
+                    })
+                    .child({
+                        // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）
+                        div()
+                            .id("dm-settings")
+                            .relative()
+                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                if this.dm_panel_open != *hovered {
+                                    this.dm_panel_open = *hovered;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(
+                                Button::new("stage-dm-settings")
+                                    .icon(IconName::Settings2)
+                                    .ghost()
+                                    .small(),
+                            )
+                            .children(self.dm_panel_open.then(|| {
+                                v_flex()
+                                    .absolute()
+                                    .right_0()
+                                    .bottom(gpui_kit::px(36.0))
+                                    .w(gpui_kit::px(240.0))
+                                    .gap_3()
+                                    .p_4()
+                                    .rounded(gpui_kit::px(12.0))
+                                    .bg(gpui_kit::rgba(0x171717f2))
+                                    .on_mouse_down(
+                                        gpui_kit::MouseButton::Left,
+                                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                                    )
+                                    .child(self.dm_setting_row("不透明度", &self.dm_opacity_slider))
+                                    .child(self.dm_setting_row("字号", &self.dm_font_slider))
+                                    .child(self.dm_setting_row("密度", &self.dm_density_slider))
+                                    .child(self.dm_setting_row("显示区域", &self.dm_area_slider))
+                                    .into_any_element()
+                            }))
                             .into_any_element()
-                    }))
-                    .into_any_element()
-            })
-            .child(
-                // 下载入口（Tauri download-sheet 同款位置：右段）
-                Button::new("stage-downloads")
-                    .label("下载")
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
-            )
-            .child(
-                // 隐身模式（Tauri incognito 同款）：开着时光标脱离窗口 →
-                // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播
-                Button::new("stage-incognito")
-                    .icon(if self.incognito {
-                        gpui_kit::assets::IconName::Eye
-                    } else {
-                        gpui_kit::assets::IconName::EyeOff
                     })
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_incognito(window, cx)
-                    })),
-            )
-            .child(
-                // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成
-                // 480×270 落工作区右下角，播放零中断
-                Button::new("stage-mini")
-                    .icon(gpui_kit::assets::IconName::PictureInPicture2)
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.enter_mini(window, cx);
-                    })),
-            )
-            .child(
-                // 播放器全屏（真沉浸：OS 全屏 + chrome 全藏；顶栏最大化钮是
-                // 另一档「应用全屏」chrome 保留）；图标随状态换
-                Button::new("stage-fullscreen")
-                    .icon(if self.fullscreen {
-                        gpui_kit::assets::IconName::Minimize2
-                    } else {
-                        gpui_kit::assets::IconName::Maximize2
-                    })
-                    .ghost()
-                    .small()
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_immersive_fullscreen(window, cx);
-                    })),
+                    .child(
+                        // 下载入口（Tauri download-sheet 同款位置：右段）
+                        Button::new("stage-downloads")
+                            .label("下载")
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
+                    )
+                    .child(
+                        // 隐身模式（Tauri incognito 同款）：开着时光标脱离窗口 →
+                        // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播
+                        Button::new("stage-incognito")
+                            .icon(if self.incognito {
+                                gpui_kit::assets::IconName::Eye
+                            } else {
+                                gpui_kit::assets::IconName::EyeOff
+                            })
+                            .ghost()
+                            .small()
+                            .on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.toggle_incognito(window, cx)
+                                }),
+                            ),
+                    )
+                    .child(
+                        // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成
+                        // 480×270 落工作区右下角，播放零中断
+                        Button::new("stage-mini")
+                            .icon(gpui_kit::assets::IconName::PictureInPicture2)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.enter_mini(window, cx);
+                            })),
+                    )
+                    .child(
+                        // 播放器全屏（真沉浸：OS 全屏 + chrome 全藏；顶栏最大化钮是
+                        // 另一档「应用全屏」chrome 保留）；图标随状态换
+                        Button::new("stage-fullscreen")
+                            .icon(if self.fullscreen {
+                                gpui_kit::assets::IconName::Minimize2
+                            } else {
+                                gpui_kit::assets::IconName::Maximize2
+                            })
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_immersive_fullscreen(window, cx);
+                            })),
+                    )
+                    .into_any_element(),
             )
             .into_any_element()
     }

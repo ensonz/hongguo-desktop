@@ -122,10 +122,7 @@ fn write_rows(map: &SampleMap<'_>, row_begin: usize, out: &mut [u8]) {
     let dst_w = map.col_map.len();
     // 本段切片装得下几行就写几行（并行时每线程的 out 恰好是 rows_per 行；
     // row_map[row_begin..] 的剩余行数只对最后一块恰好相等，多写就是越界）
-    debug_assert!(
-        out.len().is_multiple_of(dst_w * 4),
-        "输出切片必须按整行切"
-    );
+    debug_assert!(out.len().is_multiple_of(dst_w * 4), "输出切片必须按整行切");
     let rows = out.len() / (dst_w * 4);
     let y_plane = map.stride * map.height;
     for (ri, &sy) in map.row_map[row_begin..][..rows].iter().enumerate() {

@@ -149,7 +149,9 @@ impl super::HomeView {
                             .text_xs()
                             .line_height(gpui_kit::relative(1.6))
                             .text_color(gpui_kit::rgba(0xffffffb3))
-                            .when(!expanded, |s| s.h(gpui_kit::px(32.0)).overflow_hidden())
+                            // 收起态钳两整行（12px × 1.6 行高 ≈ 19.2/行），
+                            // 32px 会把第二行拦腰截断
+                            .when(!expanded, |s| s.h(gpui_kit::px(38.0)).overflow_hidden())
                             .child(SharedString::from(intro.clone())),
                     )
                     .children((intro_expandable).then(|| {

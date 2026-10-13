@@ -113,7 +113,15 @@ pub(crate) fn set_window_pos(
 }
 
 /// 物理像素直通版（还原快照用，不做任何换算）。
-pub(crate) fn set_window_pos_raw(hwnd: isize, after: isize, x: i32, y: i32, w: i32, h: i32, flags: u32) {
+pub(crate) fn set_window_pos_raw(
+    hwnd: isize,
+    after: isize,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    flags: u32,
+) {
     // SAFETY：同上
     unsafe {
         SetWindowPos(hwnd, after, x, y, w, h, flags);
