@@ -15,6 +15,7 @@
 //! 播放（帧流 → GPU 纹理）是 §5.3 spike，另行立项。
 
 mod bridge;
+mod downloads;
 mod home;
 mod http_client;
 mod image_upload;

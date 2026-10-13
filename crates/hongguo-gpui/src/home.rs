@@ -48,7 +48,7 @@ use hongguo_api::interact::{
 };
 use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_common::AppResult;
-use hongguo_common::model::VideoDefinition;
+use hongguo_common::model::{DownloadTask, VideoDefinition};
 use hongguo_media_platform::platform::video::{FrameBuffer, VideoFrame};
 use hongguo_playback::{OpenOptions, PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
@@ -315,6 +315,13 @@ pub struct HomeView {
     comment_input: Option<Entity<InputState>>,
     comment_sending: bool,
     comment_clear_input: bool,
+    // —— 下载 ——
+    /// 下载面板开着。
+    downloads_open: bool,
+    /// 下载任务快照（每次渲染从队列读，进度靠 Frame 事件驱动的重渲染刷新）。
+    downloads: Arc<Vec<DownloadTask>>,
+    /// 选集浮层的下载完成集号（渲染时刷新）。
+    done_vids: Arc<Vec<u32>>,
     /// 音量悬停弹层开着（Tauri VolumePopup 同款，随 wrapper hover 开合）。
     volume_popup_open: bool,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
@@ -521,6 +528,9 @@ impl HomeView {
             comment_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("说点什么…"))),
             comment_sending: false,
             comment_clear_input: false,
+            downloads_open: false,
+            downloads: Arc::new(Vec::new()),
+            done_vids: Arc::new(Vec::new()),
             volume_popup_open: false,
             buffering: false,
             controls_until: None,
@@ -537,6 +547,16 @@ impl HomeView {
             stage_rects: Rc::new(Cell::new(None)),
         };
         view.subscribe_controls(cx);
+        // 下载队列恢复：running 视为中断改回 pending（Tauri bootstrap 同款），
+        // 然后触发一轮调度把中断的任务续跑起来
+        {
+            let tasks = view.state.store.tasks().unwrap_or_default();
+            let limit = view.state.settings().max_concurrency as usize;
+            view.state.replace_queue(
+                hongguo_service::download_service::queue::DownloadQueue::restore(tasks, limit),
+            );
+            crate::downloads::kick(Arc::clone(&view.state));
+        }
         // 取证心跳（HONGGUO_DIAG=1 时启用）：2s 一跳。这行停了 = 主线程/
         // 前台执行器堵死（update 派发不到主线程），render 停跳的根因直接
         // 归位。平时不开，不污染日志。
@@ -1521,6 +1541,73 @@ impl HomeView {
             now.title, now.series_id
         );
         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
+    }
+
+    /// 开关下载面板；打开时刷新任务快照与完成角标。
+    fn toggle_downloads(&mut self, cx: &mut Context<Self>) {
+        self.downloads_open = !self.downloads_open;
+        self.wake_controls(cx);
+        self.refresh_downloads(cx);
+        cx.notify();
+        // 面板开着期间 1s 一刷：暂停时没有 Frame 事件驱动重渲染，
+        // 下载进度/完成态会停在旧值（后台下载仍在跑，进度照常变化）
+        if self.downloads_open {
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(1))
+                        .await;
+                    let ok = this
+                        .update(cx, |view, cx| {
+                            if !view.downloads_open {
+                                return;
+                            }
+                            view.refresh_downloads(cx);
+                        })
+                        .is_ok();
+                    if !ok {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
+    }
+
+    /// 刷新下载任务快照与选集浮层的完成角标。
+    fn refresh_downloads(&mut self, cx: &mut Context<Self>) {
+        let state = Arc::clone(&self.state);
+        let sid = self
+            .now
+            .as_ref()
+            .map(|n| n.series_id.clone())
+            .unwrap_or_default();
+        let rx = bridge::spawn(async move {
+            (
+                crate::downloads::tasks_of(&state, &sid),
+                crate::downloads::completed_vids(&state, &sid),
+            )
+        });
+        cx.spawn(async move |this, cx| {
+            let (tasks, done) = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                view.downloads = Arc::new(tasks);
+                view.done_vids = Arc::new(done);
+            });
+        })
+        .detach();
+    }
+
+    /// 入队当前剧的全部集（已在队列/已完成的自动跳过）。
+    fn download_all(&mut self, cx: &mut Context<Self>) {
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        let vids: Vec<u32> = (1..=now.episode_count as u32).collect();
+        let added = crate::downloads::enqueue_batch(&self.state, &now.series_id, &vids);
+        log::info!("[Home] 下载入队 {added} 集");
+        self.refresh_downloads(cx);
+        cx.notify();
     }
 
     /// 当前集的评论键就绪（vid 非空才可拉）。
@@ -2923,6 +3010,11 @@ impl HomeView {
             .children(overlay)
             .children(rail)
             .children(comment_panel)
+            // 下载面板（右侧滑出；字段快照由 Render::render 顶层刷新）
+            .children(
+                (self.downloads_open && self.player.is_some())
+                    .then(|| self.render_downloads_panel(cx)),
+            )
             .children(buffering_badge)
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
             // 「< 第N集」，点它解除锁定；显隐跟随控制条）
@@ -4074,6 +4166,140 @@ impl HomeView {
                     }))
                     .into_any_element()
             })
+            .child(
+                // 下载入口（Tauri download-sheet 同款位置：右段）
+                Button::new("stage-downloads")
+                    .label("下载")
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
+            )
+            .into_any_element()
+    }
+
+    /// 下载面板（右侧滑出）：任务列表（集号/状态/进度）+ 全量入队。
+    /// 任务快照每次渲染从队列直读——Frame 事件驱动的重渲染顺带刷新进度。
+    fn render_downloads_panel(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        v_flex()
+            .id("downloads-panel")
+            .absolute()
+            .top_0()
+            .right_0()
+            .bottom_0()
+            .w(gpui_kit::px(360.0))
+            .bg(gpui_kit::rgba(0x171717f2))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .px_4()
+                    .py_3()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child("下载任务"),
+                    )
+                    .child(
+                        Button::new("downloads-close")
+                            .icon(gpui_kit::assets::IconName::X)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.downloads_open = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div().px_4().pb_2().child(
+                    Button::new("downloads-all")
+                        .label(format!(
+                            "下载本剧全部 {} 集",
+                            self.now.as_ref().map(|n| n.episode_count).unwrap_or(0)
+                        ))
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| this.download_all(cx))),
+                ),
+            )
+            .child(
+                div()
+                    .id("downloads-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_4()
+                    .pb_4()
+                    .child(if self.downloads.is_empty() {
+                        div()
+                            .py_8()
+                            .text_center()
+                            .text_sm()
+                            .text_color(gpui_kit::rgba(0xffffff99))
+                            .child("暂无下载任务")
+                            .into_any_element()
+                    } else {
+                        v_flex()
+                            .gap_2()
+                            .children(self.downloads.iter().map(|t| self.render_download_row(t)))
+                            .into_any_element()
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// 下载任务一行：集号 + 状态文本 + 进度条。
+    fn render_download_row(&self, t: &DownloadTask) -> gpui_kit::AnyElement {
+        let (status_text, percent) = match &t.status {
+            hongguo_common::model::TaskStatus::Pending => ("排队中".to_string(), 0.0),
+            hongguo_common::model::TaskStatus::Running => {
+                (format!("{:.0}%", t.percent()), t.percent())
+            }
+            hongguo_common::model::TaskStatus::Completed => ("已完成".to_string(), 100.0),
+            hongguo_common::model::TaskStatus::Failed => (format!("失败：{}", t.error), 0.0),
+            hongguo_common::model::TaskStatus::Stopped => ("已停止".to_string(), 0.0),
+        };
+        let status_color = match &t.status {
+            hongguo_common::model::TaskStatus::Completed => gpui_kit::rgba(0x4ade80ff),
+            hongguo_common::model::TaskStatus::Failed => gpui_kit::rgba(0xf87171ff),
+            _ => gpui_kit::rgba(0xffffffb3),
+        };
+        v_flex()
+            .gap_1()
+            .p_2()
+            .rounded(gpui_kit::px(8.0))
+            .bg(gpui_kit::rgba(0x26262680))
+            .child(
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0xffffffe6))
+                            .child(format!("第 {} 集", t.vid_index)),
+                    )
+                    .child(div().text_xs().text_color(status_color).child(status_text)),
+            )
+            .child(
+                div()
+                    .h_1()
+                    .rounded_full()
+                    .bg(gpui_kit::rgba(0xffffff26))
+                    .child(
+                        div()
+                            .h_1()
+                            .rounded_full()
+                            .bg(gpui_kit::rgb(0xef4444))
+                            .w(gpui_kit::relative((percent / 100.0) as f32)),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -4196,15 +4422,17 @@ impl HomeView {
                     .child(format!("{lo}-{hi}"))
             }));
 
-        // 8 列数字网格
+        // 8 列数字网格（右上角下载完成角标：绿点 = 该集已下载可离线播）
         let grid = div()
             .flex()
             .flex_wrap()
             .gap_2()
             .children((start..=end).map(|n| {
                 let active = n == now.vid_index;
+                let downloaded = self.done_vids.contains(&n);
                 div()
                     .id(gpui_kit::ElementId::from(format!("picker-ep-{n}")))
+                    .relative()
                     .flex()
                     .items_center()
                     .justify_center()
@@ -4227,6 +4455,19 @@ impl HomeView {
                     .when(active, |s| s.font_weight(gpui_kit::FontWeight::SEMIBOLD))
                     .on_click(cx.listener(move |this, _, _, cx| this.pick_episode(n, cx)))
                     .child(format!("{n}"))
+                    .children(downloaded.then(|| {
+                        div()
+                            .absolute()
+                            .top_1()
+                            .right_1()
+                            .size_1p5()
+                            .rounded_full()
+                            .bg(if active {
+                                gpui_kit::rgba(0xfffffffa)
+                            } else {
+                                gpui_kit::rgba(0x34d399ff)
+                            })
+                    }))
             }));
 
         let hint = div()
@@ -4395,6 +4636,16 @@ impl gpui_kit::Render for HomeView {
         {
             self.danmaku_clear_input = false;
             input.update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        // 下载任务快照刷新（render_stage 是 &self，写不进去；借这里的 &mut）
+        if self.downloads_open {
+            let sid = self
+                .now
+                .as_ref()
+                .map(|n| n.series_id.clone())
+                .unwrap_or_default();
+            self.downloads = Arc::new(crate::downloads::tasks_of(&self.state, &sid));
+            self.done_vids = Arc::new(crate::downloads::completed_vids(&self.state, &sid));
         }
         let theme = cx.theme();
         let feed = self.feeds.get(&self.active).expect("源已初始化");
