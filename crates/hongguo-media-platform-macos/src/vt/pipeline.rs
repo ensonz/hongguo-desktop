@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use hongguo_common::{AppError, AppResult};
-use hongguo_mp4::sample_table::TrackInfo;
+use hongguo_video::sample_table::TrackInfo;
 
 use hongguo_media_platform_api::PlatformRequest;
 use hongguo_media_platform_api::video::bitrate_for;

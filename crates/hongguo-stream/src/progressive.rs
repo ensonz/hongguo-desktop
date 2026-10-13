@@ -7,7 +7,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 
 use crate::range::{ProtocolResponse, RangeSpec, parse_range, partial_headers};
-use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan};
+use hongguo_video::streaming::{SparseBuffer, StreamingPlan};
 
 /// 等待数据就绪的最长时间（秒）。超时返回 502，避免请求永久挂起。
 const WAIT_TIMEOUT_SECS: u64 = 30;
@@ -591,15 +591,15 @@ mod tests {
 
     /// 注册一条带真实解密计划的渐进流，返回 (稀疏缓冲, 密文, 明文参照, 明文总长)。
     fn progressive_fixture(vid: &str, def: u32) -> (Arc<SparseBuffer>, Vec<u8>, Vec<u8>, u64) {
-        use hongguo_mp4::decrypt_buffer::decrypt_mp4_buffer;
-        use hongguo_mp4::streaming::StreamingPlan;
-        use hongguo_mp4::streaming_tests::assemble;
+        use hongguo_video::decrypt_buffer::decrypt_mp4_buffer;
+        use hongguo_video::streaming::StreamingPlan;
+        use hongguo_video::streaming_tests::assemble;
 
         let (_plain, cipher, key) = assemble(true);
         let reference = decrypt_mp4_buffer(&cipher, &key).expect("参照明文应可得");
         let len = cipher.len() as u64;
         let (abs, size) =
-            hongguo_mp4::streaming::locate_moov(&cipher, 0, len).expect("应定位 moov");
+            hongguo_video::streaming::locate_moov(&cipher, 0, len).expect("应定位 moov");
         let region = &cipher[abs as usize..(abs + size) as usize];
         let plan = StreamingPlan::build(region, abs, len, &key).expect("计划应构建成功");
         let plain_len = plan.plain_len();

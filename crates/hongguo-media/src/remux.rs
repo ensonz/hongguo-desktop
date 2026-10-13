@@ -272,8 +272,8 @@ fn read_header_boxes(path: &Path) -> AppResult<(Vec<u8>, Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hongguo_mp4::fixtures::{TrackPlan, mp4_with_samples};
-    use hongguo_mp4::sample_table::collect_tracks;
+    use hongguo_video::fixtures::{TrackPlan, mp4_with_samples};
+    use hongguo_video::sample_table::collect_tracks;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-remux-{tag}-{}", std::process::id()));

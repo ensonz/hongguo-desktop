@@ -4408,7 +4408,7 @@ name = "hongguo-media"
 version = "0.4.4"
 dependencies = [
  "hongguo-common",
- "hongguo-mp4",
+ "hongguo-video",
  "jpeg-encoder",
  "log",
  "muxide",
@@ -4451,7 +4451,7 @@ dependencies = [
  "hongguo-common",
  "hongguo-media",
  "hongguo-media-platform-api",
- "hongguo-mp4",
+ "hongguo-video",
  "log",
  "parking_lot",
 ]
@@ -4463,23 +4463,11 @@ dependencies = [
  "hongguo-common",
  "hongguo-media",
  "hongguo-media-platform-api",
- "hongguo-mp4",
+ "hongguo-video",
  "jpeg-encoder",
  "log",
  "parking_lot",
  "windows 0.62.2",
-]
-
-[[package]]
-name = "hongguo-mp4"
-version = "0.4.4"
-dependencies = [
- "aes 0.9.3",
- "base64 0.23.1",
- "ctr 0.10.1",
- "hongguo-common",
- "log",
- "parking_lot",
 ]
 
 [[package]]
@@ -4490,8 +4478,8 @@ dependencies = [
  "hongguo-common",
  "hongguo-media",
  "hongguo-media-platform",
- "hongguo-mp4",
  "hongguo-stream",
+ "hongguo-video",
  "log",
  "parking_lot",
  "ringbuf",
@@ -4525,11 +4513,11 @@ dependencies = [
  "hongguo-common",
  "hongguo-media",
  "hongguo-media-platform",
- "hongguo-mp4",
  "hongguo-protocol",
  "hongguo-signer",
  "hongguo-store",
  "hongguo-stream",
+ "hongguo-video",
  "log",
  "parking_lot",
  "reqwest",
@@ -4574,7 +4562,7 @@ name = "hongguo-stream"
 version = "0.4.4"
 dependencies = [
  "hongguo-common",
- "hongguo-mp4",
+ "hongguo-video",
  "log",
  "parking_lot",
 ]
@@ -4589,12 +4577,12 @@ dependencies = [
  "hongguo-common",
  "hongguo-media",
  "hongguo-media-platform",
- "hongguo-mp4",
  "hongguo-protocol",
  "hongguo-service",
  "hongguo-signer",
  "hongguo-store",
  "hongguo-stream",
+ "hongguo-video",
  "log",
  "mouse_position",
  "objc2 0.6.5",
@@ -4609,6 +4597,18 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-webdriver",
  "tokio",
+]
+
+[[package]]
+name = "hongguo-video"
+version = "0.4.4"
+dependencies = [
+ "aes 0.9.3",
+ "base64 0.23.1",
+ "ctr 0.10.1",
+ "hongguo-common",
+ "log",
+ "parking_lot",
 ]
 
 [[package]]

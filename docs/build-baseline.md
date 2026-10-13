@@ -37,7 +37,7 @@ cargo clean && cargo build --workspace
 | --- | --- | --- | --- | --- |
 | B1 | `src-tauri/src/media/transcode.rs` | 1.4 s | **18.6 s** | `hongguo-desktop` |
 | B2 | `crates/hongguo-store/src/paths.rs` | 1.7 s | 18.4 s | `hongguo-store`, `hongguo-desktop` |
-| B3 | `crates/hongguo-mp4/src/lib.rs` | 1.5 s | 17.8 s | `hongguo-mp4`, `hongguo-desktop` |
+| B3 | `crates/hongguo-video/src/lib.rs` | 1.5 s | 17.8 s | `hongguo-video`, `hongguo-desktop` |
 
 ### 读数结论（重要，别误读）
 

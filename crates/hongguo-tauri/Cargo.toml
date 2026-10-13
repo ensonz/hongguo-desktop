@@ -70,7 +70,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 
 [dev-dependencies]
 # e2e（testing/media_pipeline_e2e.rs）要构造 MP4 样本与重定向数据目录。
-hongguo-mp4 = { path = "../hongguo-mp4", features = ["test-support"] }
+hongguo-video = { path = "../hongguo-video", features = ["test-support"] }
 hongguo-store = { path = "../hongguo-store", features = ["test-support"] }
 # e2e 是跨层用例：直接驱动媒体核心与平台层，不经 service 的编排。
 hongguo-media = { path = "../hongguo-media" }

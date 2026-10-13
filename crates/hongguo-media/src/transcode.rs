@@ -75,7 +75,7 @@ pub(super) type YuvFrame = (Vec<u8>, Vec<u8>, Vec<u8>, usize, usize);
 
 /// 源时间轴：逐样本显示时间与平均帧率。
 ///
-/// 从样本表的 `stts`/`ctts` 展开（见 `hongguo_mp4::timing`）。空 `pts` 表示
+/// 从样本表的 `stts`/`ctts` 展开（见 `hongguo_video::timing`）。空 `pts` 表示
 /// 容器没给时间轴，调用方回落到「样本号 / 默认帧率」的合成轴——那是
 /// 没有时间信息的畸形文件才走的路，正常片源一律用真实时间戳。
 pub(super) struct SourceTiming {
@@ -86,7 +86,7 @@ pub(super) struct SourceTiming {
 }
 
 impl SourceTiming {
-    fn of(info: &hongguo_mp4::sample_table::TrackInfo, fallback_framerate: f32) -> Self {
+    fn of(info: &hongguo_video::sample_table::TrackInfo, fallback_framerate: f32) -> Self {
         SourceTiming {
             pts: info.sample_pts(),
             framerate: info

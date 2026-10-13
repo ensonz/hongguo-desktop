@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use hongguo_common::AppResult;
 use hongguo_media_platform::platform::video::{DecoderInit, HevcDecoder, VideoFrame};
-use hongguo_mp4::sample_table::TrackInfo;
+use hongguo_video::sample_table::TrackInfo;
 
 use crate::player::{PlayerEvent, Shared};
 use crate::source::SampleSource;

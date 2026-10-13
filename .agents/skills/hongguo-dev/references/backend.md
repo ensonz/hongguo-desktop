@@ -9,7 +9,7 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 └─ app_state.rs         # AppState = Arc<AppStateInner>
 ```
 
-- 已迁出的 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）、`crates/hongguo-signer`（请求签名，JS 1:1 禁改）、`crates/hongguo-mp4`（MP4 解析与 CENC 解密）、`crates/hongguo-api`（官方接口客户端，14 域；改端点前必读 `docs/hongguo-api-endpoints.md`）、`crates/hongguo-store`（Turso 持久化：db 迁移 / entity 六组实体 / bridge 同步门面 / 旧档导入与坏档恢复）、`crates/hongguo-stream`（在线流契约：渐进流 / 缓存 / Range 应答 / 进程级 `cache()` 单例）、`crates/hongguo-media`（纯 Rust 编解码：demux / hevc / remux / transcode / heif 等）。本 crate 用 `hongguo_common::…` / `hongguo_signer::…` / `hongguo_mp4::…` / `hongguo_api::…` / `hongguo_store::…` / `hongguo_stream::…` / `hongguo_media::…` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
+- 已迁出的 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）、`crates/hongguo-signer`（请求签名，JS 1:1 禁改）、`crates/hongguo-video`（MP4 解析与 CENC 解密）、`crates/hongguo-api`（官方接口客户端，14 域；改端点前必读 `docs/hongguo-api-endpoints.md`）、`crates/hongguo-store`（Turso 持久化：db 迁移 / entity 六组实体 / bridge 同步门面 / 旧档导入与坏档恢复）、`crates/hongguo-stream`（在线流契约：渐进流 / 缓存 / Range 应答 / 进程级 `cache()` 单例）、`crates/hongguo-media`（纯 Rust 编解码：demux / hevc / remux / transcode / heif 等）。本 crate 用 `hongguo_common::…` / `hongguo_signer::…` / `hongguo_video::…` / `hongguo_api::…` / `hongguo_store::…` / `hongguo_stream::…` / `hongguo_media::…` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
 
 - **媒体层三块**：纯 Rust 编解码在 `hongguo-media`；平台硬编（VT / MF / WIC）与 ffmpeg 执行还在本 crate 的 `media/{platform,ffmpeg}`；解码能力探测在 `media/capability`。方向恒为「平台/ffmpeg/能力探测 → 纯 Rust 核心」，不许反向（核心不依赖 tauri）。
 
@@ -70,7 +70,7 @@ pub fn series_by_id(&self, series_id: &str) -> AppResult<Option<Series>> {
 ## 测试规范
 
 - **组织**：内嵌 `#[cfg(test)] mod tests { use super::*; }` 与实现同文件；大文件测试拆兄弟文件 `#[path]` 挂回（`sample_table_tests.rs` 模式，能测私有函数）。
-- **fixtures**：JSON 用 `serde_json::json!` 造抓包形状（注释标抓包日期）；MP4 用 `hongguo_mp4::fixtures` 的 `mp4()/mp4_with_samples()`——原则「只搭被测层真会读到的那几层」（`hongguo-mp4` 开 `test-support` feature）；磁盘用 `temp_dir + process::id` 后清理；本地假 HTTP 用 TcpListener bind 127.0.0.1:0。
+- **fixtures**：JSON 用 `serde_json::json!` 造抓包形状（注释标抓包日期）；MP4 用 `hongguo_video::fixtures` 的 `mp4()/mp4_with_samples()`——原则「只搭被测层真会读到的那几层」（`hongguo-video` 开 `test-support` feature）；磁盘用 `temp_dir + process::id` 后清理；本地假 HTTP 用 TcpListener bind 127.0.0.1:0。
 - **门控**：e2e 用 `HONGGUO_E2E_DIR` 没设就整体跳过（用 return 不用 expect，别让没数据的机器红一片）；数据目录重定向用 `HONGGUO_DATA_DIR`（`hongguo_store::paths::ScopedDataDir` RAII + 全局锁防互污，需 `hongguo-store` 的 `test-support` feature）。
 - **元测试钉决策**：本仓库惯用「扫源码断言约定」的测试（command 禁 tokio、rank 命令必须 async、事件名稳定、重试次数 sane）。新立分层约定时照这个模式钉死。
 - **跑法**：`cargo test --lib <模块过滤>`；平台门控组（MF/VT）按目标各跑，交叉验证 `cargo clippy --target aarch64-apple-darwin`。

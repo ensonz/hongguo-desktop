@@ -42,8 +42,8 @@ pub async fn fetch_plain_with(
     progress(received, total.max(received), "decrypting");
 
     if play.encrypted {
-        let key = hongguo_mp4::crypto::key_derive::derive_key(&play.key_material)?;
-        hongguo_mp4::decrypt_buffer::decrypt_mp4_buffer(&body, &key)
+        let key = hongguo_video::crypto::key_derive::derive_key(&play.key_material)?;
+        hongguo_video::decrypt_buffer::decrypt_mp4_buffer(&body, &key)
     } else {
         Ok(body)
     }

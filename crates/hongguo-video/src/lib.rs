@@ -1,4 +1,4 @@
-//! MP4 解析与 CENC 解密（hongguo-mp4 crate）。
+//! MP4 解析与 CENC 解密（hongguo-video crate）。
 //!
 //! - [`r#box`]：box 树遍历
 //! - [`sample_table`]：样本表与加密辅助信息

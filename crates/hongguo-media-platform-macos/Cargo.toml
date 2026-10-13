@@ -15,7 +15,7 @@ hongguo-common = { path = "../hongguo-common" }
 # 纯 Rust 编解码核心：解复用 / 参数集读取 / 音轨直通 / 封装（转码管线复用）。
 hongguo-media = { path = "../hongguo-media" }
 # 样本表类型（TrackInfo）：平台硬解要把 hvcC 参数集转 Annex-B 喂解码器。
-hongguo-mp4 = { path = "../hongguo-mp4" }
+hongguo-video = { path = "../hongguo-video" }
 log = "0.4"
 parking_lot = "0.12"
 
@@ -33,6 +33,6 @@ core-video = { version = "0.5.2", features = ["metal"] }
 core-foundation = "0.10"
 
 [features]
-# 门面 test-support 转发：跨 crate 的 e2e 测试通道门控（对齐 hongguo-mp4
+# 门面 test-support 转发：跨 crate 的 e2e 测试通道门控（对齐 hongguo-video
 # 的 fixtures / hongguo-store 的 ScopedDataDir 先例）。生产构建不带。
 test-support = []

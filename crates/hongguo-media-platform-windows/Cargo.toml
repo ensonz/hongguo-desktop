@@ -15,7 +15,7 @@ hongguo-common = { path = "../hongguo-common" }
 # 纯 Rust 编解码核心：解复用 / 参数集读取 / 音轨直通 / 封装（转码管线复用）。
 hongguo-media = { path = "../hongguo-media" }
 # 样本表类型（TrackInfo）：平台硬解要把 hvcC 参数集转 Annex-B 喂解码器。
-hongguo-mp4 = { path = "../hongguo-mp4" }
+hongguo-video = { path = "../hongguo-video" }
 log = "0.4"
 parking_lot = "0.12"
 # 封面 WIC 级解码后的 JPEG 编码（与 hongguo-media 的 heif 软解级同一产物口径）。

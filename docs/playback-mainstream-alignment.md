@@ -1,7 +1,7 @@
 # GPUI 播放引擎对齐主流：平台音频解码 + 时钟校正 + 倍速/音量/seek + 控制区
 
 > 状态：已确认方向（2026-10-12，用户三问三答：症状=音画不同步；解码路线=平台解码器；范围=三步连做）。
-> 适用范围：`crates/hongguo-playback/`（引擎）、`crates/hongguo-media-platform-macos/src/audio.rs`（新增平台解码；架构二期前称 `media-platform/src/platform/audio/`）、`crates/hongguo-mp4/`（elst 解析）、`crates/hongguo-gpui/`（控制区 UI）。
+> 适用范围：`crates/hongguo-playback/`（引擎）、`crates/hongguo-media-platform-macos/src/audio.rs`（新增平台解码；架构二期前称 `media-platform/src/platform/audio/`）、`crates/hongguo-video/`（elst 解析）、`crates/hongguo-gpui/`（控制区 UI）。
 
 ## 1. 背景与症状
 
@@ -19,7 +19,7 @@ GPUI 壳的播放引擎（`hongguo-playback`）已经做到「画面 + 声音都
 | --- | --- | --- | --- |
 | 音主时钟 | 音频设备消费位置推进（ffplay 字节法 / ExoPlayer AudioTrack clock / mpv） | 一致（cpal 回调消费计数） | 对齐 |
 | 时钟基准 | **可闻位置**：回调时间戳（playback 时刻）扣除设备引线；Chromium/ExoPlayer 均如此 | 回调拉取即计时，**未扣设备引线**（约 10–40ms，蓝牙更大） | **偏差，根因之一** |
-| AAC priming | 按 elst / 编码器延迟修剪开头样本 | `hongguo-mp4` 不解析 elst（约 40–50ms 恒定偏移，方向为声音偏晚） | **偏差，根因之二** |
+| AAC priming | 按 elst / 编码器延迟修剪开头样本 | `hongguo-video` 不解析 elst（约 40–50ms 恒定偏移，方向为声音偏晚） | **偏差，根因之二** |
 | 解码器 | 平台解码器（Chromium 内建 / AVFoundation / TTVideoEngine），HE-AAC 全覆盖 | symphonia 0.5 仅 AAC-LC，无 SBR/PS | **偏差（能力缺口 + 对齐）** |
 | 缓冲模型 | 缓冲不足→暂停渲染 + loading（ExoPlayer BUFFERING / 状态机 + 水位阈值），PCM 冲 ~1s | 环形缓冲 ¼s，无状态机，欠载放静音 | **偏差（断续感的来源）** |
 | 倍速 | 音频 WSOLA 变速不变调（soundtouch/Sonic/audioTimePitch），时钟×rate，视频到期时间随媒体时间 | 无 | 缺失 |
@@ -49,7 +49,7 @@ GPUI 壳的播放引擎（`hongguo-playback`）已经做到「画面 + 声音都
 
 ### 3.3 elst 解析与 priming 修剪
 
-- `hongguo-mp4` 样本表新增 `edts/elst` 解析：每轨 `media_start`（elst 的 media_time），样本 pts 统一减去它。AAC 编码器 priming 由容器 edit list 表达，这是机制性修剪，不是猜常数。
+- `hongguo-video` 样本表新增 `edts/elst` 解析：每轨 `media_start`（elst 的 media_time），样本 pts 统一减去它。AAC 编码器 priming 由容器 edit list 表达，这是机制性修剪，不是猜常数。
 - AudioToolbox 解码输出的 priming 行为以实测定论：若流无 elst 且解码首包含前导静音，按实测补偿（验证步骤见 §6，对齐参照实现在源头，不拍脑袋）。
 
 ## 4. 阶段二：引擎 API 与缓冲状态机

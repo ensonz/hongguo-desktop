@@ -254,11 +254,11 @@ async fn build_progressive(
     settings: &Settings,
     report: &(dyn Fn(u64, u64) + Sync),
 ) -> AppResult<(
-    Arc<hongguo_mp4::streaming::SparseBuffer>,
+    Arc<hongguo_video::streaming::SparseBuffer>,
     Arc<ProgressiveStream>,
 )> {
     use hongguo_api::client::{get_video_range, probe_video_len};
-    use hongguo_mp4::streaming::{SparseBuffer, StreamingPlan, locate_moov, top_boxes_end};
+    use hongguo_video::streaming::{SparseBuffer, StreamingPlan, locate_moov, top_boxes_end};
 
     let client = hongguo_api::client::build_client(&settings.proxy)?;
     let total = probe_video_len(&client, &play.url).await?;
@@ -308,7 +308,7 @@ async fn build_progressive(
     let region = sparse_snapshot(&sparse, moov_start, moov_start + moov_size);
 
     let prog = if play.encrypted {
-        let key = hongguo_mp4::crypto::key_derive::derive_key(&play.key_material)?;
+        let key = hongguo_video::crypto::key_derive::derive_key(&play.key_material)?;
         let plan = StreamingPlan::build(&region, moov_start, total, &key)?;
         let plain_len = plan.plain_len();
         Arc::new(ProgressiveStream {
@@ -341,7 +341,7 @@ async fn build_progressive(
 /// 逐决策点求值，预取条目升格为当前集、读者在等、或当前集开始等数据的
 /// 瞬间自动切换形态。
 async fn fill_remaining(
-    sparse: &Arc<hongguo_mp4::streaming::SparseBuffer>,
+    sparse: &Arc<hongguo_video::streaming::SparseBuffer>,
     prog: &Arc<ProgressiveStream>,
     play: &hongguo_api::play_url::PlayInfo,
     settings: &Settings,
@@ -378,7 +378,7 @@ enum Decision {
 /// 回绕在下一轮 `next_gap(0)` 必能找到洞（否则整集已满、走 `Done` 分支），
 /// 所以 Wrap 之后紧跟一次实际下载，**不存在连续 Wrap 的路径**——旧版
 /// 「回绕补洞」被 seek_hint 顶回原地空转的死循环，从这里结构上排除。
-fn next_target(sparse: &hongguo_mp4::streaming::SparseBuffer, frontier: u64) -> Decision {
+fn next_target(sparse: &hongguo_video::streaming::SparseBuffer, frontier: u64) -> Decision {
     match sparse.next_gap(frontier) {
         Some((start, end)) => Decision::Fetch(start, end),
         None if sparse.downloaded() < sparse.len() => Decision::Wrap,
@@ -402,7 +402,7 @@ fn next_target(sparse: &hongguo_mp4::streaming::SparseBuffer, frontier: u64) -> 
 /// 前沿，不跳过缺口。不存在空转路径。
 async fn fill_remaining_with_client(
     client: &reqwest::Client,
-    sparse: &Arc<hongguo_mp4::streaming::SparseBuffer>,
+    sparse: &Arc<hongguo_video::streaming::SparseBuffer>,
     prog: &Arc<ProgressiveStream>,
     cdn_url: &str,
     reporter: &ProgressReporter,
@@ -511,7 +511,11 @@ async fn fill_remaining_with_client(
 }
 
 /// 从稀疏缓冲拷出一段（调用方保证已覆盖）。
-fn sparse_snapshot(sparse: &hongguo_mp4::streaming::SparseBuffer, start: u64, end: u64) -> Vec<u8> {
+fn sparse_snapshot(
+    sparse: &hongguo_video::streaming::SparseBuffer,
+    start: u64,
+    end: u64,
+) -> Vec<u8> {
     let mut out = vec![0u8; (end - start) as usize];
     sparse.read_into(start, &mut out);
     out
@@ -543,7 +547,7 @@ mod scheduler_tests {
     /// 决策函数没有任何可以「顶回」游标的外部状态。
     #[test]
     fn wrap_is_a_decision_not_a_loop() {
-        let sparse = hongguo_mp4::streaming::SparseBuffer::new(100);
+        let sparse = hongguo_video::streaming::SparseBuffer::new(100);
         sparse.write(50, &[0u8; 5]); // 50-55
         sparse.write(90, &[0u8; 10]); // 90-100
         // 前沿在 90：其后全满、整集未满 → 回绕
@@ -565,7 +569,7 @@ mod scheduler_tests {
     fn demand_points_backwards_into_early_hole() {
         use hongguo_stream::ReaderDemand;
 
-        let sparse = hongguo_mp4::streaming::SparseBuffer::new(100);
+        let sparse = hongguo_video::streaming::SparseBuffer::new(100);
         sparse.write(90, &[0u8; 10]); // 尾部已就绪（seek 到片尾之类的场景）
         let d = ReaderDemand::new();
         d.register(&[(10, 20)]); // 读者在等前沿之前的洞（回跳 seek）

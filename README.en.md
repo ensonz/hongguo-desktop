@@ -219,7 +219,7 @@ hongguo-desktop/
 ├── crates/
 │   ├── hongguo-common/                 # Shared foundation: domain models / unified error / pure helpers / cross-surface constants
 │   ├── hongguo-signer/                 # ByteDance request signing + device registration primitives (JS 1:1 port, constants black-box locked)
-│   ├── hongguo-mp4/                    # MP4 parsing & CENC decryption
+│   ├── hongguo-video/                    # MP4 parsing & CENC decryption
 │   ├── hongguo-api/                    # Official API clients (14 domains, one directory per endpoint domain)
 │   ├── hongguo-media/                  # Pure-Rust codecs (demux / hevc / remux / transcode / HEIF covers)
 │   ├── hongguo-media-platform-api/     # Platform media contract (frame carriers / decoder traits / transcode requests)

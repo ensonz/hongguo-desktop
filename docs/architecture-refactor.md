@@ -114,7 +114,7 @@
 │                  ▼                                              │
 │           hongguo-stream   ← 新增：流契约（下游投递的共用上游）    │
 │                  │                                              │
-│   hongguo-mp4（MP4/CENC） · hongguo-api ← hongguo-signer · common │
+│   hongguo-video（MP4/CENC） · hongguo-api ← hongguo-signer · common │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -133,11 +133,11 @@
 | --- | --- | --- |
 | `hongguo-common` | 共用 serde 模型（`model/`）、`AppError`（`error.rs`，**不含 tauri 变体**）、工具（`utils/`）、跨端常量（`consts/`） | serde / serde_json / thiserror / uuid / chrono / dirs |
 | `hongguo-signer` | `signer/`——五头签名（x-gorgon 等）+ 设备注册原语；**自带 TT 哈希/加密（helios/medusa/tt_hash）**，JS 1:1 移植禁改写法 | base64 / rand / serde / md-5 / sm3 / hex / chrono（**不依赖 common 与 tauri**） |
-| `hongguo-mp4` | `domain/mp4/` + `domain/crypto/`——MP4 盒/样本表/稀疏缓冲/流式计划 + CENC-AES-CTR 解密 + 密钥派生 | common + aes / ctr / base64 / log / parking_lot |
+| `hongguo-video`（2026-10-14 更名，原名 `hongguo-mp4`） | `domain/mp4/` + `domain/crypto/`——MP4 盒/样本表/稀疏缓冲/流式计划 + CENC-AES-CTR 解密 + 密钥派生 | common + aes / ctr / base64 / log / parking_lot |
 | `hongguo-api` | `domain/api/`——官方 API 客户端（登录/推荐/搜索/详情/流地址/弹幕/互动等，14 个域） | signer + common + aes / chrono / flate2 / futures-util / hex / log / parking_lot / rand / reqwest / serde / serde_json / tokio |
 | `hongguo-store` | `store/`——Turso 持久化、entity、迁移、恢复 | common + signer（`DeviceProfile` 是库里的一张表） |
 
-> **命名修正**：v1 叫 `hongguo-crypto`，但它的内容（CENC + MP4 解析）主体是容器解析，`domain/crypto/` 只是 CENC 原语。改叫 `hongguo-mp4`。**`signer` 的 TT 哈希/加密与 CENC 是两回事，不合并**。
+> **命名修正**：v1 叫 `hongguo-crypto`，但它的内容（CENC + MP4 解析）主体是容器解析，`domain/crypto/` 只是 CENC 原语。改叫 `hongguo-mp4`（2026-10-14 再更名 `hongguo-video`，去名中数字）。**`signer` 的 TT 哈希/加密与 CENC 是两回事，不合并**。
 
 ### 4.2 流契约、媒体与协议
 
@@ -198,7 +198,7 @@ v1 预列了 9 个 `hongguo-gpui-*` crate（theme/player/discover/series/downloa
 ### 5.2 契约切点：切在「共用上游」，不切在投递末端
 
 ```
-CDN 分片 → CENC 解密 → 明文 MP4 + 样本表/解密计划     ← 共用上游（收进 hongguo-stream / hongguo-mp4）
+CDN 分片 → CENC 解密 → 明文 MP4 + 样本表/解密计划     ← 共用上游（收进 hongguo-stream / hongguo-video）
         ├─ Tauri：按 Range 回明文字节 → WebView 解      ← 现状，投递末端 A
         └─ GPUI ：样本表 → 平台解码 → GPU 纹理          ← 全新末端 B（需 spike）
 ```
@@ -225,7 +225,7 @@ pub trait PlainStream: Send + Sync {
 }
 ```
 
-- 契约引用 `hongguo-mp4` 的 `StreamingPlan` / `SparseBuffer`，**不引用 media 的编解码实现**——这是「契约与实现分离」的落点。
+- 契约引用 `hongguo-video` 的 `StreamingPlan` / `SparseBuffer`，**不引用 media 的编解码实现**——这是「契约与实现分离」的落点。
 - 归属：源实现（`OnlineEncryptedSource` / `LocalFileSource` / `CoverSource`）落 `hongguo-protocol`；编解码实现落 media / media-platform。
 
 > **落地与草案的差异（2026-10-11，3a 实际做完）**：`hongguo-stream` 只做「搬」，**没有引入**上面草案里的 `StreamSource` enum 与 `PlainStream` trait。现有两种形态——`ProgressiveStream`（渐进，稀疏密文 + 解密计划）与 `StreamCache`（整集，明文原子写入）——已覆盖今天全部供数路径，且都是具体类型、无动态分发；在第二套投递末端（GPUI 帧流，§5.3）落地前引入 trait 就是「为将来铺路」，与「零无用抽象」冲突。`read_range(&self, spec: RangeSpec)` 的语义由 `serve(vid, definition, range_header)` + `StreamCache` 的区间读承担。
@@ -255,7 +255,7 @@ hongguo-desktop/
 ├── crates/
 │   ├── hongguo-common/
 │   ├── hongguo-signer/
-│   ├── hongguo-mp4/
+│   ├── hongguo-video/
 │   ├── hongguo-api/
 │   ├── hongguo-store/
 │   ├── hongguo-stream/        # 新增薄契约
@@ -480,6 +480,7 @@ hongguo-media-platform（门面：按编译目标 re-export 实现 + ffmpeg + ca
 | GPUI 事件消费 | 事件泵（broadcast→mpsc→视图）；下载面板保留 1s 轮询兜底 | ✅ |
 | macOS 回归口径 | CI 双腿编译 + 单测；实机功能回归列发版前 checklist | ✅ |
 | 服务层 UI 能力适配 | 当前无（文件选择/打开目录在命令层）；有真实需求再加窄接口 | ✅ |
+| `hongguo-mp4` 更名 | `hongguo-video`（crate 名去数字；纯改名零行为变更） | ✅ 2026-10-14 |
 | 入口 crate 归位 | `src-tauri` → `crates/hongguo-tauri-app`（消除根层遗留目录；CLI 经 package.json script `cd` 定位，tauri-action 用 `projectPath`，before 命令用 `cwd` 对象形式指回仓库根） | ✅ |
 
 ### 16.4 遗留

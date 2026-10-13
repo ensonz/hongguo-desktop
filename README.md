@@ -189,7 +189,7 @@ hongguo-desktop/
 ├── crates/
 │   ├── hongguo-common/                 # 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量
 │   ├── hongguo-signer/                 # 字节系请求签名 + 设备注册原语（JS 1:1 移植，常量黑盒锁定勿改）
-│   ├── hongguo-mp4/                    # MP4 解析与 CENC 解密
+│   ├── hongguo-video/                    # MP4 解析与 CENC 解密
 │   ├── hongguo-api/                    # 官方 App 接口客户端（14 域，按端点域目录化）
 │   ├── hongguo-media/                  # 纯 Rust 编解码（demux / hevc / remux / transcode / 封面 HEIF）
 │   ├── hongguo-media-platform-api/     # 平台媒体契约（帧载体 / 解码器 trait / 转码请求）

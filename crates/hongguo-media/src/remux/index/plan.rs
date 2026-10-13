@@ -3,8 +3,8 @@
 //! 写出侧（`moov` 字节组装）见 [`super::moov`]。
 
 use hongguo_common::{AppError, AppResult};
-use hongguo_mp4::r#box::{BoxHeader, find_box, parse_boxes};
-use hongguo_mp4::sample_table::{TrackInfo, collect_track};
+use hongguo_video::r#box::{BoxHeader, find_box, parse_boxes};
+use hongguo_video::sample_table::{TrackInfo, collect_track};
 
 /// 一个输入文件里的一条轨道：解析结果 + 要原样搬进产物的 box。
 pub struct SourceTrack {

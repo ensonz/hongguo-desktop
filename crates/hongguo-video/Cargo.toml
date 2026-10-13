@@ -1,5 +1,5 @@
 [package]
-name = "hongguo-mp4"
+name = "hongguo-video"
 description = "红果桌面版 MP4 解析与 CENC 解密：box 解析 / 样本表 / 流式解密 / 密钥派生"
 version.workspace = true
 edition.workspace = true

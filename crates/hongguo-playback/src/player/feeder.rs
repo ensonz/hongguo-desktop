@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use hongguo_mp4::sample_table::TrackInfo;
+use hongguo_video::sample_table::TrackInfo;
 
 use crate::audio::{Clock, RingFeed};
 use crate::source::SampleSource;

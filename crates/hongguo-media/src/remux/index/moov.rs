@@ -1,6 +1,6 @@
 //! `moov` 写出：把 [`super::plan`] 产出的索引素材拼成产物的 `moov` 字节。
 
-use hongguo_mp4::r#box::build_box;
+use hongguo_video::r#box::build_box;
 
 use super::{MergeIndex, MergedTrack};
 

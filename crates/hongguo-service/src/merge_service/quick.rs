@@ -63,7 +63,7 @@ fn ensure_codec_consistent(inputs: &[(u32, PathBuf)]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hongguo_mp4::fixtures::{TrackSpec, mp4};
+    use hongguo_video::fixtures::{TrackSpec, mp4};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-quick-{tag}-{}", std::process::id()));

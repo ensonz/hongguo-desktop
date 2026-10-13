@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use hongguo_common::{AppError, AppResult};
-use hongguo_mp4::sample_table::TrackInfo;
+use hongguo_video::sample_table::TrackInfo;
 
 /// 单次 serve 拉取的窗口大小（对齐填充的分块口径）。
 const WINDOW: u64 = 1024 * 1024;
