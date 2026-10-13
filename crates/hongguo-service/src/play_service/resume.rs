@@ -6,8 +6,8 @@
 //! 前端详情页/首页又各一份——阈值漂移和口径分叉就是这么来的。
 
 use hongguo_api::history::WatchHistoryItem;
-use hongguo_common::model::playback::RESUME_THRESHOLD_SECS;
 use hongguo_common::AppResult;
+use hongguo_common::model::playback::RESUME_THRESHOLD_SECS;
 use hongguo_store::Store;
 
 /// 起点决策。返回 `(集号, 起播秒)`；无断点时 `(1, 0.0)`。
