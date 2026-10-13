@@ -13,19 +13,17 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::Icon;
 use gpui_kit::component::IconName;
 use gpui_kit::component::Sizable;
-use gpui_kit::component::button::Button;
-use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::*;
 #[cfg(target_os = "macos")]
 use gpui_kit::surface;
-use gpui_kit::{ElementId, ImageSource, ObjectFit, SharedString, div, img};
+use gpui_kit::{ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_media_platform_api::video::{FrameBuffer, VideoFrame};
 
 use super::danmaku::DM_LANE_GAP;
-use super::feed::{Source, StreamItem};
+use super::feed::StreamItem;
 use crate::bridge;
 
 /// 舞台周期状态日志（HONGGUO_DIAG 取证）的最小间隔（秒）。
@@ -207,54 +205,6 @@ impl super::HomeView {
     }
 
     // —— 渲染 ——
-
-    pub(super) fn render_tabs(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        h_flex()
-            .justify_center()
-            .gap_2()
-            .pt_2()
-            .children(Source::ALL.map(|s| {
-                let active = s == self.active;
-                let button = Button::new(ElementId::from(format!("tab-{:?}", s)))
-                    .label(s.label())
-                    .small();
-                let button = if active {
-                    button.secondary()
-                } else {
-                    button.ghost()
-                };
-                button.on_click(cx.listener(move |this, _, _, cx| {
-                    if this.active == s {
-                        // 重复点当前 tab = 换一批（重开会话、游标归零）
-                        this.load_feed(s, true, cx);
-                    } else {
-                        this.active = s;
-                        let empty = this.feeds.get(&s).is_none_or(|f| f.items.is_empty());
-                        if empty {
-                            this.load_feed(s, false, cx);
-                        } else {
-                            // 切 tab 后当前游标的剧不在播：切过去（Tauri 的
-                            // 起点决策 effect 同语义：current 变了就换目标）
-                            let cursor_item = this
-                                .display_items()
-                                .get(this.cursor())
-                                .map(|i| i.series_id.clone());
-                            let target_same = this
-                                .now
-                                .as_ref()
-                                .is_some_and(|n| cursor_item.as_deref() == Some(&n.series_id));
-                            if !target_same
-                                && let Some(item) = this.display_items().get(this.cursor()).cloned()
-                            {
-                                this.play_target(item, None, None, cx);
-                            }
-                        }
-                    }
-                    cx.notify();
-                }))
-            }))
-            .into_any_element()
-    }
 
     /// 沉浸舞台：**同一时刻只画一层内容**——出画了画视频，没出画画封面。
     ///
@@ -519,8 +469,10 @@ impl super::HomeView {
         //（剧名/简介在小窗紧凑条里，见 Tauri miniScreen 面板隐藏同款）
         let overlay = (!in_mini && self.controls_visible()).then(|| self.render_overlay(cx));
         // 互动栏（右缘竖排：收藏/评论/点赞/分享）与评论面板（右侧滑出）；
-        // 小屏都收起（Tauri InteractionRail visible={…&& !miniScreen} 同款）
-        let rail = (!in_mini && self.controls_visible()).then(|| self.render_interaction_rail(cx));
+        // 小屏都收起（Tauri InteractionRail visible={…&& !miniScreen} 同款）；
+        // 评论面板打开时互动栏让位（面板就盖在右缘）
+        let rail = (!in_mini && self.controls_visible() && !self.comments_panel_open)
+            .then(|| self.render_interaction_rail(cx));
         let comment_panel =
             (!in_mini && self.comments_panel_open).then(|| self.render_comment_panel(cx));
         let rects = Rc::clone(&self.stage_rects);
@@ -545,15 +497,15 @@ impl super::HomeView {
                         // 纯播放页同款），误触切剧=播放重启，直接吞掉
                         "down" if this.mini.is_none() => this.step(1, cx),
                         "up" if this.mini.is_none() => this.step(-1, cx),
-                        "f" => this.toggle_fullscreen(window, cx),
+                        // F = 播放器全屏（真沉浸：OS 全屏 + chrome 全藏）
+                        "f" => this.toggle_immersive_fullscreen(window, cx),
                         // Esc 固定管「退出选中」（Tauri 同款语义）：小屏 →
-                        // 全屏 → 浮层面板 → 连播锁定，逐层退出
+                        // 沉浸全屏 → 浮层面板 → 连播锁定，逐层退出
                         "escape" => {
                             if this.mini.is_some() {
                                 this.exit_mini(window, cx);
-                            } else if window.is_fullscreen() {
-                                window.toggle_fullscreen();
-                                this.fullscreen = false;
+                            } else if this.immersive {
+                                this.toggle_immersive_fullscreen(window, cx);
                             } else if this.picker_open {
                                 this.picker_open = false;
                                 this.picker_group_override = None;

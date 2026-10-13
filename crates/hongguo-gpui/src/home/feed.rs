@@ -21,7 +21,7 @@ pub enum Source {
 }
 
 impl Source {
-    pub(super) const ALL: [Source; 3] = [Source::Feed, Source::Comic, Source::Human];
+    pub(crate) const ALL: [Source; 3] = [Source::Feed, Source::Comic, Source::Human];
 
     fn tab_type(self) -> &'static str {
         match self {
@@ -31,7 +31,7 @@ impl Source {
         }
     }
 
-    pub(super) fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Source::Feed => "推荐",
             Source::Comic => "漫剧",

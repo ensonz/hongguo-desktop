@@ -1,30 +1,118 @@
-//! 壳窗口：持久侧栏导航（首页 / 排行）+ 内容区视图切换。
+//! 壳窗口：持久侧栏导航 + 顶栏 + 内容区视图切换（Tauri `app-shell` /
+//! `app-sidebar` 的 GPUI 对齐形态）。
 //!
-//! 侧栏目的地对齐 Tauri 客户端的信息架构；每个目的地是一个自治视图实体
-//! （各自拥有加载状态与数据），壳只管「当前在哪」与「把服务面递下去」。
+//! 侧栏目的地对齐 Tauri 客户端的信息架构（12 项）：已有页（首页沉浸流 /
+//! 排行榜）接真数据，未实现页给「建设中」空态——形态先行，页面逐个补。
+//! 可折叠：展开 224px 图标+文字，折叠 56px 纯图标（tooltip 出标签，
+//! Tauri collapsed 同款）。贴底账户区（登录面板复用首页的）+ 折叠钮。
+//!
+//! 顶栏用组件库 TitleBar 拉到 44px：应用名居左，**分类 tab 居中**（首页
+//! 三个 tab，Tauri 的 portal 插槽同位），置顶 + 窗口钮（组件自动附）居右。
 
 use std::sync::Arc;
 
-use gpui_kit::component::sidebar::{Sidebar, SidebarMenuItem};
-use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::h_flex;
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::v_flex;
+use gpui_kit::component::{ActiveTheme, Sizable};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, Entity, Window, div};
+use gpui_kit::{App, ElementId, Entity, Window, div};
 use hongguo_service::app_state::AppStateInner;
 
+use crate::home::feed::Source;
 use crate::home::HomeView;
 use crate::rank::RankView;
 
-/// 侧栏目的地（Tauri 客户端的信息架构；找剧 / 书架 / 播放待后续迭代）。
+/// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
+/// 播放不在列：它由各页「播放/继续播放」进入，首页本身就是沉浸流。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Dest {
-    Feed,
+pub(crate) enum Dest {
+    Home,
+    Browse,
+    Rank,
+    New,
+    History,
+    Collections,
+    Liked,
+    Reservations,
+    Tasks,
+    Merge,
+    Storage,
+    Settings,
+}
+
+impl Dest {
+    const ALL: [Dest; 12] = [
+        Dest::Home,
+        Dest::Browse,
+        Dest::Rank,
+        Dest::New,
+        Dest::History,
+        Dest::Collections,
+        Dest::Liked,
+        Dest::Reservations,
+        Dest::Tasks,
+        Dest::Merge,
+        Dest::Storage,
+        Dest::Settings,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Dest::Home => "首页",
+            Dest::Browse => "找剧",
+            Dest::Rank => "排行榜",
+            Dest::New => "新剧",
+            Dest::History => "历史",
+            Dest::Collections => "收藏",
+            Dest::Liked => "点赞",
+            Dest::Reservations => "预约",
+            Dest::Tasks => "下载管理",
+            Dest::Merge => "一键合并",
+            Dest::Storage => "磁盘清理",
+            Dest::Settings => "设置",
+        }
+    }
+
+    fn icon(self) -> IconName {
+        match self {
+            Dest::Home => IconName::Flame,
+            Dest::Browse => IconName::Compass,
+            Dest::Rank => IconName::Trophy,
+            Dest::New => IconName::Sparkles,
+            Dest::History => IconName::ClockArrowDown,
+            Dest::Collections => IconName::Star,
+            Dest::Liked => IconName::Heart,
+            Dest::Reservations => IconName::BellRing,
+            Dest::Tasks => IconName::ListChecks,
+            Dest::Merge => IconName::Combine,
+            Dest::Storage => IconName::HardDrive,
+            Dest::Settings => IconName::Settings,
+        }
+    }
+
+    /// 已有真数据视图的目的地（其余给建设中空态）。
+    fn view(self) -> Option<View> {
+        match self {
+            Dest::Home => Some(View::Home),
+            Dest::Rank => Some(View::Rank),
+            _ => None,
+        }
+    }
+}
+
+enum View {
+    Home,
     Rank,
 }
 
-/// 壳窗口实体：持有两个视图，切换当前目的地。服务面由视图各自持有。
+/// 壳窗口实体：持有各视图实体，切换当前目的地。服务面由视图各自持有。
 pub struct Shell {
     dest: Dest,
     state: Arc<AppStateInner>,
+    sidebar_collapsed: bool,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
 }
@@ -39,11 +127,12 @@ impl Shell {
             rank.update(cx, RankView::load);
             Dest::Rank
         } else {
-            Dest::Feed
+            Dest::Home
         };
         Self {
             dest,
             state,
+            sidebar_collapsed: false,
             feed,
             rank,
         }
@@ -103,7 +192,7 @@ impl Shell {
                 rank.debug_preview_seed(scene == "rank-empty", cx)
             });
         } else {
-            self.dest = Dest::Feed;
+            self.dest = Dest::Home;
             self.feed
                 .update(cx, |home, cx| home.debug_preview_seed(scene, window, cx))?;
         }
@@ -111,44 +200,240 @@ impl Shell {
         Ok(())
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
-        let logged_in = self.state.settings().account.is_some();
-        Sidebar::new("shell-nav").children(vec![
-            SidebarMenuItem::new("首页")
-                .icon(gpui_kit::assets::IconName::House)
-                .active(self.dest == Dest::Feed)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if this.dest != Dest::Feed {
-                        this.dest = Dest::Feed;
-                        cx.notify();
-                    }
-                })),
-            SidebarMenuItem::new("排行榜")
-                .icon(gpui_kit::assets::IconName::Trophy)
-                .active(self.dest == Dest::Rank)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.dest = Dest::Rank;
-                    this.rank.update(cx, RankView::load);
-                    cx.notify();
-                })),
-            // 登录入口（未登录打开登录面板，已登录直接退出；评论/删除/
-            // 预约/点赞全靠登录态）
-            SidebarMenuItem::new(if logged_in { "退出登录" } else { "登录" })
-                .icon(gpui_kit::assets::IconName::User)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if logged_in {
-                        this.feed.update(cx, |home, cx| home.login_logout(cx));
+    // —— 渲染 ——
+
+    /// 顶栏（组件库 TitleBar 拉到 44px，Tauri app-shell 的 header 同位）：
+    /// 应用名居左；首页的分类 tab 绝对居中（Tauri portal 插槽同位，居中层
+    /// 用 w_fit——只有 tab 本体拦鼠标，其余带仍可拖窗）；置顶居右（Tauri
+    /// usePinWindow 同款，与播放器小屏钉住共用同一份窗口 FFI 与状态）。
+    fn render_title_bar(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let active_source = self.feed.read(cx).active_source();
+        let pinned = self.feed.read(cx).pinned_window();
+        let tabs = (self.dest == Dest::Home).then(|| {
+            h_flex()
+                .gap_2()
+                .children(Source::ALL.map(|s| {
+                    let active = s == active_source;
+                    let button = Button::new(ElementId::from(format!("topbar-tab-{}", s.label())))
+                        .label(s.label())
+                        .small();
+                    let button = if active {
+                        button.secondary()
                     } else {
-                        this.feed.update(cx, |home, cx| home.toggle_login_panel(cx));
-                    }
-                })),
-        ])
+                        button.ghost()
+                    };
+                    button.on_click(cx.listener(move |this, _, _, cx| {
+                        this.feed.update(cx, |home, cx| home.switch_source(s, cx));
+                    }))
+                }))
+                .into_any_element()
+        });
+        gpui_kit::component::TitleBar::new()
+            .h(gpui_kit::px(44.0))
+            .child(
+                // 三段流式布局：应用名 | tab 居中（flex_1）| 置顶。两端的宽
+                // 度近似对称（应用名 ~40px vs 置顶钮 ~32px），flex 居中的
+                // 偏移可忽略；不做绝对定位居中——那会横贯整条顶栏，空白带
+                // 会拦掉拖窗区
+                h_flex()
+                    .flex_1()
+                    .h_full()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .child("红果"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .justify_center()
+                            .children(tabs),
+                    )
+                    .child(
+                        Button::new("topbar-pin")
+                            .icon(if pinned {
+                                IconName::Pin
+                            } else {
+                                IconName::PinOff
+                            })
+                            .ghost()
+                            .small()
+                            .tooltip(if pinned { "取消置顶" } else { "置顶窗口" })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.feed
+                                    .update(cx, |home, cx| home.toggle_pinned(window, cx));
+                            })),
+                    ),
+            )
+            .into_any_element()
     }
 
-    fn render_content(&self) -> gpui_kit::AnyElement {
-        match self.dest {
-            Dest::Feed => self.feed.clone().into_any_element(),
-            Dest::Rank => self.rank.clone().into_any_element(),
+    /// 侧栏（Tauri app-sidebar 对齐）：12 目的地，展开 224px 图标+文字、
+    /// 折叠 56px 纯图标（tooltip 出标签）；贴底账户区 + 折叠钮。
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let theme = cx.theme();
+        let collapsed = self.sidebar_collapsed;
+        let logged_in = self.state.settings().account.is_some();
+        let item = |dest: Dest| {
+            let active = self.dest == dest;
+            let row = div()
+                .id(ElementId::from(format!("nav-{}", dest.label())))
+                .flex()
+                .items_center()
+                .gap_3()
+                .rounded_md()
+                .px_3()
+                .py(gpui_kit::px(7.0))
+                .text_sm()
+                .when(collapsed, |s| s.justify_center().px_0())
+                .text_color(if active {
+                    theme.foreground
+                } else {
+                    theme.muted_foreground
+                })
+                .when(active, |s| s.bg(theme.secondary))
+                .hover(|s| s.bg(theme.secondary_hover))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if this.dest == dest {
+                        return;
+                    }
+                    this.dest = dest;
+                    if dest == Dest::Rank {
+                        this.rank.update(cx, RankView::load);
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    gpui_kit::component::Icon::new(dest.icon())
+                        .small()
+                        .text_color(if active {
+                            theme.foreground
+                        } else {
+                            theme.muted_foreground
+                        }),
+                )
+                .when(!collapsed, |s| s.child(dest.label()));
+            if collapsed {
+                row.tooltip(move |window, cx| Tooltip::new(dest.label()).build(window, cx))
+            } else {
+                row
+            }
+        };
+        v_flex()
+            .w(gpui_kit::px(if collapsed { 56.0 } else { 224.0 }))
+            .h_full()
+            .flex_shrink_0()
+            .bg(theme.background)
+            .border_r_1()
+            .border_color(theme.border)
+            .p_2()
+            .gap_1()
+            .id("shell-sidebar")
+            .overflow_y_scroll()
+            .children(Dest::ALL.map(item))
+            // 贴底账户区（Tauri AccountButton 同位）：未登录开登录面板，
+            // 已登录直接退出（GPUI 无设置页，退出入口沿用在侧）
+            .child(
+                div()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .pt_2()
+                    .mt_auto()
+                    .child(
+                        div()
+                            .id("nav-account")
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .rounded_md()
+                            .px_3()
+                            .py(gpui_kit::px(7.0))
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .hover(|s| s.bg(theme.secondary_hover))
+                            .when(collapsed, |s| s.justify_center().px_0())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.feed.update(cx, |home, cx| {
+                                    if logged_in {
+                                        home.login_logout(cx);
+                                    } else {
+                                        home.toggle_login_panel(cx);
+                                    }
+                                });
+                            }))
+                            .child(
+                                gpui_kit::component::Icon::new(IconName::UserRound)
+                                    .small()
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .when(!collapsed, |s| {
+                                s.child(if logged_in { "退出登录" } else { "登录" })
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .pt_2()
+                    .child(if collapsed {
+                        Button::new("sidebar-expand")
+                            .icon(IconName::PanelLeft)
+                            .ghost()
+                            .small()
+                            .tooltip("展开")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.sidebar_collapsed = false;
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    } else {
+                        Button::new("sidebar-collapse")
+                            .icon(IconName::PanelLeftClose)
+                            .ghost()
+                            .small()
+                            .label("收起")
+                            .tooltip("收起")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.sidebar_collapsed = true;
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// 未实现目的地的空态（本轮决策：全列出 + 建设中空态，页面逐个补）。
+    fn render_stub(&self, dest: Dest, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let theme = cx.theme();
+        v_flex()
+            .flex_1()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(
+                gpui_kit::component::Icon::new(dest.icon())
+                    .with_size(gpui_kit::px(40.0))
+                    .text_color(theme.muted_foreground),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(format!("「{}」页面建设中", dest.label())),
+            )
+            .into_any_element()
+    }
+
+    fn render_content(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        match self.dest.view() {
+            Some(View::Home) => self.feed.clone().into_any_element(),
+            Some(View::Rank) => self.rank.clone().into_any_element(),
+            None => self.render_stub(self.dest, cx),
         }
     }
 }
@@ -159,21 +444,18 @@ impl gpui_kit::Render for Shell {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
-        let theme = cx.theme();
-        // 小屏播放：顶栏与侧栏都藏（480×270 里只留播放器，Tauri 小屏同款；
-        // 拖窗由播放页顶部的拖拽条承担，见 render_stage 的 mini-drag-bar）
+        // chrome 全藏的两种形态：小屏播放（480×270 纯播放器，Tauri 小屏
+        // 同款，拖窗走播放页拖拽条）与播放器沉浸全屏（播放器全屏按钮/F
+        // 进入；顶栏最大化钮是另一档「应用全屏」，chrome 保留，对齐 Tauri）
         let in_mini = crate::mini::is_active();
-        // 顶栏（组件库 TitleBar）：应用名居左、最小化/最大化/关闭居右（组件
-        // 在非 macOS 自动附上），空白整条可拖窗——无边框窗口（Tauri
-        // decorations:false 同款）的窗口操控全在这条 34px 的自绘栏里
-        let title_bar = (!in_mini).then(|| {
-            gpui_kit::component::TitleBar::new().child(
-                div()
-                    .text_sm()
-                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                    .child("红果"),
-            )
-        });
+        let immersive = self.feed.read(cx).immersive_fullscreen();
+        let chrome_hidden = in_mini || immersive;
+        // 先建好所有吃 cx 的闭包/子渲染，再取 theme（theme 借 cx，两者不能
+        // 交叠——闭包里要 &mut Context）
+        let title_bar = (!chrome_hidden).then(|| self.render_title_bar(cx));
+        let sidebar = (!chrome_hidden).then(|| self.render_sidebar(cx));
+        let content = self.render_content(cx);
+        let theme = cx.theme();
         v_flex()
             .id("shell")
             .size_full()
@@ -185,13 +467,12 @@ impl gpui_kit::Render for Shell {
                     .flex_1()
                     .min_h_0()
                     .items_stretch()
-                    // 小屏播放时侧栏藏掉（Tauri use-mini-window「侧栏隐藏」
-                    // 同款；状态见 crate::mini）
-                    .children((!in_mini).then(|| self.render_sidebar(cx)))
+                    // 小屏/沉浸全屏时侧栏藏掉（视频区吃满，播放跟随窗口）
+                    .children(sidebar)
                     .child(
                         // 内容区：吃掉剩余宽度；过载时只允许它收缩（coding-guides
                         // 「flex_1 仍可能拒绝收缩」），滚动归视图自己。
-                        v_flex().flex_1().min_w_0().child(self.render_content()),
+                        v_flex().flex_1().min_w_0().child(content),
                     ),
             )
     }

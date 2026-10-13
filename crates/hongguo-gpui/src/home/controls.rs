@@ -60,6 +60,8 @@ impl super::HomeView {
             PlayerEvent::FirstFrame { .. } => {
                 // 帧由紧随其后的 Frame 事件带上；这里只做「出画了」的副作用
                 self.prefetch_next_stream(cx);
+                // 新集首帧出画 = 连播静默期结束（Tauri 首播解除静默同款）
+                self.silent_until_input = false;
             }
             PlayerEvent::Frame(frame) => {
                 let first = self.frame.is_none();
@@ -172,8 +174,10 @@ impl super::HomeView {
     }
 
     /// 鼠标活动/操作刷新控制条可见窗；隐藏→可见的沿上排一次性定时器，
-    /// 静止到期后靠它（或播放中的帧事件流）触发重算隐藏。
+    /// 静止到期后靠它（或播放中的帧事件流）触发重算隐藏。真实输入同时
+    /// 解除连播静默（Tauri wakeOnInput 同款）。
     pub(super) fn wake_controls(&mut self, cx: &mut Context<Self>) {
+        self.silent_until_input = false;
         let was_hidden = !self.controls_visible();
         self.controls_until = Some(Instant::now() + Self::CONTROLS_VISIBLE);
         if was_hidden {
@@ -186,11 +190,28 @@ impl super::HomeView {
         }
     }
 
+    /// 任一面板打开即常显（Tauri panelOpen 同一集合：选集/评论/弹幕设置/
+    /// 音量/下载）。
+    fn panel_open(&self) -> bool {
+        self.picker_open
+            || self.comments_panel_open
+            || self.dm_panel_open
+            || self.volume_popup_open
+            || self.downloads_open
+    }
+
+    /// 悬浮层总闸（Tauri chromeShown 同款裁决）：连播静默期一票否决（面板
+    /// 照常）；否则 悬停控制栏 / 拖进度 / 暂停 / 活动窗未到期 / 面板开 任一
+    /// 即亮。指针离开舞台的立即收由舞台 on_hover 清 controls_until 实现。
     pub(super) fn controls_visible(&self) -> bool {
-        self.scrubbing.is_some()
-            || self.picker_open
+        if self.silent_until_input {
+            return self.panel_open();
+        }
+        self.controls_hovered
+            || self.scrubbing.is_some()
             || self.player.as_ref().is_some_and(|p| p.is_paused())
             || self.controls_until.is_some_and(|t| Instant::now() < t)
+            || self.panel_open()
     }
 
     /// 键盘相对 seek（秒，可负）：钳到 [0, 时长]，唤醒控制条。
@@ -305,6 +326,7 @@ impl super::HomeView {
             menu
         };
         h_flex()
+            .id("stage-controls")
             .absolute()
             .bottom_0()
             .left_0()
@@ -314,6 +336,15 @@ impl super::HomeView {
             .px_4()
             .py_2()
             .bg(gpui_kit::rgba(0x000000aa))
+            // 悬在控制栏本体上不倒计时（Tauri onControlsEnter 同款：拖进度/
+            // 悬停音量时静止超时收起 = 抢走控件）；移出照常走台内静止 3s
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.controls_hovered = *hovered;
+                if *hovered {
+                    this.wake_controls(cx);
+                }
+                cx.notify();
+            }))
             // 控制条悬浮在舞台之上：点击这里的任何控件都**不能**再落到舞台
             //（gpui 对重叠 bounds 的兄弟分支都会派发鼠标事件，不拦的话点
             // 进度条/按钮会同时触发舞台的点击暂停——「点了进度条却暂停了」
@@ -336,6 +367,22 @@ impl super::HomeView {
                     .ghost()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx))),
+            )
+            .child(
+                // 上一集/下一集（Tauri 控制栏同位）：连播语义——越过第 1 集
+                // 原地不动，越过末集跟随换剧
+                Button::new("stage-prev-episode")
+                    .icon(gpui_kit::assets::IconName::SkipBack)
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.step_episode(-1, cx))),
+            )
+            .child(
+                Button::new("stage-next-episode")
+                    .icon(gpui_kit::assets::IconName::SkipForward)
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.step_episode(1, cx))),
             )
             .child(
                 div()
@@ -361,6 +408,13 @@ impl super::HomeView {
                     .text_xs()
                     .rounded_full()
             }))
+            .child(
+                // 发送按钮（Tauri 控制栏同款：输入框右侧实心小钮）
+                Button::new("stage-danmaku-send")
+                    .label("发送")
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.submit_danmaku(cx))),
+            )
             .child(
                 Button::new("stage-rate")
                     .label(Self::fmt_rate(self.rate))
@@ -588,7 +642,8 @@ impl super::HomeView {
                     })),
             )
             .child(
-                // 全屏切换（Tauri toggleFullscreen 同款；图标随状态换）
+                // 播放器全屏（真沉浸：OS 全屏 + chrome 全藏；顶栏最大化钮是
+                // 另一档「应用全屏」chrome 保留）；图标随状态换
                 Button::new("stage-fullscreen")
                     .icon(if self.fullscreen {
                         gpui_kit::assets::IconName::Minimize2
@@ -598,7 +653,7 @@ impl super::HomeView {
                     .ghost()
                     .small()
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_fullscreen(window, cx);
+                        this.toggle_immersive_fullscreen(window, cx);
                     })),
             )
             .into_any_element()

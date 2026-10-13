@@ -10,6 +10,17 @@ use hongguo_api::interact::{InteractionItem, collect_series, digg_video, fetch_i
 use super::NowPlaying;
 use crate::bridge;
 
+/// 互动栏 item 的展示参数（[`super::HomeView::rail_item`] 收拢散参用）。
+struct RailItem {
+    icon: gpui_kit::component::Icon,
+    count: i64,
+    active: bool,
+    /// 激活态着色（红心/黄星）；未激活恒纯白（抖音系贴画面右缘形态）。
+    active_color: gpui_kit::Rgba,
+    /// 无计数项的文案（分享 → 「分享」）。
+    label: Option<&'static str>,
+}
+
 impl super::HomeView {
     /// 集级公开计数（剧集档案 detail 下发）：从本地档案读当前集的
     /// 评论数/点赞数（匿名可见的装饰性计数，阻塞池读 store）。
@@ -254,49 +265,66 @@ impl super::HomeView {
             .gap_4()
             .child(self.rail_item(
                 "collect",
-                crate::douyin_icons::star(),
-                collect_count,
-                collected,
-                gpui_kit::rgba(0xfacc15ff),
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Star),
+                    count: collect_count,
+                    active: collected,
+                    active_color: gpui_kit::rgba(0xfacc15ff),
+                    label: None,
+                },
                 cx.listener(|this, _, _, cx| this.toggle_collect(cx)),
             ))
             .child(self.rail_item(
                 "comments",
-                crate::douyin_icons::comment(),
-                comment_count,
-                false,
-                gpui_kit::rgba(0xffffffff),
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::MessageSquare),
+                    count: comment_count,
+                    active: false,
+                    active_color: gpui_kit::rgba(0xffffffff),
+                    label: None,
+                },
                 cx.listener(|this, _, _, cx| this.toggle_comments_panel(cx)),
             ))
             .child(self.rail_item(
                 "digg",
-                crate::douyin_icons::heart(),
-                digg_count,
-                digged,
-                gpui_kit::rgba(0xef4444ff),
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Heart),
+                    count: digg_count,
+                    active: digged,
+                    active_color: gpui_kit::rgba(0xef4444ff),
+                    label: None,
+                },
                 cx.listener(|this, _, _, cx| this.toggle_digg(cx)),
             ))
             .child(self.rail_item(
                 "share",
-                crate::douyin_icons::share(),
-                0,
-                false,
-                gpui_kit::rgba(0xffffffff),
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Share),
+                    count: 0,
+                    active: false,
+                    active_color: gpui_kit::rgba(0xffffffff),
+                    label: Some("分享"),
+                },
                 cx.listener(|this, _, _, cx| this.share_series(cx)),
             ))
             .into_any_element()
     }
 
-    /// 互动栏单个 item（icon 上、计数下）。
+    /// 互动栏单个 item（icon 上、计数下；`label` 给无计数项的文案——分享
+    /// 显示「分享」二字，Tauri 同款）。
     fn rail_item(
         &self,
         id: &'static str,
-        icon: gpui_kit::component::Icon,
-        count: i64,
-        active: bool,
-        active_color: gpui_kit::Rgba,
+        item: RailItem,
         on_click: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
     ) -> gpui_kit::AnyElement {
+        let RailItem {
+            icon,
+            count,
+            active,
+            active_color,
+            label,
+        } = item;
         div()
             .id(ElementId::from(format!("rail-{id}")))
             .flex()
@@ -321,6 +349,13 @@ impl super::HomeView {
                     .font_weight(gpui_kit::FontWeight::MEDIUM)
                     .text_color(gpui_kit::rgb(0xffffff))
                     .child(Self::fmt_count(count))
+            }))
+            .children(label.map(|t| {
+                div()
+                    .text_xs()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .text_color(gpui_kit::rgb(0xffffff))
+                    .child(t)
             }))
             .into_any_element()
     }

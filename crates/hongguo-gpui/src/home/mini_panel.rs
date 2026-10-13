@@ -41,6 +41,7 @@ impl super::HomeView {
             s
         });
         v_flex()
+            .id("mini-controls")
             .absolute()
             .bottom_0()
             .left_0()
@@ -64,6 +65,15 @@ impl super::HomeView {
                     cx.stop_propagation();
                 }),
             )
+            // 悬在控制条本体上不倒计时（Tauri MiniScreenControls
+            // onControlsEnter/Leave 同款，与大屏控制条同一份状态）
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.controls_hovered = *hovered;
+                if *hovered {
+                    this.wake_controls(cx);
+                }
+                cx.notify();
+            }))
             // 剧名/集数/简介贴着进度条上方（第三方小屏同款两行形态），宽度
             // 收敛 + 截断（480 宽，长剧名长简介都不挡画面）
             .child(
@@ -200,17 +210,6 @@ impl super::HomeView {
             .into_any_element()
     }
 
-    /// 全屏切换（Tauri toggleFullscreen 同款）。
-    pub(super) fn toggle_fullscreen(
-        &mut self,
-        window: &mut gpui_kit::Window,
-        cx: &mut Context<Self>,
-    ) {
-        window.toggle_fullscreen();
-        self.fullscreen = window.is_fullscreen();
-        cx.notify();
-    }
-
     /// 进入小屏（Tauri enterMini 同款）：浮层全收 + **同一个窗口**缩成
     /// 480×270 落工作区右下角（`crate::mini`，播放零中断）。全屏先进
     /// 全屏退出——几何快照才有意义。
@@ -221,6 +220,9 @@ impl super::HomeView {
         if window.is_fullscreen() {
             window.toggle_fullscreen();
             self.fullscreen = false;
+            // 从沉浸全屏直接进小屏：immersive 一并退，别留「无全屏却藏
+            // chrome」的中间态
+            self.immersive = false;
         }
         match crate::mini::enter(window, cx) {
             Some(saved) => {
@@ -263,17 +265,6 @@ impl super::HomeView {
         }
         self.save_progress_now();
         self.exit_mini(window, cx);
-    }
-
-    /// 钉住窗口（Tauri set_always_on_top 同款）：FFI 成功才翻状态，两边
-    /// 不会各说各话。
-    fn toggle_pinned(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
-        let next = !self.pinned;
-        if crate::mini::set_topmost(window, cx, next) {
-            self.pinned = next;
-            log::info!("[Home] 窗口钉住 → {next}");
-            cx.notify();
-        }
     }
 
     /// 小屏里点倍速标签循环档位（Tauri MINI_RATES 同款，完整菜单回大屏）。

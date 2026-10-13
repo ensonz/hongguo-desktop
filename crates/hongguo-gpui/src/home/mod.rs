@@ -295,6 +295,9 @@ pub struct HomeView {
     /// 小屏播放态（Tauri miniScreen 同款）：Some 是进入前的几何快照。
     /// 同窗缩放语义——不换窗口、不暂停，只缩窗口 + 换紧凑控制条。
     mini: Option<crate::mini::SavedGeometry>,
+    /// 沉浸全屏（播放器全屏按钮/F 键）：OS 全屏 + chrome（顶栏/侧栏）全藏。
+    /// 顶栏最大化钮是另一档「应用全屏」——chrome 保留，对齐 Tauri。
+    immersive: bool,
     /// 窗口钉住（Tauri usePinWindow 同款：窗口级会话态，大小屏共用）。
     pinned: bool,
     /// 下载任务快照（每次渲染从队列读，进度靠 Frame 事件驱动的重渲染刷新）。
@@ -307,6 +310,15 @@ pub struct HomeView {
     buffering: bool,
     /// 控制条可见截止时刻；拖动中/暂停时常显。
     controls_until: Option<Instant>,
+    /// 指针是否在舞台内：离开舞台 = 立即收悬浮层（Tauri hideChrome 同款），
+    /// 在台内静止走 3s 倒计时（不因悬停画面而常显）。
+    pointer_on_stage: bool,
+    /// 指针悬在控制栏本体上：控件不倒计时（拖进度条/悬停音量时永不收，
+    /// Tauri controlsHovered 同款；大小屏两套控制条都置位）。
+    controls_hovered: bool,
+    /// 自动连播静默起步（Tauri quietStart 同款）：连播切集到新集首帧或
+    /// 用户真实输入之间，一切悬浮层不亮（面板照常）。
+    silent_until_input: bool,
     /// 进度轨道上帧矩形（拖动/点击的指针位置 → 比例换算用；同
     /// `stage_rects` 的哨兵存取模式）。
     progress_bounds: Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
@@ -480,12 +492,16 @@ impl HomeView {
             incognito_polling: false,
             fullscreen: false,
             mini: None,
+            immersive: false,
             pinned: false,
             downloads: Arc::new(Vec::new()),
             done_vids: Arc::new(Vec::new()),
             volume_popup_open: false,
             buffering: false,
             controls_until: None,
+            pointer_on_stage: false,
+            controls_hovered: false,
+            silent_until_input: false,
             progress_bounds: Rc::new(Cell::new(None)),
             wheel_at: None,
             last_save: Instant::now(),
@@ -617,6 +633,74 @@ impl HomeView {
     #[cfg(not(feature = "screenshot"))]
     fn preview_engine(&self) -> bool {
         false
+    }
+
+    // —— 壳协作面（Shell 顶栏/侧栏读写的最小开口） ——
+
+    pub(crate) fn active_source(&self) -> Source {
+        self.active
+    }
+
+    /// 切沉浸流 tab（顶栏 tab 入口）：重复点当前 tab = 换一批（重开会话、
+    /// 游标归零）；切到别的 tab 后当前游标的剧不在播就切过去（起点决策
+    /// effect 同语义）。
+    pub(crate) fn switch_source(&mut self, s: Source, cx: &mut Context<Self>) {
+        if self.active == s {
+            self.load_feed(s, true, cx);
+            return;
+        }
+        self.active = s;
+        let empty = self.feeds.get(&s).is_none_or(|f| f.items.is_empty());
+        if empty {
+            self.load_feed(s, false, cx);
+        } else {
+            let cursor_item = self
+                .display_items()
+                .get(self.cursor())
+                .map(|i| i.series_id.clone());
+            let target_same = self
+                .now
+                .as_ref()
+                .is_some_and(|n| cursor_item.as_deref() == Some(&n.series_id));
+            if !target_same
+                && let Some(item) = self.display_items().get(self.cursor()).cloned()
+            {
+                self.play_target(item, None, None, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn immersive_fullscreen(&self) -> bool {
+        self.immersive
+    }
+
+    pub(crate) fn pinned_window(&self) -> bool {
+        self.pinned
+    }
+
+    /// 置顶窗口（顶栏入口与小屏紧凑条共用；FFI 成功才翻状态，两边不各说
+    /// 各话——Tauri usePinWindow 同一份语义）。
+    pub(crate) fn toggle_pinned(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let next = !self.pinned;
+        if crate::mini::set_topmost(window, cx, next) {
+            self.pinned = next;
+            log::info!("[Home] 窗口钉住 → {next}");
+            cx.notify();
+        }
+    }
+
+    /// 播放器全屏（控制条按钮 / F / Esc）：OS 全屏 + chrome（顶栏/侧栏）
+    /// 全藏 = 真沉浸。与「应用全屏」（顶栏最大化钮，chrome 保留）分层。
+    pub(super) fn toggle_immersive_fullscreen(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.immersive = !self.immersive;
+        window.toggle_fullscreen();
+        self.wake_controls(cx);
+        cx.notify();
     }
 
     fn subscribe_controls(&mut self, cx: &mut Context<Self>) {
@@ -754,10 +838,9 @@ impl gpui_kit::Render for HomeView {
                 log::warn!("[Home] 纹理回收失败: {e}");
             }
         }
-        // render_tabs 要 &mut cx，先取（theme 借的是 cx 的不可变引用）；
-        // 小屏不渲染顶栏（480×270 里只留播放器，Tauri 小屏同款）
-        let in_mini = self.mini.is_some();
-        let tabs = (!in_mini).then(|| self.render_tabs(cx));
+        // render_* 要 &mut cx，先取（theme 借的是 cx 的不可变引用）。
+        // 分类 tab 已移入壳顶栏（Shell render_title_bar），舞台从 tab 行
+        // 下方起排改为吃满内容区（Tauri 沉浸流同款）。
         // 播放快捷键的焦点种子：键盘事件只派发给焦点子树，舞台的
         // FocusHandle 得在首次渲染时拿到焦点（只播种一次——之后焦点可能
         // 在弹层菜单里，每帧强抢会打架；点舞台会带回焦点）。
@@ -802,7 +885,6 @@ impl gpui_kit::Render for HomeView {
             .text_color(theme.foreground)
             // 沉浸流锁死在视口内：任何 1px 超高都会冒出页面滚动条并吃掉滚轮
             .overflow_hidden()
-            .children(tabs)
             .child(match notice {
                 Some(msg) => v_flex()
                     .flex_1()
@@ -828,6 +910,16 @@ impl gpui_kit::Render for HomeView {
                     .id("home-stage")
                     .on_mouse_move(cx.listener(|this, _: &gpui_kit::MouseMoveEvent, _, cx| {
                         this.wake_controls(cx);
+                    }))
+                    // 指针离开画面 → 悬浮层立即收（Tauri hideChrome 同款）：
+                    // 清活动窗即收，暂停态的常显由 controls_visible 的暂停项
+                    // 裁决、不受此影响
+                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                        this.pointer_on_stage = *hovered;
+                        if !hovered && this.controls_until.is_some() {
+                            this.controls_until = None;
+                            cx.notify();
+                        }
                     }))
                     .on_scroll_wheel(cx.listener(
                         |this, ev: &gpui_kit::ScrollWheelEvent, window, cx| {

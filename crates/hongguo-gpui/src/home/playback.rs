@@ -397,6 +397,9 @@ impl super::HomeView {
         if self.switching {
             return;
         }
+        // 自动连播静默起步（Tauri quietStart 同款）：新集首帧或用户真实输入
+        // 之前，悬浮层一律不亮（on_player_event 首帧/wake_controls 解除）
+        self.silent_until_input = true;
         if let Some(now) = self.now.clone()
             && (now.vid_index as usize) < now.episode_count
         {

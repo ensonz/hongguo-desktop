@@ -47,15 +47,22 @@ impl super::HomeView {
         }
     }
 
-    /// 计数格式化：万/亿一位小数、整数省略小数点——与 Tauri
-    /// `utils/format.ts` 的 formatCountPrecise 同口径（hgplayer 详情页头部
-    /// 实测「27.1万人追剧 / 3786万」）。此前自创「百万」档，已对齐。
+    /// 互动栏计数格式化：对齐 Tauri `interaction-rail.tsx` 的 fmtCount
+    /// （抖音系阶梯）——≥100万 → 「4.4百万」，≥1万 → 「52万」（余数
+    /// ≥1000 才带一位小数），其余原样。注意这是**互动栏专用**口径，与
+    /// `utils/format.ts` 的 formatCountPrecise（亿/万，详情页头部）是
+    /// Tauri 端就分开的两套。
     pub(super) fn fmt_count(n: i64) -> String {
-        if n >= 100_000_000 {
-            return format!("{:.1}亿", n as f64 / 100_000_000.0).replace(".0", "");
+        if n >= 1_000_000 {
+            return format!("{:.1}", n as f64 / 1_000_000.0).replace(".0", "") + "百万";
         }
         if n >= 10_000 {
-            return format!("{:.1}万", n as f64 / 10_000.0).replace(".0", "");
+            let text = if n % 10_000 >= 1000 {
+                format!("{:.1}", n as f64 / 10_000.0)
+            } else {
+                format!("{}", n / 10_000)
+            };
+            return text.replace(".0", "") + "万";
         }
         format!("{n}")
     }

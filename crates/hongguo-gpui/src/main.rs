@@ -16,7 +16,6 @@
 
 mod bridge;
 mod danmaku_emoji;
-mod douyin_icons;
 mod emoji_files;
 mod events;
 mod home;
