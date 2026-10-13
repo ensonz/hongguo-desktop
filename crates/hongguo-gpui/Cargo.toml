@@ -21,6 +21,12 @@ authors.workspace = true
 name = "hongguo-gpui"
 test = false
 
+# 表情插入行为断言：gpui test-support 只在 screenshot feature 里开
+#（见上方 features 注释），缺 feature 时整个 test target 跳过。
+[[test]]
+name = "emoji_insert"
+required-features = ["screenshot"]
+
 # 进程内抓帧取证（screenshot.rs）：`--features screenshot` 才编入，走 GPUI
 # `render_to_image`（不需要系统屏幕录制授权，无头也能拿真图）。默认构建不带。
 #
