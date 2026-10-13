@@ -30,7 +30,7 @@ pub(crate) struct SavedGeometry {
 /// 进入小屏：快照 → 缩放落位（工作区右下角，小工作区压到放得下为止）。
 /// 几何不可得时返回 `None`，调用方保持原状（与 Tauri 幂等注释同口径：
 /// 已在小屏时调用方不得再进来，否则快照会被 480×270 覆盖）。
-pub(crate) fn enter(window: &Window, cx: &gpui_kit::App) -> Option<SavedGeometry> {
+pub(crate) fn enter(window: &mut Window, cx: &gpui_kit::App) -> Option<SavedGeometry> {
     let saved = SavedGeometry {
         rect: outer_rect(window)?,
         maximized: window.is_maximized(),
@@ -58,7 +58,7 @@ fn outer_rect(window: &Window) -> Option<(i32, i32, i32, i32)> {
 
 /// 退出小屏：按快照还原几何与最大化态（Tauri exit 同款顺序：先落位，
 /// 后最大化——最大化跟随窗口回到原显示器）。
-pub(crate) fn exit(window: &Window, cx: &gpui_kit::App, saved: SavedGeometry) {
+pub(crate) fn exit(window: &mut Window, cx: &gpui_kit::App, saved: SavedGeometry) {
     restore(window, cx, saved);
 }
 
@@ -372,20 +372,20 @@ fn work_area(hwnd: isize, scale: f64) -> Option<(f64, f64, f64, f64)> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn place_mini(window: &Window, _cx: &gpui_kit::App) -> Option<()> {
+fn place_mini(window: &mut Window, _cx: &gpui_kit::App) -> Option<()> {
     // macOS：暂只缩不挪（gpui 无位置 API，Apple 侧 FFI 后补）
     window.resize(gpui_kit::Size {
-        width: gpui_kit::Pixels(MINI_W as f32),
-        height: gpui_kit::Pixels(MINI_H as f32),
+        width: gpui_kit::Pixels::from(MINI_W as f32),
+        height: gpui_kit::Pixels::from(MINI_H as f32),
     });
     Some(())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn restore(window: &Window, _cx: &gpui_kit::App, saved: SavedGeometry) {
+fn restore(window: &mut Window, _cx: &gpui_kit::App, saved: SavedGeometry) {
     window.resize(gpui_kit::Size {
-        width: gpui_kit::Pixels(saved.rect.2 as f32),
-        height: gpui_kit::Pixels(saved.rect.3 as f32),
+        width: gpui_kit::Pixels::from(saved.rect.2 as f32),
+        height: gpui_kit::Pixels::from(saved.rect.3 as f32),
     });
 }
 

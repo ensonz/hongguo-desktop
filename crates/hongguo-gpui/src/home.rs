@@ -3692,9 +3692,20 @@ impl HomeView {
         // 兄弟层，点它不会冒泡到这里。
         #[cfg(target_os = "macos")]
         let video_layer = |frame: &VideoFrame| -> gpui_kit::AnyElement {
-            // Apple 目标上 FrameBuffer 只有 CVPixelBuffer 一个变体（可驳尽）
+            // Apple 目标上 FrameBuffer 只有 CVPixelBuffer 一个变体（可驳尽）。
+            // 解码侧是 core-video 的 TCFType 包装，gpui 0.3.9 起要 objc2 的
+            // CFRetained：借裸指针 CFRetain 一次（等价原先 clone 的 +1），
+            // 所有权交给 surface。
+            use core_foundation::base::TCFType as _;
             let FrameBuffer::CVPixelBuffer(buffer) = &frame.buffer;
-            surface(buffer.clone())
+            let pixel_buffer = unsafe {
+                objc2_core_foundation::CFRetained::retain(
+                    std::ptr::NonNull::new_unchecked(
+                        buffer.as_concrete_TypeRef() as *mut objc2_core_video::CVPixelBuffer
+                    ),
+                )
+            };
+            surface(pixel_buffer)
                 .absolute()
                 .size_full()
                 .object_fit(ObjectFit::Contain)
