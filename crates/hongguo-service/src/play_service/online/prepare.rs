@@ -1,13 +1,11 @@
 //! 取流准备与预取编排：解析档位、抢取流权、复用/等待在途取流、连播预取。
 
-use hongguo_api::client::ApiEnv;
-use hongguo_common::model::{Settings, VideoDefinition};
+use hongguo_common::model::VideoDefinition;
 use hongguo_common::{AppError, AppResult};
-use hongguo_store::Store;
 use hongguo_stream::{StreamCache, cache};
 
-use super::PlayRuntime;
 use super::fill::{fill, resume_fill};
+use crate::app_state::AppState;
 
 /// 在线播放就绪后带回的档位信息。
 pub struct Prepared {
@@ -23,12 +21,10 @@ pub struct Prepared {
 /// 缓存按 (vid, 档位) 分条目（见 [`hongguo_stream`]），所以切清晰度
 /// 既不用下载、也不会动到正在播的那一档：切回去直接命中内存里的旧数据。
 pub async fn prepare(
-    runtime: &PlayRuntime,
+    state: &AppState,
     vid: &str,
     progress_key: &str,
     definition: Option<u32>,
-    settings: Settings,
-    env: &hongguo_api::client::ApiEnv,
 ) -> AppResult<Prepared> {
     let vid = vid.trim();
     if vid.is_empty() {
@@ -56,7 +52,7 @@ pub async fn prepare(
     if let Some(want) = want {
         if let Some(hit) = prepared(c, vid, want) {
             // 预取只填了头部的条目：转正后立刻续填余下（后台，不挡播放）
-            resume_fill(runtime, vid, want, progress_key);
+            resume_fill(state, vid, want, progress_key);
             log::info!("[Online] {vid} 档位 {want} 已缓存，直接复用");
             return Ok(hit);
         }
@@ -73,7 +69,8 @@ pub async fn prepare(
     let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
         hongguo_media_platform::capability::playback::hevc_playable(),
     );
-    let play = hongguo_api::play_url::fetch_play_url(vid, definition, cap, env).await?;
+    let env = state.api_env();
+    let play = hongguo_api::play_url::fetch_play_url(vid, definition, cap, &env).await?;
     let want = play.definition;
     // 只记「不指定档位」那次解析到的结果。手动选过 720 之后再点「自动」，
     // 要的仍然是平台给的最高档，而不是上一次手动选的那档。
@@ -97,15 +94,15 @@ pub async fn prepare(
         definition: want,
         definitions: play.definitions.clone(),
     };
+    let settings = state.settings();
     let owned = vid.to_string();
     let owned_key = progress_key.to_string();
     // `cache()` 返回 `&'static StreamCache`，可以直接带进 spawn 的 future
     let c = cache();
-    let runtime = runtime.clone();
-    let handle = runtime.handle.clone();
-    handle.spawn(async move {
+    let state = state.clone();
+    crate::runtime::spawn(async move {
         let filled = fill(
-            &runtime, c, &owned, &owned_key, want, &play, &settings, false,
+            &state, c, &owned, &owned_key, want, &play, &settings, false,
         )
         .await;
         // 取流权一直持有到数据落盘：中途放开会让并发的第二个请求以为
@@ -138,11 +135,9 @@ fn prepared(c: &StreamCache, vid: &str, definition: u32) -> Option<Prepared> {
 /// 幂等：已有条目或已在取流时静默返回。失败同样静默——预取是锦上添花，
 /// 报错只会把噪音推给根本没请求这件事的前端。
 pub async fn prefetch_stream(
-    runtime: &PlayRuntime,
+    state: &AppState,
     vid: &str,
     progress_key: &str,
-    settings: &Settings,
-    env: &hongguo_api::client::ApiEnv,
 ) -> AppResult<()> {
     let vid = vid.trim();
     if vid.is_empty() {
@@ -160,7 +155,8 @@ pub async fn prefetch_stream(
     let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
         hongguo_media_platform::capability::playback::hevc_playable(),
     );
-    let play = match hongguo_api::play_url::fetch_play_url(vid, None, cap, env).await {
+    let env = state.api_env();
+    let play = match hongguo_api::play_url::fetch_play_url(vid, None, cap, &env).await {
         Ok(p) => p,
         Err(e) => {
             log::info!("[Online] 预取 {vid} 取流表失败（忽略）: {e}");
@@ -182,12 +178,11 @@ pub async fn prefetch_stream(
     let owned = vid.to_string();
     let owned_key = progress_key.to_string();
     let c = cache();
-    let runtime = runtime.clone();
-    let settings = settings.clone();
-    let handle = runtime.handle.clone();
-    handle.spawn(async move {
+    let settings = state.settings();
+    let state = state.clone();
+    crate::runtime::spawn(async move {
         let filled = fill(
-            &runtime, c, &owned, &owned_key, want, &play, &settings, true,
+            &state, c, &owned, &owned_key, want, &play, &settings, true,
         )
         .await;
         c.end_fetch(&owned, want);
@@ -208,22 +203,18 @@ pub async fn prefetch_stream(
 /// 让位）。档案里查不到下一集的 vid 就放弃：连播到它时 resolve_play 会
 /// 自行解析（与 compat_prefetch 同款语义）。
 pub fn schedule_next_episode_prefetch(
-    runtime: &PlayRuntime,
-    store: &Store,
-    settings: Settings,
-    env: ApiEnv,
+    state: AppState,
     series_id: &str,
     next_vid_index: u32,
 ) {
-    let Some(vid) = crate::play_service::local::episode_vid(store, series_id, next_vid_index)
+    let Some(vid) =
+        crate::play_service::local::episode_vid(&state.store, series_id, next_vid_index)
     else {
         return;
     };
     let progress_key = format!("{series_id}:{next_vid_index}");
-    let runtime = runtime.clone();
-    let handle = runtime.handle.clone();
-    handle.spawn(async move {
-        if let Err(e) = prefetch_stream(&runtime, &vid, &progress_key, &settings, &env).await {
+    crate::runtime::spawn(async move {
+        if let Err(e) = prefetch_stream(&state, &vid, &progress_key).await {
             log::info!("[Online] 第 {next_vid_index} 集连播预取失败（忽略）: {e}");
         }
     });

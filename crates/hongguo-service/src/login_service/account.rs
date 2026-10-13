@@ -53,7 +53,7 @@ pub fn complete_login(state: &AppState, account: AccountState) -> AppResult<()> 
 /// 显示的就是默认档案（2026-10-10 用户实测「跟手机对不上」）。
 /// 失败只记日志：登录本身已成功，资料拉不下来不该让登录报错。
 pub fn refresh_profile_after_login(state: AppState) {
-    tauri::async_runtime::spawn(async move {
+    crate::runtime::spawn(async move {
         match login::user_info(&state.api_env()).await {
             Ok(user) => {
                 if let Some(mut acc) = state.settings().account {

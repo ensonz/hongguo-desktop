@@ -10,14 +10,13 @@
 //! - **整集**（回落）：CDN 不支持 Range、moov 定位失败等情形下，整集取回 +
 //!   解密后一次性交给协议，行为与本功能加入前完全一致。
 //!
-//! ⚠️ 起后台填充任务一律走 [`PlayRuntime`] 显式给的运行时 handle，不裸
+//! ⚠️ 起后台填充任务一律走共用任务运行时（[`crate::runtime`]），不裸
 //! `tokio::spawn`：后者依赖调用点所在的 Tokio 上下文，[`resume_fill`] 是
 //! 同步入口、可能被协议/回调线程调用（那里没有上下文，会 panic→abort，
-//! 见 2026-10-07 闪退）。壳在装配期把运行时交进来（Tauri 壳 =
-//! `tauri::async_runtime::handle()`，语义与 `tauri::async_runtime::spawn`
-//! 一致；GPUI 壳 = 自己常驻的运行时），任意线程都可安全派发。
+//! 见 2026-10-07 闪退）。运行时是进程级共享的，任意线程都可安全派发。
 //!
-//! 本模块壳无关：进度事件只产出给 [`ProgressSink`]，送达方式由壳定。
+//! 本模块壳无关：进度事件发布到 service 事件总线（[`crate::events`]），
+//! Tauri / GPUI 各自订阅适配。
 //!
 //! 子模块：`prepare`（取流准备与预取编排）、`fill`（填充门闸与填充循环）、
 //! `plain`（整集抓取）、`progress`（进度设施）；公开面经本模块 re-export。
@@ -33,23 +32,6 @@ pub use prepare::{Prepared, prefetch_stream, prepare, schedule_next_episode_pref
 pub use progress::{OnlineProgressEvent, ProgressReporter, ProgressSink};
 
 use hongguo_stream::cache;
-
-/// 取流编排的壳侧运行时：后台任务派发 + 进度事件去向。
-///
-/// service 可能被协议回调、主线程等**无 Tokio 上下文**的线程调用（2026-10-07
-/// 闪退教训），后台任务不能依赖调用点上下文起——派发用壳显式给的运行时
-/// handle，任意线程可调。进度事件也经它送达壳（Tauri emit / GPUI 忽略）。
-#[derive(Clone)]
-pub struct PlayRuntime {
-    pub handle: tokio::runtime::Handle,
-    pub progress: Option<ProgressSink>,
-}
-
-impl PlayRuntime {
-    pub fn new(handle: tokio::runtime::Handle, progress: Option<ProgressSink>) -> Self {
-        Self { handle, progress }
-    }
-}
 
 /// 在线缓存现状（分条数、已填充字节），供缓存占用统计读。
 pub fn status() -> (usize, u64) {

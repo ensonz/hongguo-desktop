@@ -4,8 +4,6 @@
 //! 保存是单行 UPSERT（播放期间每 5 秒一次也不再有整文件重写），
 //! 历史是「每部剧最新一集」的聚合查询 + 档案表取剧名封面。
 
-use tauri::State;
-
 use crate::app_state::AppState;
 use hongguo_common::model::PlaybackPosition;
 
@@ -31,7 +29,7 @@ pub fn save_store(
 /// 读播放位置。看过超过 3 秒就续播那个位置（2026-10-09 用户口径：
 /// 不管片尾——原「接近片尾归零」防线已废，位置保存原本就为它存在）。
 pub fn load(
-    state: &State<'_, AppState>,
+    state: &AppState,
     series_id: &str,
     vid_index: u32,
 ) -> hongguo_common::AppResult<f64> {
@@ -131,7 +129,7 @@ mod tests {
         }
 
         // load 是 store 直读的一层薄过滤（unwrap + >3 秒续播），这里按
-        // store 语义断言，绕开测试里构造不到的 tauri State
+        // store 语义断言，绕开测试里需要构造完整 AppState 的路径
         let a = state.store.playback_position("A", 1).unwrap().unwrap();
         assert_eq!(a.current_time, 10.0, "续播位置原样读回");
         assert!(a.is_resumable());

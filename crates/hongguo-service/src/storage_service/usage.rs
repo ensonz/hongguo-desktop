@@ -2,8 +2,6 @@
 
 use std::collections::HashMap;
 
-use tauri::State;
-
 use crate::app_state::AppState;
 use hongguo_common::model::DownloadTask;
 
@@ -35,13 +33,13 @@ pub struct StorageSeriesUsage {
 }
 
 /// 统计本地占用。
-pub fn usage(state: &State<'_, AppState>) -> StorageUsage {
+pub fn usage(state: &AppState) -> StorageUsage {
     StorageUsage::from_tasks(&state.queue().all())
 }
 
 /// 按剧聚合磁盘占用。只列磁盘上真有文件的剧（metadata 摸不到的直接跳过，
 /// 「记录在、文件已被手动删」的剧不出现，免得列出一堆 0 B 的空行）。
-pub fn series_usage(state: &State<'_, AppState>) -> Vec<StorageSeriesUsage> {
+pub fn series_usage(state: &AppState) -> Vec<StorageSeriesUsage> {
     series_from_tasks(&state.queue().all())
 }
 

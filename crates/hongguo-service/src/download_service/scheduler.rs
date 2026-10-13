@@ -5,7 +5,8 @@
 //!
 //! ## 为什么到处是 owned
 //!
-//! 任务体跑在 `tauri::async_runtime::spawn` 里，要求整个 future 是 `Send`。
+//! 任务体跑在共用任务运行时的 `spawn` 里（见 [`crate::runtime`]），
+//! 要求整个 future 是 `Send`。
 //! 本模块大量使用 `parking_lot` 的锁，其 guard **不是 `Send`**——只要 guard
 //! 存活跨越 `.await`，编译器就会拒绝。因此：
 //!
@@ -17,11 +18,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter};
 
 use crate::app_state::AppState;
-use crate::download_service::events::{ProgressThrottle, names};
+use crate::download_service::events::ProgressThrottle;
 use crate::download_service::worker::{self, EpisodeDownload, ProgressSink};
+use crate::events::ServiceEvent;
 use hongguo_common::model::DownloadTask;
 use hongguo_common::{AppError, AppResult};
 
@@ -69,7 +70,7 @@ impl DownloadScheduler {
     ///
     /// 在「启动、提交、恢复」时调用；每个任务完成时会自动再触发下一轮
     /// （见 [`Self::execute`] 末尾的 [`Self::reschedule`]）。
-    pub async fn run_once(self: &Arc<Self>, app: AppHandle, state: AppState) {
+    pub async fn run_once(self: &Arc<Self>, state: AppState) {
         if self.is_cancelled() {
             return;
         }
@@ -79,10 +80,9 @@ impl DownloadScheduler {
 
         for task in pending {
             let sched = Arc::clone(self);
-            let app2 = app.clone();
             let state2 = Arc::clone(&state);
-            tauri::async_runtime::spawn(async move {
-                sched.execute(app2, state2, task).await;
+            crate::runtime::spawn(async move {
+                sched.execute(state2, task).await;
             });
         }
     }
@@ -91,10 +91,10 @@ impl DownloadScheduler {
     ///
     /// 单独抽出来是为了断开递归类型：`execute` 不直接 `await` `run_once`，
     /// 否则两者的 opaque future 会形成环，编译器无法确定大小。
-    fn reschedule(self: &Arc<Self>, app: AppHandle, state: AppState) {
+    fn reschedule(self: &Arc<Self>, state: AppState) {
         let sched = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
-            sched.run_once(app, state).await;
+        crate::runtime::spawn(async move {
+            sched.run_once(state).await;
         });
     }
 
@@ -125,61 +125,60 @@ impl DownloadScheduler {
     }
 
     /// 执行单个任务并收尾。
-    async fn execute(self: Arc<Self>, app: AppHandle, state: AppState, task: DownloadTask) {
+    async fn execute(self: Arc<Self>, state: AppState, task: DownloadTask) {
         // 编译期自检：断言 execute_inner 的 future 是 Send，
         // 这样一旦某天又引入非 Send 的持有物，报错会精确指向这一行，
         // 而不是外层 spawn 那行。
         fn assert_send<T: Send>(_: &T) {}
-        let fut = self.execute_inner(app.clone(), state.clone(), task);
+        let fut = self.execute_inner(state.clone(), task);
         assert_send(&fut);
         fut.await;
     }
 
-    async fn execute_inner(self: Arc<Self>, app: AppHandle, state: AppState, task: DownloadTask) {
+    async fn execute_inner(self: Arc<Self>, state: AppState, task: DownloadTask) {
         let id = task.id.clone();
         let queue = state.queue();
-        let result = run_one(Arc::clone(&self), &app, &state, &task).await;
+        let result = run_one(Arc::clone(&self), &state, &task).await;
 
         match result {
             Ok((path, size)) => {
                 queue.mark_completed(&id, &path, size);
                 self.throttle.forget(&id);
-                let _ = app.emit(
-                    names::DOWNLOAD_COMPLETED,
-                    &super::events::TaskEvent { id: id.clone() },
-                );
+                state.events().publish(ServiceEvent::DownloadCompleted(
+                    super::events::TaskEvent { id: id.clone() },
+                ));
             }
             Err(e) => {
                 if is_cancelled(&e) {
                     queue.mark_stopped(&id);
                     self.throttle.forget(&id);
-                    let _ = app.emit(names::DOWNLOAD_STOPPED, &super::events::TaskEvent { id });
+                    state.events().publish(ServiceEvent::DownloadStopped(
+                        super::events::TaskEvent { id },
+                    ));
                 } else {
                     // 队列里记 i18n key，不记「网络请求失败: dns 错误」这种人话：
                     // `DownloadTask.error` 是被前端直接渲染的，底层细节只该进日志。
                     log::error!("[Download] 任务 {id} 失败: {e}");
                     queue.mark_failed(&id, e.i18n_key());
                     self.throttle.forget(&id);
-                    let _ = app.emit(
-                        names::DOWNLOAD_FAILED,
-                        &super::events::TaskFailureEvent {
+                    state.events().publish(ServiceEvent::DownloadFailed(
+                        super::events::TaskFailureEvent {
                             id,
                             error: e.to_string(),
                         },
-                    );
+                    ));
                 }
             }
         }
 
         *self.running.lock() -= 1;
-        let _ = app.emit(
-            names::DOWNLOAD_QUEUE_CHANGED,
-            &super::events::QueueChangedEvent {},
-        );
+        state.events().publish(ServiceEvent::DownloadQueueChanged(
+            super::events::QueueChangedEvent {},
+        ));
         persist(&state);
 
         // 继续派发下一个（走 reschedule 断开递归类型）
-        self.reschedule(app, state);
+        self.reschedule(state);
     }
 }
 
@@ -191,7 +190,6 @@ fn is_cancelled(e: &AppError) -> bool {
 /// 一集的完整流程：取流地址 → 下载 → 解密。
 async fn run_one(
     sched: Arc<DownloadScheduler>,
-    app: &AppHandle,
     state: &AppState,
     task: &DownloadTask,
 ) -> AppResult<(String, u64)> {
@@ -236,21 +234,20 @@ async fn run_one(
     // 进度回调：在闭包内部取 queue，避免 guard 跨越 await
     let queue = state.queue();
     let task_id = task.id.clone();
-    let app = app.clone();
+    let events = state.events().clone();
     let on_progress = move |downloaded: u64, total: u64| {
         queue.update_progress(&task_id, downloaded, total);
         // 百分比只有 [`DownloadTask::percent`] 一个口径：调度器自己再算一遍
         // 的话，clamp 之类的修正迟早会只落在一处
         let percent = queue.get(&task_id).map(|t| t.percent()).unwrap_or(0.0);
-        let _ = app.emit(
-            names::DOWNLOAD_PROGRESS,
-            &super::events::ProgressEvent {
+        events.publish(ServiceEvent::DownloadProgress(
+            super::events::ProgressEvent {
                 id: task_id.clone(),
                 downloaded,
                 total,
                 percent,
             },
-        );
+        ));
     };
     let sink = ProgressSink {
         throttle: Arc::clone(&sched.throttle),

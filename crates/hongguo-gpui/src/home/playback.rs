@@ -11,7 +11,7 @@ use hongguo_api::history::WatchHistoryItem;
 use hongguo_common::AppResult;
 use hongguo_playback::{OpenOptions, PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
-use hongguo_service::play_service::online::{PlayRuntime, prefetch_stream, prepare};
+use hongguo_service::play_service::online::{prefetch_stream, prepare};
 use hongguo_service::play_service::position;
 use tokio::sync::mpsc;
 
@@ -214,8 +214,6 @@ impl super::HomeView {
         start_override: Option<f64>,
         events: mpsc::Sender<PlayerEvent>,
     ) -> AppResult<(std::sync::Arc<PlayerHandle>, NowPlaying)> {
-        let runtime = PlayRuntime::new(crate::tokio().handle().clone(), None);
-        let settings = state.settings();
         let env = state.api_env();
 
         let series = match state.store.series_by_id(&item.series_id)? {
@@ -272,15 +270,7 @@ impl super::HomeView {
             ep.vid,
             start_secs
         );
-        let prepared = prepare(
-            &runtime,
-            &ep.vid,
-            &progress_key,
-            preferred_definition,
-            settings,
-            &env,
-        )
-        .await?;
+        let prepared = prepare(&state, &ep.vid, &progress_key, preferred_definition).await?;
         let handle = hongguo_playback::open(OpenOptions {
             vid: ep.vid.clone(),
             definition: prepared.definition,
@@ -459,8 +449,6 @@ impl super::HomeView {
         series_id: String,
         history: Vec<WatchHistoryItem>,
     ) -> AppResult<()> {
-        let runtime = PlayRuntime::new(crate::tokio().handle().clone(), None);
-        let settings = state.settings();
         let env = state.api_env();
         let series = match state.store.series_by_id(&series_id)? {
             Some(s) if !s.episodes.is_empty() => s,
@@ -488,7 +476,7 @@ impl super::HomeView {
             return Ok(());
         }
         let progress_key = format!("{series_id}:{}", ep.vid_index);
-        prefetch_stream(&runtime, &ep.vid, &progress_key, &settings, &env).await
+        prefetch_stream(&state, &ep.vid, &progress_key).await
     }
 
     /// 相邻剧分集档案预取（换剧时 resolve 秒回）。

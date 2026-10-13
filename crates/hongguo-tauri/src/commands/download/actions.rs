@@ -54,7 +54,7 @@ pub fn download_batch(
     }
 
     persist(&state)?;
-    hongguo_service::download_service::kick_from_handle(&app);
+    hongguo_service::download_service::kick(state.inner().clone());
     Ok(added)
 }
 
@@ -77,7 +77,7 @@ pub fn resume_all(app: AppHandle, state: State<'_, AppState>) -> AppResult<usize
     let n = state.queue().resume_all();
     persist(&state)?;
     let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, &QueueChangedEvent {});
-    hongguo_service::download_service::kick_from_handle(&app);
+    hongguo_service::download_service::kick(state.inner().clone());
     Ok(n)
 }
 

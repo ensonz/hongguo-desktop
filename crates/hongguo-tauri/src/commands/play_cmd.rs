@@ -1,36 +1,21 @@
 //! 播放。
 
-use std::sync::Arc;
-
 use tauri::State;
 
 use hongguo_common::AppResult;
 use hongguo_common::model::{PlayRequest, PlayResponse};
 use hongguo_service::app_state::AppState;
-use hongguo_service::play_service::online::{PlayRuntime, ProgressSink};
 
-/// Tauri 壳的取流运行时：后台任务派发走 tauri 全局运行时（与
-/// `tauri::async_runtime::spawn` 同一运行时，红线 1 语义不变），进度事件
-/// emit 给前端（`online-play-progress`，与前端 EVENTS 对应）。
-fn play_runtime(app: &tauri::AppHandle) -> PlayRuntime {
-    let app = app.clone();
-    let sink: ProgressSink = Arc::new(move |event| {
-        use tauri::Emitter;
-        let _ = app.emit(
-            hongguo_service::download_service::events::names::ONLINE_PROGRESS,
-            event,
-        );
-    });
-    PlayRuntime::new(tauri::async_runtime::handle().inner().clone(), Some(sink))
-}
-
+/// 解析播放请求（本地成品优先，其次在线流）。
+///
+/// 取流编排与进度事件全在 service：运行时共用（`hongguo_service::runtime`）、
+/// 进度走事件总线（`online-play-progress` 由壳的事件转发器发给前端）。
 #[tauri::command]
 pub async fn play_series(
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
     request: PlayRequest,
 ) -> AppResult<PlayResponse> {
-    hongguo_service::play_service::local::resolve_play(&play_runtime(&app), &state, &request).await
+    hongguo_service::play_service::local::resolve_play(state.inner(), &request).await
 }
 
 /// 预取一集的在线流（沉浸流「一切就下一部」）。
@@ -39,7 +24,6 @@ pub async fn play_series(
 /// 流已取/在取直接返回；取流表失败不报错——预取是优化，失败大不了现场取。
 #[tauri::command]
 pub async fn play_prefetch(
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
     series_id: String,
 ) -> AppResult<()> {
@@ -70,14 +54,10 @@ pub async fn play_prefetch(
     if ep.vid.is_empty() {
         return Ok(());
     }
-    let settings = state.settings();
-    let env = state.api_env();
     hongguo_service::play_service::online::prefetch_stream(
-        &play_runtime(&app),
+        state.inner(),
         &ep.vid,
         &format!("{series_id}:{}", ep.vid_index),
-        &settings,
-        &env,
     )
     .await
 }

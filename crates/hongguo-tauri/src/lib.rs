@@ -11,6 +11,7 @@
 pub mod bootstrap;
 pub mod commands;
 mod diagnostics;
+mod events;
 mod protocol;
 #[cfg(test)]
 mod testing;
@@ -63,6 +64,7 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             app.manage(build_app_state());
             bootstrap::store::init(app.handle())?;
             bootstrap::device::init(app.handle())?;
+            bootstrap::events::init(app.handle())?;
             bootstrap::rescan::init(app.handle())?;
             bootstrap::downloader::init(app.handle())?;
             bootstrap::transcoder::init()?;

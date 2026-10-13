@@ -8,9 +8,9 @@ use hongguo_common::model::Settings;
 use hongguo_common::{AppError, AppResult};
 use hongguo_stream::{ProgressiveStream, StreamCache, cache};
 
-use super::PlayRuntime;
 use super::plain::fetch_plain_with;
-use super::progress::ProgressReporter;
+use super::progress::{ProgressReporter, event_sink};
+use crate::app_state::AppState;
 
 /// 填充门闸：数据填充段（真正抢带宽的下载+解密）同时只允许一路。
 ///
@@ -44,7 +44,7 @@ static FILL_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
     reason = "参数表与平台 C API（虚表/会话属性）一一对应，硬拆参数结构反而失真"
 )]
 pub(super) async fn fill(
-    runtime: &PlayRuntime,
+    state: &AppState,
     c: &StreamCache,
     vid: &str,
     progress_key: &str,
@@ -65,7 +65,7 @@ pub(super) async fn fill(
         log::info!("[Online] {vid} 已被切走/让位，取消填充");
         return Ok(());
     }
-    let reporter = ProgressReporter::new(runtime.progress.clone(), progress_key.to_string());
+    let reporter = ProgressReporter::new(event_sink(state.events()), progress_key.to_string());
 
     match build_progressive(play, settings, &|r, t| reporter.report(r, t, "downloading")).await {
         Ok((sparse, prog)) => {
@@ -191,7 +191,7 @@ enum FillBudget {
 ///
 /// 没有它，预取只填头部的条目在被切上后，播放追上填充前沿就只能
 /// 30s 超时——「滚回来就黑屏」的另一半。
-pub fn resume_fill(runtime: &PlayRuntime, vid: &str, definition: u32, progress_key: &str) {
+pub fn resume_fill(state: &AppState, vid: &str, definition: u32, progress_key: &str) {
     let c = cache();
     if !c.needs_resume(vid, definition) {
         return;
@@ -205,13 +205,13 @@ pub fn resume_fill(runtime: &PlayRuntime, vid: &str, definition: u32, progress_k
     };
     let proxy = prog.proxy.clone();
     let cdn_url = prog.cdn_url.clone();
-    let runtime = runtime.clone();
+    let state = state.clone();
     let owned = vid.to_string();
     let owned_key = progress_key.to_string();
-    // 本函数是同步入口，可能被协议/回调线程调用：必须用壳显式给的运行时，
+    // 本函数是同步入口，可能被协议/回调线程调用：必须用共用任务运行时，
     // 见模块头注释。
-    runtime.handle.spawn(async move {
-        let reporter = ProgressReporter::new(runtime.progress.clone(), owned_key);
+    crate::runtime::spawn(async move {
+        let reporter = ProgressReporter::new(event_sink(state.events()), owned_key);
         let cancelled = || !c.exists(&owned, definition) || c.current() != owned;
         let client = match hongguo_api::client::build_client(&proxy) {
             Ok(cl) => cl,

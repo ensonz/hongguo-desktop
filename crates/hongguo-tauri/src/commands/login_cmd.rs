@@ -40,7 +40,6 @@ pub async fn login_send_code(
 /// 会话绑定走发码下发的 csrf Cookie（1.1.3 实测），不再有 ticket 回传。
 #[tauri::command]
 pub async fn login_sms_login(
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
     mobile: String,
     code: String,
@@ -81,7 +80,7 @@ pub async fn login_sms_login(
                 mobile,
                 code,
             });
-            polling::spawn_mfa_polling(app, state.inner().clone());
+            polling::spawn_mfa_polling(state.inner().clone());
             Ok(mfa_result(&ctx))
         }
     }

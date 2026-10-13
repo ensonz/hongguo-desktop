@@ -28,7 +28,7 @@ pub async fn install_hevc_extension(proxy: ProxyConfig) -> AppResult<bool> {
 
     // PowerShell 会话可能跑几秒，扔阻塞线程池，不占 async 工作线程
     let install_path = path.clone();
-    let installed = tauri::async_runtime::spawn_blocking(move || verify_and_install(&install_path))
+    let installed = crate::runtime::spawn_blocking(move || verify_and_install(&install_path))
         .await
         .map_err(|e| AppError::Media(format!("HEVC 扩展安装任务异常: {e}")))?;
     // 成败都清临时文件；安装失败时错误向上抛给前端展示

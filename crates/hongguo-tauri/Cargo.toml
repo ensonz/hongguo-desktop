@@ -44,7 +44,8 @@ hongguo-signer = { path = "../hongguo-signer" }
 hongguo-media-platform = { path = "../hongguo-media-platform" }
 serde_json = "1"
 # 异步 command 的运行时内设施（sleep 轮询）。
-tokio = { version = "1", features = ["time"] }
+# sync：事件转发器匹配 broadcast::error::RecvError；time：既有用法。
+tokio = { version = "1", features = ["sync", "time"] }
 # 小窗模式的鼠标出界检测（app_cmd）。
 mouse_position = "0.1"
 # panic 取证的本地时间戳（diagnostics）。

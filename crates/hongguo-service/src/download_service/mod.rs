@@ -15,10 +15,6 @@ pub mod rescan;
 pub mod scheduler;
 pub mod worker;
 
-use std::sync::Arc;
-
-use tauri::Manager;
-
 use crate::app_state::AppState;
 use hongguo_common::AppResult;
 use hongguo_store::Store;
@@ -42,20 +38,10 @@ pub fn persist_tasks(store: &Store, queue: &queue::DownloadQueue, tag: &str) -> 
 /// 触发一轮调度。
 ///
 /// 在「提交任务」「一键启动」「启动恢复」之后调用；每个任务完成时会自动再触发。
-pub fn kick(app: tauri::AppHandle, state: AppState) {
+/// 后台任务走共用任务运行时（任意线程可调，见 [`crate::runtime`]）。
+pub fn kick(state: AppState) {
     let sched = state.scheduler();
-    tauri::async_runtime::spawn(async move {
-        sched.run_once(app, state).await;
+    crate::runtime::spawn(async move {
+        sched.run_once(state).await;
     });
-}
-
-/// 从 `AppHandle` 取全局状态并触发调度。
-///
-/// command 层拿到的是 `State<'_, AppState>`（借用），而调度任务需要
-/// `'static` 的所有权，所以统一走 `AppHandle` 取 `Arc`。
-pub fn kick_from_handle(app: &tauri::AppHandle) {
-    // Tauri 的 `manage` 存入的是 `Arc<AppStateInner>`；
-    // `state::<AppState>()` 因 `Arc: Deref` 展开一层，`inner()` 直接给出目标 Arc
-    let state = Arc::clone(app.state::<AppState>().inner());
-    kick(app.clone(), state);
 }
