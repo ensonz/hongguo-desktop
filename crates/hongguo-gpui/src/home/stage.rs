@@ -22,7 +22,7 @@ use gpui_kit::prelude::*;
 #[cfg(target_os = "macos")]
 use gpui_kit::surface;
 use gpui_kit::{ElementId, ImageSource, ObjectFit, SharedString, div, img};
-use hongguo_media_platform::platform::video::{FrameBuffer, VideoFrame};
+use hongguo_media_platform_api::video::{FrameBuffer, VideoFrame};
 
 use super::danmaku::DM_LANE_GAP;
 use super::feed::{Source, StreamItem};

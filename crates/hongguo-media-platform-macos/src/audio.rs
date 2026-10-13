@@ -220,6 +220,16 @@ impl AacDecoder {
     }
 }
 
+impl hongguo_media_platform_api::AudioDecoder for AacDecoder {
+    fn decode(&mut self, packet: &[u8]) -> AppResult<Vec<f32>> {
+        AacDecoder::decode(self, packet)
+    }
+
+    fn reset(&mut self) {
+        AacDecoder::reset(self);
+    }
+}
+
 impl Drop for AacDecoder {
     fn drop(&mut self) {
         unsafe { ffi::AudioConverterDispose(self.converter) };

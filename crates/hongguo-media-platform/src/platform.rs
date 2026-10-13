@@ -1,44 +1,31 @@
-//! 平台原生编码后端。
+//! 平台层的统一门面：编译期按目标选择实现（macOS / Windows）。
 //!
-//! - macOS：VideoToolbox（[`vt`]）——HEVC 硬解 + H.264 编码（硬编优先，
-//!   无硬编回落 Apple 内置软编会话），CVPixelBuffer 全程 NV12，
-//!   编解码之间零拷贝是自然形态
-//! - Windows：Media Foundation（[`mf`]）——硬件 MFT 枚举 + async 事件循环
-//!   （保持硬编闸门：h264_mf 软编不值得替代 ffmpeg）
+//! - [`video`] / [`audio`]：解码出口——契约与数据在
+//!   `hongguo-media-platform-api`，具体类型由当前目标的实现 crate re-export；
+//! - [`cover`]：封面平台级静图解码（Windows WIC；其余平台本层不可用返回
+//!   `None`，调用方无需再写平台分支）；
+//! - 无状态分发：转码、能力探测、探测缓存清理（同名转发到实现 crate）。
+//!
+//! 调用方（service / protocol / playback / gpui）只认本模块，不感知具体
+//! 平台实现与原生 API（VideoToolbox / Media Foundation / WIC）。
 //!
 //! 探测纪律与 ffmpeg 侧一致：**列表里有 ≠ 能用**，必须真实建会话试编一帧
-//! （试编帧不能小于 256×256，nvenc 曾在 64×64 上误判不可用）。
-//! 任何探测失败都安静地返回不可用，让分流链落到 ffmpeg/软解。
+//! （试编帧不能小于 256×256，nvenc 曾在 64×64 上误判不可用）。任何探测
+//! 失败都安静地返回不可用，让分流链落到 ffmpeg/软解。
 
-// AAC 解码：macOS AudioToolbox（AudioConverter，mpv 的 coreaudio AAC 解码同款）
-// / Windows Media Foundation（解码 MFT）——同一接口，见 platform::audio。
 pub mod audio;
-#[cfg(target_os = "windows")]
-pub mod mf;
-#[cfg(target_os = "macos")]
-pub mod vt;
-// 视频解码出口：macOS VT（零拷贝 CVPixelBuffer）/ Windows MF（NV12 系统内存）
-// 的中立门面，引擎与壳只认这一层。
+pub mod cover;
 pub mod video;
-// WIC：Windows 的封面平台级静图解码（HEIF/HEIC 扩展在则走系统解码器）
-#[cfg(target_os = "windows")]
-pub mod wic;
 
-use std::path::Path;
+#[cfg(target_os = "macos")]
+use hongguo_media_platform_macos as imp;
+#[cfg(target_os = "windows")]
+use hongguo_media_platform_windows as imp;
 
 use hongguo_common::AppResult;
 
 /// 平台硬编的一次转码请求（与 ffmpeg 侧的 [`crate::ffmpeg::TranscodeRequest`] 同构）。
-pub struct PlatformRequest<'a> {
-    /// 已解密的源 MP4
-    pub input: &'a Path,
-    /// 输出路径（内部先写临时文件，成功后原子替换）
-    pub output: &'a Path,
-    /// 统一到这个分辨率。`None` 表示保持源分辨率
-    pub scale_to: Option<(u32, u32)>,
-    /// 已编码秒数的回调（0.0–时长秒），用于集内进度
-    pub on_progress: Option<&'a (dyn Fn(f64) + Send + Sync)>,
-}
+pub use hongguo_media_platform_api::PlatformRequest;
 
 /// 平台编码层可用时执行 HEVC→H.264 转码。
 ///
@@ -49,13 +36,9 @@ pub fn transcode_h264(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
     if disabled_by_env() {
         return None;
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        vt::transcode_h264(req)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        mf::transcode_h264(req)
+        imp::transcode_h264(req)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -72,13 +55,9 @@ pub fn h264_hw_encoder_available() -> bool {
     if disabled_by_env() {
         return false;
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        vt::h264_hw_encoder_available()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        mf::h264_hw_encoder_available()
+        imp::h264_hw_encoder_available()
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -94,13 +73,9 @@ pub fn encoder_available() -> bool {
     if disabled_by_env() {
         return false;
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        vt::encoder_available()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        mf::h264_hw_encoder_available()
+        imp::encoder_available()
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -117,7 +92,7 @@ pub fn encoder_available() -> bool {
 pub fn hevc_decode_available() -> bool {
     #[cfg(target_os = "windows")]
     {
-        mf::hevc_decoder_present()
+        imp::hevc_decoder_present()
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -127,13 +102,9 @@ pub fn hevc_decode_available() -> bool {
 
 /// 丢弃平台侧的探测缓存，下次读取时重新探测（设置页「重新检测」用）。
 pub fn clear_probe_cache() {
-    #[cfg(target_os = "macos")]
-    vt::clear_probe_cache();
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        mf::clear_probe_cache();
-        // WIC 的 HEIF 解码器探测缓存一并清（封面平台级，见 platform/wic）
-        wic::clear_probe_cache();
+        imp::clear_probe_cache();
     }
 }
 
@@ -155,15 +126,11 @@ pub fn disabled_by_env() -> bool {
 /// 门控 `any(test, feature = "test-support")`：本 crate 自身测试走 `test`，
 /// 壳的跨层 e2e（别的 crate）走 `test-support`——跨 crate 后 `pub(crate)`
 /// 够不着，见 Cargo.toml 的 feature 说明。
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(feature = "test-support")]
 pub fn transcode_h264_for_tests(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        vt::transcode_h264(req)
-    }
-    #[cfg(target_os = "windows")]
-    {
-        mf::transcode_h264_for_tests(req)
+        imp::transcode_h264_for_tests(req)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

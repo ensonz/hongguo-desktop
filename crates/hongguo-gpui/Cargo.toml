@@ -67,7 +67,9 @@ hongguo-store = { path = "../hongguo-store" }
 hongguo-playback = { path = "../hongguo-playback" }
 hongguo-stream = { path = "../hongguo-stream" }
 hongguo-media = { path = "../hongguo-media" }
-hongguo-media-platform = { path = "../hongguo-media-platform" }
+# 帧契约（VideoFrame/FrameBuffer）：壳只认契约 crate——平台实现经门面
+# 按编译目标选择，是 playback 引擎的事，与 UI 无关。
+hongguo-media-platform-api = { path = "../hongguo-media-platform-api" }
 # service 的 async 函数族依赖 tokio 运行时设施（sleep / Semaphore）；GPUI 的
 # 执行器不是 tokio，本壳自带一个运行时线程做桥（oneshot 回传，见 main.rs）。
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }

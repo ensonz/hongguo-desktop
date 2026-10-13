@@ -1,11 +1,11 @@
 //! Windows 侧 AAC 解码：Media Foundation 解码 MFT 的薄封装。
 //!
-//! 实现在 [`crate::platform::mf::playback`]（专用线程 + 请求-应答），本层
+//! 实现在 [`crate::mf::playback`]（专用线程 + 请求-应答），本层
 //! 只对齐 macOS 侧的接口形态，让引擎无感切换。
 
 use hongguo_common::AppResult;
 
-use crate::platform::mf::AacMftDecoder;
+use crate::mf::AacMftDecoder;
 
 pub struct AacDecoder {
     inner: AacMftDecoder,
@@ -26,5 +26,15 @@ impl AacDecoder {
     /// 源流不连续（seek 跳点）时冲内部状态。
     pub fn reset(&mut self) {
         self.inner.reset();
+    }
+}
+
+impl hongguo_media_platform_api::AudioDecoder for AacDecoder {
+    fn decode(&mut self, packet: &[u8]) -> AppResult<Vec<f32>> {
+        AacDecoder::decode(self, packet)
+    }
+
+    fn reset(&mut self) {
+        AacDecoder::reset(self);
     }
 }

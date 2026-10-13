@@ -68,7 +68,7 @@ pub use pipeline::transcode_h264_for_tests;
 pub use probe::{clear_probe_cache, h264_hw_encoder_available};
 
 pub(crate) use playback::{AacMftDecoder, HevcMftDecoder};
-pub(crate) use probe::hevc_decoder_present;
+pub use probe::hevc_decoder_present;
 
 // playback.rs（子模块）经 `use super::{…}` 引用的跨子模块名字，绑进本模块
 // 命名空间，保持其 use 块逐字不动。
@@ -79,9 +79,9 @@ use sample::{sample_to_bytes, secs_to_hns, type_stride, video_type};
 
 // 下方 tests 原样保留，引用的跨子模块名字由此供给。
 #[cfg(test)]
-use crate::platform::PlatformRequest;
+use hongguo_media_platform_api::PlatformRequest;
 #[cfg(test)]
-use crate::platform::video::bitrate_for;
+use hongguo_media_platform_api::video::bitrate_for;
 #[cfg(test)]
 use annexb::param_sets_annexb;
 

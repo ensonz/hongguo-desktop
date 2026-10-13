@@ -47,7 +47,7 @@ fn probe_h264_hw_encoder() -> bool {
 /// 这是「WebView2 能否解 HEVC」的判据：Chromium/WebView2 的 HEVC 解码走
 /// Media Foundation，解码 MFT 来自系统「HEVC 视频扩展」，不在位则一律黑屏。
 /// 复用平台会话线程（进程级 COM/MF 初始化），枚举本身毫秒级。
-pub(crate) fn hevc_decoder_present() -> bool {
+pub fn hevc_decoder_present() -> bool {
     match run_on_mf_thread(|| {
         enum_activates(
             MFT_CATEGORY_VIDEO_DECODER,

@@ -7,8 +7,8 @@ use std::time::Instant;
 use hongguo_common::{AppError, AppResult};
 use hongguo_mp4::sample_table::TrackInfo;
 
-use crate::platform::PlatformRequest;
-use crate::platform::video::bitrate_for;
+use hongguo_media_platform_api::PlatformRequest;
+use hongguo_media_platform_api::video::bitrate_for;
 
 use super::decoder::{Decoder, Nv12Frame};
 use super::encoder::{Encoder, EncoderKind};
@@ -34,7 +34,7 @@ pub fn transcode_h264(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
 
 /// 仅测试构建：以「回落软件编码器」的策略跑完整链路，让没有硬编的机器
 /// 也能验证管线本身（解码/Annex-B/封装/时间戳）。硬件与否由探测测试另行验证。
-/// 门控对齐 [`crate::platform::transcode_h264_for_tests`]（壳 e2e 走 test-support）。
+/// 门控对齐 [`crate::transcode_h264_for_tests`]（壳 e2e 走 test-support）。
 #[cfg(any(test, feature = "test-support"))]
 pub fn transcode_h264_for_tests(req: &PlatformRequest<'_>) -> Option<AppResult<()>> {
     let demuxed = hongguo_media::demux::demux_file(req.input).ok()?;

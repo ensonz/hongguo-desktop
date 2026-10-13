@@ -125,11 +125,12 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
         return Ok((bytes, ext, ct));
     }
 
-    // 1) 平台级：WIC（HEIF/HEVC 扩展在则走系统解码器；扩展没有会缓存
-    //    「不可用」，本进程内不再尝试，「重新检测」清缓存）
-    #[cfg(target_os = "windows")]
+    // 1) 平台级：封面静图解码（Windows 走 WIC——HEIF/HEVC 扩展在则用系统
+    //    解码器，扩展没有会缓存「不可用」，本进程内不再尝试，「重新检测」
+    //    清缓存；其余平台本层不可用直接返回 None 掉级——同一签名，公共
+    //    调用方不需要平台分支）
     if let Some(result) =
-        hongguo_media_platform::platform::wic::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
+        hongguo_media_platform::platform::cover::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
     {
         match result {
             Ok(bytes) => return Ok((bytes, JPEG_KIND.0, JPEG_KIND.1)),

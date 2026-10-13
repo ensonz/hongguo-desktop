@@ -4387,7 +4387,7 @@ dependencies = [
  "hongguo-api",
  "hongguo-common",
  "hongguo-media",
- "hongguo-media-platform",
+ "hongguo-media-platform-api",
  "hongguo-playback",
  "hongguo-protocol",
  "hongguo-service",
@@ -4423,16 +4423,50 @@ dependencies = [
 name = "hongguo-media-platform"
 version = "0.4.4"
 dependencies = [
- "core-foundation 0.10.0",
- "core-video",
  "hongguo-common",
  "hongguo-media",
- "hongguo-mp4",
- "jpeg-encoder",
+ "hongguo-media-platform-api",
+ "hongguo-media-platform-macos",
+ "hongguo-media-platform-windows",
  "log",
  "parking_lot",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hongguo-media-platform-api"
+version = "0.4.4"
+dependencies = [
+ "core-video",
+ "hongguo-common",
+]
+
+[[package]]
+name = "hongguo-media-platform-macos"
+version = "0.4.4"
+dependencies = [
+ "core-foundation 0.10.0",
+ "core-video",
+ "hongguo-common",
+ "hongguo-media",
+ "hongguo-media-platform-api",
+ "hongguo-mp4",
+ "log",
+ "parking_lot",
+]
+
+[[package]]
+name = "hongguo-media-platform-windows"
+version = "0.4.4"
+dependencies = [
+ "hongguo-common",
+ "hongguo-media",
+ "hongguo-media-platform-api",
+ "hongguo-mp4",
+ "jpeg-encoder",
+ "log",
+ "parking_lot",
  "windows 0.62.2",
 ]
 

@@ -6,8 +6,8 @@ use std::time::Instant;
 use hongguo_common::{AppError, AppResult};
 use hongguo_mp4::sample_table::TrackInfo;
 
-use crate::platform::PlatformRequest;
-use crate::platform::video::bitrate_for;
+use hongguo_media_platform_api::PlatformRequest;
+use hongguo_media_platform_api::video::bitrate_for;
 
 use super::decode::Decompressor;
 use super::encode::Compressor;

@@ -43,7 +43,7 @@ use hongguo_api::detail::RelatedItem;
 use hongguo_api::history::WatchHistoryItem;
 use hongguo_api::interact::InteractionItem;
 use hongguo_common::model::{DownloadTask, VideoDefinition};
-use hongguo_media_platform::platform::video::VideoFrame;
+use hongguo_media_platform_api::video::VideoFrame;
 use hongguo_playback::{PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
 use tokio::sync::mpsc;

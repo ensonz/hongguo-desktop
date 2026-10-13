@@ -40,14 +40,14 @@ mod pipeline;
 mod pixel;
 mod probe;
 
-pub use decode::{DecodedFrame, HevcFrameDecoder};
+pub use decode::HevcFrameDecoder;
 pub use pipeline::transcode_h264;
 pub use probe::{clear_probe_cache, encoder_available, h264_hw_encoder_available};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::video::bitrate_for;
+    use hongguo_media_platform_api::video::bitrate_for;
 
     #[test]
     fn bitrate_lands_in_the_crf23_band() {
