@@ -5,8 +5,6 @@ use gpui_kit::component::h_flex;
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::*;
 use gpui_kit::{SharedString, div};
-#[cfg(target_os = "windows")]
-use std::sync::atomic::{AtomicU32, Ordering};
 
 impl super::HomeView {
     /// 信息叠加层（Tauri immersive-info-overlay 对齐）：热度/剧名/集数/
