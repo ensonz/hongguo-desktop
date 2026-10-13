@@ -1,0 +1,347 @@
+//! 起播装配：`open` 三阶段编排（头部 → 音频设备 → 视频循环）、音频产物
+//! 接管（`adopt_audio`）与建流尝试（`audio_attempt`）。
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::time::Duration;
+
+use hongguo_mp4::sample_table::TrackInfo;
+
+use crate::audio::{AudioOut, Clock, RingFeed};
+use crate::source::{SampleSource, open_stream};
+use crate::video;
+
+use super::Shared;
+use super::feeder::audio_feeder;
+use super::{OpenOptions, PlayerHandle};
+
+/// 打开并起播。必须在 tokio 运行时上下文内 await（引擎任务经 `tokio::spawn`
+/// 挂在调用方的运行时上）。
+/// 返回 `Arc<PlayerHandle>`：GPUI 壳小窗模式下主窗与小窗两个视图共享同一
+/// 个播放器（跨窗口渲染同一份帧流），句柄析构（停播）由最后一份引用触发。
+pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<std::sync::Arc<PlayerHandle>> {
+    // 起播链任何一段卡住，界面上都只是「一直转圈」——三个阶段各自打点，
+    // 卡在哪一段一目了然（实测有过音频设备打开前静默两位数的秒数）。
+    let t0 = std::time::Instant::now();
+    let meta = open_stream(&opts.vid, opts.definition).await?;
+    let video_info = meta.video;
+    log::info!(
+        "[Playback] 头部就绪（{}ms）：{}x{} 音频{}",
+        t0.elapsed().as_millis(),
+        video_info.width,
+        video_info.height,
+        meta.audio
+            .as_ref()
+            .map(|a| format!(" {}ch {}Hz", a.channels, a.sample_rate))
+            .unwrap_or_else(|| "无".into())
+    );
+
+    // 时长 = 视/音两轨谁的尾巴长（elst 修剪过的 presentation 轴）
+    let video_end = media_end(&video_info);
+    let audio_end = meta.audio.as_ref().map(media_end).unwrap_or(0.0);
+    let duration = video_end.max(audio_end);
+
+    // 先立挂钟与共享态：音频可能迟到，视频任务不能等它（见下）
+    let wall = Arc::new(Clock::wall());
+    wall.reset(opts.start_secs);
+    let shared = Arc::new(Shared {
+        paused: AtomicBool::new(false),
+        shutdown: AtomicBool::new(false),
+        clock: parking_lot::Mutex::new(Arc::clone(&wall)),
+        seek_broadcast: parking_lot::Mutex::new((0, 0.0)),
+        read_epoch: AtomicU64::new(0),
+        buffered_ui: AtomicBool::new(false),
+        volume: AtomicU32::new(1.0f32.to_bits()),
+        muted: AtomicBool::new(false),
+        latest: parking_lot::Mutex::new(None),
+        dims: parking_lot::Mutex::new((video_info.width as usize, video_info.height as usize)),
+        duration_secs: parking_lot::Mutex::new(duration),
+        events: opts.events,
+    });
+    let audio_slot: Arc<parking_lot::Mutex<Option<AudioOut>>> =
+        Arc::new(parking_lot::Mutex::new(None));
+    let mut tasks = Vec::new();
+
+    // 音频设备：等一个上界；超时**不丢声音**，交给接管任务（见下）。
+    //
+    // cpal/CoreAudio 的建流会在 HAL 层实测卡住（本机见过 570 秒才失败，栈停在
+    // audio_unit_from_device），而它在起播的必经路径上——干等等于整条链路卡住：
+    // 视频任务根本还没起，画面上只有封面一直盖着。所以只等一小段；没等到也
+    // 先出画，同时留一个任务守着建流结果，设备迟到建成时把它接进来：换主
+    // 时钟、从当前位置开始喂音频，声画立刻衔接上。
+    let t_audio = std::time::Instant::now();
+    match audio_attempt(meta.audio.as_ref(), &shared) {
+        AudioAttempt::Ready(pair) => {
+            log::info!(
+                "[Playback] 音频设备阶段结束（{}ms，累计 {}ms）",
+                t_audio.elapsed().as_millis(),
+                t0.elapsed().as_millis()
+            );
+            if let Some(info) = meta.audio.clone() {
+                // 等预填完成再往下走：视频任务在下面才起，两者从同一媒体
+                // 位置出发（不 await 的话画面先跑、音频时钟后换，中间那截
+                // 就是音画差）
+                adopt_audio(
+                    &shared,
+                    &audio_slot,
+                    *pair,
+                    &opts.vid,
+                    opts.definition,
+                    info,
+                    opts.start_secs,
+                )
+                .await;
+            }
+        }
+        AudioAttempt::Unusable => {
+            log::info!(
+                "[Playback] 音频设备阶段结束（{}ms，累计 {}ms，无声）",
+                t_audio.elapsed().as_millis(),
+                t0.elapsed().as_millis()
+            );
+        }
+        AudioAttempt::Pending(rx) => {
+            log::info!(
+                "[Playback] 音频设备 {}ms 未就绪，先出画；建成后自动接上",
+                t_audio.elapsed().as_millis()
+            );
+            let shared = Arc::clone(&shared);
+            let slot = Arc::clone(&audio_slot);
+            let (vid, definition) = (opts.vid.clone(), opts.definition);
+            let audio_info = meta.audio.clone();
+            tasks.push(tokio::spawn(async move {
+                let Ok(Some(pair)) = rx.await else {
+                    return;
+                };
+                if shared.shutdown.load(Ordering::Relaxed) {
+                    return; // 玩家已走：产物随作用域析构，设备释放
+                }
+                let Some(info) = audio_info else {
+                    return;
+                };
+                // 接管点 = 当前已经播到的位置：视频先走了，音频从这里接上
+                let at = shared.now();
+                log::info!("[Playback] 音频设备迟到接管（从 {at:.1}s 接上）");
+                adopt_audio(&shared, &slot, pair, &vid, definition, info, at).await;
+            }));
+        }
+    }
+
+    // 视频循环：平台解码（macOS VT / Windows MF，见 platform::video）→ 帧槽，
+    // 节奏对主时钟
+    {
+        let shared = Arc::clone(&shared);
+        let info = video_info.clone();
+        let decoder_init = video::DecoderInitOwned {
+            parameter_sets: meta.video_parameter_sets.clone(),
+            hvcc: meta.video_hvcc.clone(),
+            length_size: meta.video_length_size,
+            width: info.width as usize,
+            height: info.height as usize,
+        };
+        let source = SampleSource::new(&opts.vid, opts.definition, Arc::new(info.samples.clone()));
+        let start = opts.start_secs;
+        tasks.push(tokio::spawn(async move {
+            video::run(shared, source, info, decoder_init, start).await;
+        }));
+    }
+
+    Ok(Arc::new(PlayerHandle {
+        shared,
+        audio: audio_slot,
+        tasks,
+    }))
+}
+
+/// 把一对音频产物接进播放：起喂送 → 预填 → 启动设备 → 换主时钟。
+///
+/// 立即就绪与迟到接管共用这一段——两者唯一的差别是 `start_secs`：立即就绪
+/// 时是用户要的续播点，迟到接管时是**当前已经播到的位置**（视频先走了）。
+///
+/// 顺序很重要：**先喂满一截再启动设备**。反过来的话设备开局先消费空缓冲，
+/// 放出去的是静音；而时钟只计真实帧（见 `audio.rs` 回调），这段静音虽然
+/// 不再推进时钟，但会白白拉长起播——设备在响、画面不动，读起来也是「卡」。
+async fn adopt_audio(
+    shared: &Arc<Shared>,
+    slot: &Arc<parking_lot::Mutex<Option<AudioOut>>>,
+    pair: (AudioOut, RingFeed),
+    vid: &str,
+    definition: u32,
+    info: TrackInfo,
+    start_secs: f64,
+) {
+    let (out, feed) = pair;
+    let clock = Arc::clone(&out.clock_src);
+    // 倍速/音量/静音是用户偏好：新时钟与设备初值都要继承（新时钟环空，
+    // drain=0 立即生效）
+    clock.set_rate(shared.rate(), 0.0);
+    clock.reset(start_secs);
+    out.set_volume(f32::from_bits(shared.volume.load(Ordering::Relaxed)));
+    out.set_muted(shared.muted.load(Ordering::Relaxed));
+    // 暂停状态要带给刚接上的设备（起播时若已是暂停态）
+    out.device
+        .set_user_paused(shared.paused.load(Ordering::Relaxed));
+
+    let (prime_tx, prime_rx) = tokio::sync::oneshot::channel();
+    let feeder = {
+        let shared = Arc::clone(shared);
+        let source = SampleSource::new(vid, definition, Arc::new(info.samples.clone()));
+        let start = start_secs;
+        // 喂送任务挂在调用方的运行时上（`open` 的契约）；接管路径同样已在
+        // tokio 上下文内（引擎任务都是），直接 spawn
+        tokio::spawn(async move {
+            audio_feeder(shared, feed, source, info, start, Some(prime_tx)).await;
+        })
+    };
+
+    // 等预填（超时就把设备先启动：时钟只计真实帧，短期欠载不跑偏）
+    if tokio::time::timeout(AUDIO_PRIME_TIMEOUT, prime_rx)
+        .await
+        .is_err()
+    {
+        log::info!(
+            "[Playback] 音频预填 {}s 未就绪（字节还没供上来），先启动设备",
+            AUDIO_PRIME_TIMEOUT.as_secs()
+        );
+    }
+    // 设备起跑（用户暂停位已带上；缓冲位起播恒清零）
+    out.device.start();
+    // 设备起来了才把主时钟换成音频时钟：起播瞬间到设备就绪之间，画面仍按
+    // 挂钟走（此时本来就还没有声音，不存在对齐对象）
+    shared.set_clock(clock);
+    *slot.lock() = Some(out);
+    // 喂送任务已 spawn（detach），停机由 shared.shutdown 传递——
+    // push 循环每 4ms 检查一次，句柄不需要留在 tasks 里
+    drop(feeder);
+}
+
+/// 轨道的媒体时长（秒，presentation 轴：mdhd 时长 − elst 起点）。
+fn media_end(info: &TrackInfo) -> f64 {
+    if info.media_timescale > 0 && info.media_duration > 0 {
+        let end = info.media_duration as f64 / f64::from(info.media_timescale);
+        return (end - info.edit_media_start_secs).max(0.0);
+    }
+    info.sample_pts().last().copied().unwrap_or(0.0)
+}
+
+/// 建音频设备的上界等待。见 [`open`] 里该段的说明。
+const AUDIO_OPEN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 连续两次尝试之间至少要隔的时间。
+///
+/// 卡住的建流线程永远回不来（CoreAudio 的 HAL 调用没有超时语义），放任每集
+/// 都起一个新的就会叠出一堆僵尸线程、各自占着 HAL 连接。所以两次尝试之间
+/// 拉开这个间隔——但**不是永久放弃**：设备重新插拔/系统恢复后，下一次
+/// 尝试还能把声音找回来。
+const AUDIO_RETRY_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// 上一次建流尝试的时刻（Unix 毫秒；0 = 从未试过）。
+static AUDIO_LAST_ATTEMPT_MS: AtomicU64 = AtomicU64::new(0);
+
+/// 现在的 Unix 毫秒。
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 音频设备尝试的结果。
+enum AudioAttempt {
+    /// 在超时内建好：直接接上（Box 抹平与 Pending 的尺寸差，别让这个
+    /// 枚举在栈上按最大变体展开）。
+    Ready(Box<(AudioOut, RingFeed)>),
+    /// 设备/音轨不可用（没有音轨、设备打不开、上次尝试还在冷却）。
+    Unusable,
+    /// 还没回来：视频先走，这个接收端等结果，到了就接管。
+    Pending(tokio::sync::oneshot::Receiver<Option<(AudioOut, RingFeed)>>),
+}
+
+/// 建音频输出，最多等 [`AUDIO_OPEN_TIMEOUT`]。
+fn audio_attempt(audio: Option<&TrackInfo>, shared: &Shared) -> AudioAttempt {
+    let Some((channels, sample_rate)) = audio.map(|a| (a.channels, a.sample_rate)) else {
+        return AudioAttempt::Unusable;
+    };
+    if channels == 0 || sample_rate == 0 {
+        return AudioAttempt::Unusable;
+    }
+    let now = now_millis();
+    let last = AUDIO_LAST_ATTEMPT_MS.load(Ordering::Acquire);
+    if last != 0 && now.saturating_sub(last) < AUDIO_RETRY_COOLDOWN.as_millis() as u64 {
+        log::info!(
+            "[Playback] 距上次音频建流尝试不足 {}s，本次直接无声起播",
+            AUDIO_RETRY_COOLDOWN.as_secs()
+        );
+        return AudioAttempt::Unusable;
+    }
+    AUDIO_LAST_ATTEMPT_MS.store(now, Ordering::Release);
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let volume = f32::from_bits(shared.volume.load(Ordering::Relaxed));
+    let muted = shared.muted.load(Ordering::Relaxed);
+    let spawned = std::thread::Builder::new()
+        .name("hg-audio-open".into())
+        .spawn(move || {
+            // 接收端已弃（超时且玩家已走）时 send 失败即丢弃产物：设备释放
+            let _ = tx.send(AudioOut::open(channels, sample_rate, volume, muted));
+        });
+    if let Err(e) = spawned {
+        log::warn!("[Playback] 音频建流线程起不来（{e}），无声播放");
+        return AudioAttempt::Unusable;
+    }
+
+    // 超时后仍要拿回接收端（接管任务等它），所以按 &mut 轮询而不是把
+    // future 整个交给 timeout（超时会把 future 一起丢掉）
+    let mut rx = rx;
+    let deadline = std::time::Instant::now() + AUDIO_OPEN_TIMEOUT;
+    loop {
+        match rx.try_recv() {
+            Ok(Some(pair)) => {
+                // 建流成功：冷却重置，后续集数立刻可用
+                AUDIO_LAST_ATTEMPT_MS.store(0, Ordering::Release);
+                return AudioAttempt::Ready(Box::new(pair));
+            }
+            Ok(None) => {
+                log::warn!("[Playback] 音频设备不可用，退化为无声播放（挂钟）");
+                return AudioAttempt::Unusable;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                log::warn!("[Playback] 音频建流线程异常退出，无声播放");
+                return AudioAttempt::Unusable;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        }
+        if std::time::Instant::now() >= deadline {
+            log::warn!(
+                "[Playback] 音频设备建流超过 {}s 未返回（CoreAudio 卡住），先出画、等它迟到接管",
+                AUDIO_OPEN_TIMEOUT.as_secs()
+            );
+            return AudioAttempt::Pending(rx);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// 预填的等待上界：超时（网络还没把音频字节供上来）就先启动设备——
+/// 时钟只计真实帧，短期欠载不会跑偏，只是画面会等音频一下。
+const AUDIO_PRIME_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// media_end 在 elst 修剪下扣掉 edit 起点（priming 不该算进时长）。
+    #[test]
+    fn media_end_subtracts_edit_start() {
+        let mut info = TrackInfo {
+            media_timescale: 48_000,
+            media_duration: 48_000 * 100,
+            edit_media_start_secs: 2112.0 / 48_000.0,
+            ..Default::default()
+        };
+        assert!((media_end(&info) - (100.0 - 2112.0 / 48_000.0)).abs() < 1e-9);
+        info.media_timescale = 0;
+        info.media_duration = 0;
+        assert_eq!(media_end(&info), 0.0);
+    }
+}
