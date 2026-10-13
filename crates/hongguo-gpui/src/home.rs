@@ -40,6 +40,7 @@ use gpui_kit::{
 use hongguo_api::danmaku::{
     CommentItem, Danmaku, ReplyItem, fetch_comment_replies, fetch_comments_page, fetch_danmaku_all,
 };
+use hongguo_api::detail::{RelatedItem, fetch_related_series};
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
 use hongguo_api::interact::{
@@ -309,6 +310,12 @@ pub struct HomeView {
     replies: HashMap<String, Arc<Vec<ReplyItem>>>,
     replies_cursor: HashMap<String, String>,
     replies_loading: HashSet<String>,
+    // —— 选集浮层「系列剧」tab ——
+    /// 各季卡片（plan/v 相关作品·系列里季号可解析的条目；每剧一次）。
+    related_seasons: HashMap<String, Arc<Vec<RelatedItem>>>,
+    related_loading: HashSet<String>,
+    /// 选集浮层当前 tab：true = 系列剧。
+    picker_tab_series: bool,
     /// 回复目标：Some((comment_id, reply_to_reply_id, 被回复人昵称))。
     reply_to: Option<(String, Option<String>, String)>,
     /// 评论输入框（与弹幕发送框同款 InputState）。
@@ -529,6 +536,9 @@ impl HomeView {
             replies: HashMap::new(),
             replies_cursor: HashMap::new(),
             replies_loading: HashSet::new(),
+            related_seasons: HashMap::new(),
+            related_loading: HashSet::new(),
+            picker_tab_series: false,
             reply_to: None,
             comment_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("说点什么…"))),
             comment_sending: false,
@@ -1410,6 +1420,107 @@ impl HomeView {
             });
         })
         .detach();
+    }
+
+    /// 拉当前剧的相关作品·系列（plan/v；每剧一次，失败静默可重试）。
+    /// 季卡片数据源：works 里季号可解析的条目（当前剧由浮层渲染时从
+    /// 档案合成插头部，与 Tauri seasons memo 同构）。
+    fn load_related_seasons(&mut self, series_id: String, cx: &mut Context<Self>) {
+        if self.related_seasons.contains_key(&series_id)
+            || !self.related_loading.insert(series_id.clone())
+        {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        let sid = series_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_related_series(&sid, &env)
+                .await
+                .map(|r| r.works)
+                .map_err(|_| sid)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| match result {
+                Ok(works) => {
+                    view.related_seasons
+                        .insert(series_id.clone(), Arc::new(works));
+                }
+                Err(sid) => {
+                    view.related_loading.remove(&sid);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 「第N季」→ 季号（Tauri seasonNoFromTag 同款正则）。
+    fn season_no(tag: &str) -> Option<u32> {
+        let rest = tag.strip_prefix("第")?;
+        let no: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if no.is_empty() || !rest[no.len()..].starts_with("季") {
+            return None;
+        }
+        no.parse().ok()
+    }
+
+    /// 季列表合成（Tauri seasons memo 同构）：plan 只回其他季，当前季
+    /// 缺失时从档案合成插头部；按季号排序（服务端顺序不可信）。
+    fn seasons_of(&self) -> (String, Vec<(RelatedItem, u32)>) {
+        let Some(now) = &self.now else {
+            return (String::new(), Vec::new());
+        };
+        let sid = &now.series_id;
+        let works = self
+            .related_seasons
+            .get(sid)
+            .map(|v| (**v).clone())
+            .unwrap_or_default();
+        let mut out: Vec<(RelatedItem, u32)> = works
+            .iter()
+            .filter_map(|w| Self::season_no(&w.tag).map(|no| (w.clone(), no)))
+            .collect();
+        if !out.iter().any(|(w, _)| w.series_id == *sid) {
+            // 当前季缺失：从档案合成（tag/playCnt 档案没有，卡片留空即可）
+            out.push((
+                RelatedItem {
+                    series_id: sid.clone(),
+                    title: now.title.clone(),
+                    tag: String::new(),
+                    episode_cnt: now.episode_count as u32,
+                    ..Default::default()
+                },
+                0,
+            ));
+        }
+        out.sort_by_key(|(_, no)| *no);
+        (sid.clone(), out)
+    }
+
+    /// 点季卡片换剧（点当前季无动作；关闭浮层交给用户，连选同款不强制）。
+    fn switch_season(&mut self, series_id: String, cx: &mut Context<Self>) {
+        let Some(item) = self
+            .display_items()
+            .iter()
+            .find(|i| i.series_id == series_id)
+            .cloned()
+        else {
+            // 流里没有的季（跨剧换季）：构造目标条目直接起播
+            self.play_target(
+                StreamItem {
+                    series_id,
+                    ..Default::default()
+                },
+                None,
+                None,
+                cx,
+            );
+            cx.notify();
+            return;
+        };
+        self.play_target(item, None, None, cx);
+        cx.notify();
     }
 
     /// 登录态（settings 账号卡片的 user_id 非空）。
@@ -2370,6 +2481,12 @@ impl HomeView {
         // 重开跟回当前集所在段（覆盖作废，Tauri groupOverride 同语义）
         self.picker_group_override = None;
         self.wake_controls(cx);
+        // 系列剧 tab 数据源：浮层打开时按剧拉一次
+        if self.picker_open
+            && let Some(now) = self.now.clone()
+        {
+            self.load_related_seasons(now.series_id.clone(), cx);
+        }
         cx.notify();
     }
 
@@ -4399,40 +4516,44 @@ impl HomeView {
         let start = active_group as u32 * GROUP_SIZE + 1;
         let end = (start + GROUP_SIZE - 1).min(total);
 
-        // 头部：选集 tab（红条高亮）+ 全 N 集 + 收起
+        // 头部：选集 | 系列剧 双 tab（hgplayer 同款）+ 全 N 集 + 收起
         let header = h_flex()
             .items_center()
             .justify_between()
             .mb_3()
             .child(
-                div()
-                    .relative()
-                    .pb_1()
-                    .text_sm()
-                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                    .text_color(gpui_kit::rgb(0xffffff))
-                    .child("选集")
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .right_0()
-                            .bottom_0()
-                            .h(gpui_kit::px(2.0))
-                            .rounded_full()
-                            .bg(gpui_kit::rgb(0xef4444)),
-                    ),
+                h_flex()
+                    .gap_4()
+                    .child(self.picker_tab(
+                        "选集",
+                        !self.picker_tab_series,
+                        cx.listener(|this, _, _, cx| {
+                            this.picker_tab_series = false;
+                            cx.notify();
+                        }),
+                    ))
+                    .child(self.picker_tab(
+                        "系列剧",
+                        self.picker_tab_series,
+                        cx.listener(|this, _, _, cx| {
+                            this.picker_tab_series = true;
+                            if let Some(now) = this.now.clone() {
+                                this.load_related_seasons(now.series_id.clone(), cx);
+                            }
+                            cx.notify();
+                        }),
+                    )),
             )
             .child(
                 h_flex()
                     .items_center()
                     .gap_2()
-                    .child(
+                    .children((!self.picker_tab_series).then(|| {
                         div()
                             .text_xs()
                             .text_color(gpui_kit::rgba(0xa3a3a3ff))
-                            .child(format!("全{total}集")),
-                    )
+                            .child(format!("全{total}集"))
+                    }))
                     .child(
                         Button::new("picker-close")
                             .icon(IconName::ChevronDown)
@@ -4555,9 +4676,164 @@ impl HomeView {
                 cx.listener(|_, _, _, cx| cx.stop_propagation()),
             )
             .child(header)
-            .children((group_count > 1).then_some(group_tabs))
-            .child(grid)
-            .child(hint)
+            .children(if self.picker_tab_series {
+                Some(self.render_seasons_tab(cx))
+            } else {
+                (group_count > 1)
+                    .then_some(group_tabs)
+                    .map(|tabs| div().child(tabs).child(grid).into_any_element())
+            })
+            .children((!self.picker_tab_series).then_some(hint))
+            .into_any_element()
+    }
+
+    /// 选集浮层头部的一个 tab（红条高亮激活态）。
+    fn picker_tab(
+        &self,
+        label: &'static str,
+        active: bool,
+        on_click: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+    ) -> gpui_kit::AnyElement {
+        div()
+            .id(ElementId::from(format!("picker-tab-{label}")))
+            .relative()
+            .pb_1()
+            .text_sm()
+            .cursor_pointer()
+            .font_weight(if active {
+                gpui_kit::FontWeight::SEMIBOLD
+            } else {
+                gpui_kit::FontWeight::NORMAL
+            })
+            .text_color(if active {
+                gpui_kit::rgb(0xffffff)
+            } else {
+                gpui_kit::rgba(0xa3a3a3ff)
+            })
+            .hover(|s| s.text_color(gpui_kit::rgba(0xe5e5e5ff)))
+            .when(active, |s| {
+                s.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .h(gpui_kit::px(2.0))
+                        .rounded_full()
+                        .bg(gpui_kit::rgb(0xef4444)),
+                )
+            })
+            .on_click(on_click)
+            .child(label)
+            .into_any_element()
+    }
+
+    /// 系列剧 tab：各季卡片（当前季红框高亮「播放中」；未上线季灰卡
+    /// 「即将上线」；可播季点击换剧）。封面用首字圆形占位（远程图随
+    /// img 远程源对齐补）；预约按钮随预约 API 对齐补。
+    fn render_seasons_tab(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let (current_sid, seasons) = self.seasons_of();
+        v_flex()
+            .gap_2()
+            .children(seasons.iter().map(|(item, no)| {
+                let current = item.series_id == current_sid;
+                let unreleased = item.episode_cnt == 0;
+                let border_color = if current {
+                    gpui_kit::rgba(0xef4444cc)
+                } else {
+                    gpui_kit::rgba(0x00000000)
+                };
+                let sid_click = item.series_id.clone();
+                v_flex()
+                    .id(gpui_kit::ElementId::from(format!(
+                        "season-{}",
+                        item.series_id
+                    )))
+                    .p_2p5()
+                    .gap_1()
+                    .rounded(gpui_kit::px(8.0))
+                    .border_1()
+                    .border_color(border_color)
+                    .bg(gpui_kit::rgba(0x26262666))
+                    .when(!current && !unreleased, |s| {
+                        s.cursor_pointer()
+                            .hover(|s| s.bg(gpui_kit::rgba(0x333333cc)))
+                    })
+                    .when(!current && !unreleased, |s| {
+                        s.on_click(cx.listener(move |this, _, _, cx| {
+                            // 换季 = 换剧（播放器直接起播该季第 1 集），浮层不关
+                            // ——与选集 tab 的连选连跳同款
+                            this.switch_season(sid_click.clone(), cx);
+                        }))
+                    })
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                // 季号方块（当前季红底）
+                                div()
+                                    .size_7()
+                                    .rounded(gpui_kit::px(4.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(if current {
+                                        gpui_kit::rgba(0xef4444ff)
+                                    } else {
+                                        gpui_kit::rgba(0x404040ff)
+                                    })
+                                    .text_xs()
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .child(format!("{no}")),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .truncate()
+                                    .child(SharedString::from(if item.title.is_empty() {
+                                        format!("第{no}季")
+                                    } else {
+                                        item.title.clone()
+                                    })),
+                            )
+                            .children(current.then(|| {
+                                div()
+                                    .text_xs()
+                                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                                    .text_color(gpui_kit::rgb(0xef4444))
+                                    .child("播放中")
+                            }))
+                            .children(unreleased.then(|| {
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff73))
+                                    .child("即将上线")
+                            })),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .children((!item.tag.is_empty()).then(|| {
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff99))
+                                    .child(SharedString::from(item.tag.clone()))
+                            }))
+                            .children((item.episode_cnt > 0).then(|| {
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff73))
+                                    .child(format!("{} 集", item.episode_cnt))
+                            })),
+                    )
+            }))
             .into_any_element()
     }
 
