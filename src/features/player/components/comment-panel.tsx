@@ -30,7 +30,12 @@ import {
   useSendComment,
   useSendReply,
 } from '@/service/queries';
-import { appendReply, bumpReplyCount, removeComment, removeReply } from '@/service/queries/comment-cache';
+import {
+  appendReply,
+  bumpReplyCount,
+  removeComment,
+  removeReply,
+} from '@/service/queries/comment-cache';
 import { dedupBy, keys } from '@/service/queries/common';
 import { relativeTime } from '@/utils/relative-time';
 import { isImeComposing } from '@/utils/ime';

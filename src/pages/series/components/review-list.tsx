@@ -320,7 +320,7 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
                       <button
                         type="button"
                         onClick={() => setDeleteTarget({ id: c.commentId, serviceId: 2 })}
-                        className="cursor-pointer hover:text-destructive"
+                        className="hover:text-destructive cursor-pointer"
                       >
                         {t('common.delete')}
                       </button>

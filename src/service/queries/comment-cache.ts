@@ -17,7 +17,10 @@ export function appendReply(
 ): void {
   queryClient.setQueryData<InfiniteData<ReplyPage, string>>(replyKey, (prev) => {
     if (!prev) {
-      return { pages: [{ items: [reply], total: 1, hasMore: false, nextCursor: '' }], pageParams: [''] };
+      return {
+        pages: [{ items: [reply], total: 1, hasMore: false, nextCursor: '' }],
+        pageParams: [''],
+      };
     }
     const [first, ...rest] = prev.pages;
     if (!first) return prev;
@@ -43,15 +46,17 @@ export function removeReply(
   replyKey: readonly unknown[],
   replyId: string,
 ): void {
-  queryClient.setQueryData<InfiniteData<ReplyPage, string>>(replyKey, (prev) =>
-    prev && {
-      ...prev,
-      pages: prev.pages.map((p, i) => ({
-        ...p,
-        total: i === 0 ? Math.max(0, p.total - 1) : p.total,
-        items: p.items.filter((r) => r.replyId !== replyId),
-      })),
-    },
+  queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
+    replyKey,
+    (prev) =>
+      prev && {
+        ...prev,
+        pages: prev.pages.map((p, i) => ({
+          ...p,
+          total: i === 0 ? Math.max(0, p.total - 1) : p.total,
+          items: p.items.filter((r) => r.replyId !== replyId),
+        })),
+      },
   );
 }
 
@@ -62,16 +67,18 @@ export function bumpReplyCount(
   commentId: string,
   delta: 1 | -1,
 ): void {
-  queryClient.setQueryData<InfiniteData<CommentPage, string>>(commentsKey, (prev) =>
-    prev && {
-      ...prev,
-      pages: prev.pages.map((p) => ({
-        ...p,
-        items: p.items.map((c) =>
-          c.commentId === commentId ? { ...c, replyCount: Math.max(0, c.replyCount + delta) } : c,
-        ),
-      })),
-    },
+  queryClient.setQueryData<InfiniteData<CommentPage, string>>(
+    commentsKey,
+    (prev) =>
+      prev && {
+        ...prev,
+        pages: prev.pages.map((p) => ({
+          ...p,
+          items: p.items.map((c) =>
+            c.commentId === commentId ? { ...c, replyCount: Math.max(0, c.replyCount + delta) } : c,
+          ),
+        })),
+      },
   );
 }
 
@@ -81,14 +88,16 @@ export function removeComment(
   commentsKey: readonly unknown[],
   commentId: string,
 ): void {
-  queryClient.setQueryData<InfiniteData<CommentPage, string>>(commentsKey, (prev) =>
-    prev && {
-      ...prev,
-      pages: prev.pages.map((p, i) => ({
-        ...p,
-        total: i === 0 ? Math.max(0, p.total - 1) : p.total,
-        items: p.items.filter((c) => c.commentId !== commentId),
-      })),
-    },
+  queryClient.setQueryData<InfiniteData<CommentPage, string>>(
+    commentsKey,
+    (prev) =>
+      prev && {
+        ...prev,
+        pages: prev.pages.map((p, i) => ({
+          ...p,
+          total: i === 0 ? Math.max(0, p.total - 1) : p.total,
+          items: p.items.filter((c) => c.commentId !== commentId),
+        })),
+      },
   );
 }
