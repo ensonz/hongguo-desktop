@@ -36,7 +36,8 @@ fn dm_text_width(text: &str, font_px: f32) -> f32 {
 
 /// 滚过一屏的时长（hgplayer durationMs 默认 9000）。
 const DM_CROSS_MS: f64 = 9000.0;
-/// 同一泳道相邻两条的入场间隔（视频秒）。
+/// 同一泳道相邻两条的入场间隔（1.4 墙钟秒；记账按倍速折算成媒体秒，见
+/// spawn 占位处）。
 const DM_LANE_BUSY_S: f64 = 1.4;
 /// 泳道高 = 字号 + 10（hgplayer top 计算同款）。
 pub(super) const DM_LANE_GAP: f32 = 10.0;
@@ -81,8 +82,18 @@ impl super::HomeView {
                             view.danmaku_vid,
                             items.iter().map(|d| d.offset_ms).collect::<Vec<_>>()
                         );
+                        // 游标直接落到当前播放位置：位置之前的历史不补放。
+                        // 归零的话 tick 会把开头到当前位置的弹幕**全部一次性
+                        // 入场**——续播（起点 >3s）/中途进集必现「弹幕糊一脸」，
+                        // 这正是本函数头注释承诺的「自然对齐」该有的样子
+                        let pos = view
+                            .player
+                            .as_ref()
+                            .map_or(0.0, |p| p.position_secs());
                         view.danmaku_items = Arc::new(items);
-                        view.danmaku_cursor = 0;
+                        view.danmaku_cursor = view
+                            .danmaku_items
+                            .partition_point(|d| (d.offset_ms as f64) / 1000.0 <= pos);
                     }
                     Err(e) => {
                         // 拉取失败留空列表（装饰性数据，不影响主功能），
@@ -109,6 +120,9 @@ impl super::HomeView {
         };
         let pos = player.position_secs();
         let paused = player.is_paused();
+        // 倍速在 tick 开头取一次：泳道占用折算用（值在整个 tick 内不变，
+        // 借 `player` 的时间越短越好）
+        let rate = player.rate();
         // seek 跳变（倒跳/大幅前跳）：游标二分重置 + 清空在飞
         if pos < self.danmaku_last_pos - 0.05 || pos > self.danmaku_last_pos + 1.5 {
             self.danmaku_cursor = self
@@ -156,7 +170,10 @@ impl super::HomeView {
             if d.text.is_empty() || self.dm_rand() > self.dm_density {
                 continue;
             }
-            // 泳道：挑最早空出来的那条并占位（叠满时自然排队）
+            // 泳道：挑最早空出来的那条并占位（叠满时自然排队）。占用期按
+            // 「滚动 DM_LANE_BUSY_S 墙钟秒」折算成媒体秒（× 倍速）——在飞
+            // 弹幕按墙钟推进，占用期却用媒体秒记账的话，倍速下泳道提前复用，
+            // 新弹幕压在还没滚出右沿的旧弹幕上（叠幕必现）
             let mut pick = 0usize;
             for (i, free) in self.danmaku_lane_free.iter().enumerate() {
                 if *free < self.danmaku_lane_free[pick] {
@@ -164,7 +181,7 @@ impl super::HomeView {
                 }
             }
             if let Some(free) = self.danmaku_lane_free.get_mut(pick) {
-                *free = pos + DM_LANE_BUSY_S;
+                *free = pos + DM_LANE_BUSY_S * rate;
             }
             self.danmaku_flights.push(DmFlight {
                 text: d.text.clone(),
