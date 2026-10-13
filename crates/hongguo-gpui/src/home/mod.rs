@@ -60,6 +60,7 @@ pub(crate) mod danmaku;
 pub(crate) mod downloads;
 pub(crate) mod feed;
 pub(crate) mod fmt;
+pub(crate) mod incognito;
 pub(crate) mod interact;
 pub(crate) mod mini_panel;
 pub(crate) mod overlay;
@@ -280,9 +281,15 @@ pub struct HomeView {
     // —— 下载 ——
     /// 下载面板开着。
     downloads_open: bool,
-    /// 隐身模式（Tauri incognito 简化对齐）：一键暂停 + 整窗近透明遮蔽，
-    /// 再点恢复显示（播放由用户自行续）。
+    /// 隐身模式（Tauri incognito 同语义，见 [`incognito`]）：开着时光标
+    /// 脱离窗口 → 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播。
     incognito: bool,
+    /// 隐身欠下的那次播放：藏窗瞬间本来在播才记欠账（Tauri owedPlay 同构），
+    /// 回来补上；用户自己按停的不欠。
+    incognito_owed: bool,
+    /// 隐身轮询任务在跑（防重复起；关开关后由下一拍自杀收位）。
+    #[cfg(target_os = "windows")]
+    incognito_polling: bool,
     /// 全屏中（Render 时从 window.is_fullscreen 读，切图标用）。
     fullscreen: bool,
     /// 小屏播放态（Tauri miniScreen 同款）：Some 是进入前的几何快照。
@@ -467,7 +474,10 @@ impl HomeView {
             comment_delete_target: None,
             comment_deleting: false,
             downloads_open: false,
-            incognito: false,
+            incognito: prefs.incognito,
+            incognito_owed: false,
+            #[cfg(target_os = "windows")]
+            incognito_polling: false,
             fullscreen: false,
             mini: None,
             pinned: false,
@@ -490,6 +500,18 @@ impl HomeView {
         };
         view.subscribe_controls(cx);
         view.subscribe_service_events(cx);
+        // 隐身偏好跨启动还原（Tauri 挂载时重发 setIncognito(true) 同款）：
+        // 有原生句柄才起轮询，预览/无头环境保持关
+        #[cfg(target_os = "windows")]
+        if view.incognito
+            && let Some(hwnd) = crate::win32::hwnd_of(window)
+        {
+            view.spawn_incognito_poller(hwnd, cx);
+        }
+        #[cfg(not(target_os = "windows"))]
+        if view.incognito {
+            view.incognito = false;
+        }
         // 下载队列恢复：running 视为中断改回 pending（Tauri bootstrap 同款），
         // 然后触发一轮调度把中断的任务续跑起来。库读取失败只记错误不拦
         // 启动——壳的其余功能不依赖队列（显式容错：有日志、只此一处）。
@@ -773,9 +795,6 @@ impl gpui_kit::Render for HomeView {
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
-            // 隐身模式：整窗近透明遮蔽（Tauri incognito 的窗口透明在 gpui
-            // 壳层用根 opacity 近似；再点隐身按钮恢复）
-            .when(self.incognito, |s| s.opacity(0.06))
             // 沉浸流锁死在视口内：任何 1px 超高都会冒出页面滚动条并吃掉滚轮
             .overflow_hidden()
             .children(tabs)

@@ -161,7 +161,9 @@ impl super::HomeView {
                             })
                             .ghost()
                             .xsmall()
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_incognito(cx))),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_incognito(window, cx)
+                            })),
                     )
                     .child(
                         Button::new("mini-pin")

@@ -1,7 +1,10 @@
 //! Win32 窗口原语（user32 / dwmapi 手写 FFI，零新依赖）。
 //!
 //! gpui 没有暴露的窗口系统能力统一落这里（自 `mini.rs` 迁移），当前调用
-//! 方：`mini`（小屏落位/还原/置顶）与无边框窗口的边框线消除。新增窗口
+//! 方：`mini`（小屏落位/还原/置顶）、无边框窗口的边框线消除与 `home::
+//! incognito`（隐身藏显）。光标轮询、按窗口藏显在 gpui 的
+//! `PlatformWindow` trait 里只有只读面（`visibility()` 无 setter，全局
+//! 光标位置无 API），组件库也不覆盖——这是本项目仅存的 FFI 面，新增窗口
 //! 系统能力先查 gpui / gpui-component，别往这里堆。
 
 use gpui_kit::Window;
@@ -17,6 +20,44 @@ pub(crate) fn hwnd_of(window: &Window) -> Option<isize> {
         raw_window_handle::RawWindowHandle::Win32(w) => Some(w.hwnd.get()),
         _ => None,
     }
+}
+
+/// 全局光标位置（物理屏幕坐标）。
+pub(crate) fn cursor_pos() -> Option<(i32, i32)> {
+    let mut p = POINT { x: 0, y: 0 };
+    // SAFETY：p 是本次调用自造的合法缓冲
+    (unsafe { GetCursorPos(&mut p) } != 0).then_some((p.x, p.y))
+}
+
+/// 窗口是否最小化。
+pub(crate) fn is_iconic(hwnd: isize) -> bool {
+    // SAFETY：句柄来自 gpui 的 platform window
+    unsafe { IsIconic(hwnd) != 0 }
+}
+
+/// 窗口当前是否可见（WS_VISIBLE 位；隐身的「藏」走它判定）。
+pub(crate) fn is_window_visible(hwnd: isize) -> bool {
+    // SAFETY：句柄来自 gpui 的 platform window
+    unsafe { IsWindowVisible(hwnd) != 0 }
+}
+
+/// 显示窗口并夺焦点（关闭隐身这类「用户要窗口回来」的路径用）。
+pub(crate) fn show_foreground(hwnd: isize) {
+    show_window(hwnd, SW_SHOW);
+    // SAFETY：句柄来自 gpui 的 platform window
+    unsafe {
+        SetForegroundWindow(hwnd);
+    }
+}
+
+/// 显示窗口但不夺焦点（隐身里「鼠标回来了」的重现：不打断用户手上的事）。
+pub(crate) fn show_no_activate(hwnd: isize) {
+    show_window(hwnd, SW_SHOWNA);
+}
+
+/// 隐藏窗口。
+pub(crate) fn hide(hwnd: isize) {
+    show_window(hwnd, SW_HIDE);
 }
 
 /// 去掉窗口四周的 1px 系统边框线（Win11 22H2+；失败静默——旧系统没有
@@ -173,6 +214,9 @@ pub(crate) const HWND_NOTOPMOST: isize = -2;
 pub(crate) const SWP_NOSIZE: u32 = 0x0001;
 pub(crate) const SWP_NOMOVE: u32 = 0x0002;
 pub(crate) const SWP_NOACTIVATE: u32 = 0x0010;
+pub(crate) const SW_HIDE: i32 = 0;
+pub(crate) const SW_SHOW: i32 = 5;
+pub(crate) const SW_SHOWNA: i32 = 8;
 pub(crate) const SW_RESTORE: i32 = 9;
 pub(crate) const SW_MAXIMIZE: i32 = 3;
 const MONITOR_DEFAULTTONEAREST: u32 = 2;
@@ -196,6 +240,10 @@ unsafe extern "system" {
     unsafe fn GetWindowRect(hwnd: isize, rect: *mut RECT) -> i32;
     unsafe fn GetClientRect(hwnd: isize, rect: *mut RECT) -> i32;
     unsafe fn MapWindowPoints(from: isize, to: isize, point: *mut POINT, count: i32) -> i32;
+    unsafe fn GetCursorPos(point: *mut POINT) -> i32;
+    unsafe fn IsIconic(hwnd: isize) -> i32;
+    unsafe fn IsWindowVisible(hwnd: isize) -> i32;
+    unsafe fn SetForegroundWindow(hwnd: isize) -> i32;
 }
 
 #[repr(C)]

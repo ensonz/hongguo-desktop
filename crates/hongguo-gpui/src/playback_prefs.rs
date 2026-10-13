@@ -1,4 +1,4 @@
-//! 播放偏好（GPUI 壳）：倍速 / 音量 / 静音。
+//! 播放偏好（GPUI 壳）：倍速 / 音量 / 静音 / 弹幕显示参数 / 隐身开关。
 //!
 //! 语义对齐 Tauri 版的 `playback-prefs`（localStorage）——播放偏好是壳层
 //! 关注点，不进业务库；这里用数据目录下一个三行键值文件承载，坏档回默认。
@@ -30,6 +30,8 @@ pub(crate) struct PlaybackPrefs {
     pub(crate) dm_density: f32,
     /// 弹幕显示区域 0.25–1（占画面顶部高度比例）。
     pub(crate) dm_area: f32,
+    /// 隐身模式开关（Tauri readIncognito 同语义：跨启动还原轮询态）。
+    pub(crate) incognito: bool,
 }
 
 /// 弹幕显示参数默认值（Tauri DANMAKU_DEFAULTS 同款）。
@@ -62,6 +64,7 @@ impl Default for PlaybackPrefs {
             dm_font_scale: DM_DEFAULTS.font_scale,
             dm_density: DM_DEFAULTS.density,
             dm_area: DM_DEFAULTS.area,
+            incognito: false,
         }
     }
 }
@@ -109,6 +112,7 @@ pub(crate) fn load_from(path: &Path) -> PlaybackPrefs {
                     prefs.dm_area = v.clamp(0.25, 1.0);
                 }
             }
+            "incognito" => prefs.incognito = value.trim() == "true",
             _ => {}
         }
     }
@@ -119,7 +123,7 @@ pub(crate) fn load_from(path: &Path) -> PlaybackPrefs {
 pub(crate) fn save_to(path: &Path, prefs: &PlaybackPrefs) {
     let tmp = path.with_extension("tmp");
     let text = format!(
-        "rate={}\nvolume={}\nmuted={}\ndm_on={}\ndm_opacity={}\ndm_font={}\ndm_density={}\ndm_area={}\n",
+        "rate={}\nvolume={}\nmuted={}\ndm_on={}\ndm_opacity={}\ndm_font={}\ndm_density={}\ndm_area={}\nincognito={}\n",
         prefs.rate,
         prefs.volume,
         prefs.muted,
@@ -127,7 +131,8 @@ pub(crate) fn save_to(path: &Path, prefs: &PlaybackPrefs) {
         prefs.dm_opacity,
         prefs.dm_font_scale,
         prefs.dm_density,
-        prefs.dm_area
+        prefs.dm_area,
+        prefs.incognito
     );
     if std::fs::write(&tmp, text)
         .and_then(|_| std::fs::rename(&tmp, path))

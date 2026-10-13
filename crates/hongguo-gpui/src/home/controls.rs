@@ -161,6 +161,7 @@ impl super::HomeView {
             dm_font_scale: self.dm_font_scale,
             dm_density: self.dm_density,
             dm_area: self.dm_area,
+            incognito: self.incognito,
         };
         bridge::spawn(async move {
             let path = hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
@@ -252,13 +253,15 @@ impl super::HomeView {
         cx.notify();
     }
 
-    /// 隐身模式开关：一键暂停 + 整窗近透明（恢复显示但不自动续播）。
-    pub(super) fn toggle_incognito(&mut self, cx: &mut Context<Self>) {
-        self.incognito = !self.incognito;
-        if self.incognito && !self.player.as_ref().is_some_and(|p| p.is_paused()) {
-            self.toggle_pause(cx);
-        }
-        cx.notify();
+    /// 隐身模式开关（Tauri incognito 同语义）：开 = 起光标轮询，鼠标脱离
+    /// 窗口即暂停 + 藏窗，回到窗口矩形原地重现 + 续播；关 = 停轮询并带回
+    /// 窗口。实现见 [`crate::incognito`]。
+    pub(super) fn toggle_incognito(
+        &mut self,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_incognito(!self.incognito, window, cx);
     }
 
     /// 播放控制条（底部悬浮）：暂停/继续、进度（拖动 seek）、倍速菜单、
@@ -559,8 +562,8 @@ impl super::HomeView {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
             )
             .child(
-                // 隐身模式（Tauri incognito 同款用途）：一键暂停 + 整窗近
-                // 透明遮蔽，再点恢复显示
+                // 隐身模式（Tauri incognito 同款）：开着时光标脱离窗口 →
+                // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播
                 Button::new("stage-incognito")
                     .icon(if self.incognito {
                         gpui_kit::assets::IconName::Eye
@@ -569,7 +572,9 @@ impl super::HomeView {
                     })
                     .ghost()
                     .small()
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_incognito(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_incognito(window, cx)
+                    })),
             )
             .child(
                 // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成
