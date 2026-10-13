@@ -683,9 +683,14 @@ impl HomeView {
             while let Some(first) = events.recv().await {
                 // 合并积压：Frame 只保最新一批里的最后一帧（1080p 转换 ~50ms、
                 // 上屏只认最新，旧帧转换纯属浪费），其余事件一个不丢、按序处理。
+                // 抽干按 16 条封顶：病态积压下（转换跟不上、通道满载）一条
+                // Frame 事件背一帧 NV12（~3MB），不封顶就是单轮上百 MB 的
+                // batch 分配；多余的下一轮再收，通道背压照旧作用在解码端。
                 let mut batch = Vec::with_capacity(4);
                 batch.push(first);
-                while let Ok(next) = events.try_recv() {
+                while batch.len() < 16
+                    && let Ok(next) = events.try_recv()
+                {
                     batch.push(next);
                 }
                 let last_frame = batch.iter().rposition(|e| matches!(e, PlayerEvent::Frame(_)));
