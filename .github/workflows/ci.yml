@@ -3,11 +3,17 @@
 # #[expect(reason)]，lint 不再触发时编译失败）、测试与前端 lint。
 # Rust 侧在仓库根执行（workspace 根 manifest），--workspace 覆盖全部成员 crate。
 # 启用：git config core.hooksPath .githooks
+#
+# dev 分支推送也跑 CI（2026-10-13 教训：gpui 壳 21 个编译不过的提交全推在
+# dev 上，CI 只盯 main 等于没有；本地 hook 在未启用的克隆里也是哑的）。
+# macOS 腿在原生 runner 上有完整 SDK，--workspace 含 hongguo-gpui 照常编译
+# （本地交叉才需要排除它）；mf 等 Windows-only cfg 由 Windows 腿覆盖。
+# 新增文件超 800 行由 scripts/check-file-size.sh 拒绝（单一职责的机械闸）。
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 concurrency:
@@ -33,6 +39,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -66,3 +74,14 @@ jobs:
 
       - name: Rust clippy（零警告 + 忽略标签禁令）
         run: cargo clippy --workspace ${{ matrix.clippy_args }} -- -D warnings -D clippy::allow_attributes
+
+      - name: File size gate（新增文件行数上限）
+        shell: bash
+        run: |
+          if [ -n "${{ github.base_ref }}" ]; then
+            scripts/check-file-size.sh "origin/${{ github.base_ref }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            scripts/check-file-size.sh "${{ github.event.before }}"
+          else
+            echo "无可用 base（首推/新分支），跳过文件规模闸门"
+          fi

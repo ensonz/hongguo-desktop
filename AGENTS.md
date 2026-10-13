@@ -71,5 +71,6 @@ make release    # tauri build 打包
 ## 其他 gotcha
 
 - git hooks 需克隆后手动启用：`git config core.hooksPath .githooks`（pre-commit 跑三目标 clippy + cargo test + eslint）。
+- CI 跑 dev 分支推送与 PR：三目标 clippy + cargo test + eslint + 新增文件 800 行上限闸门（`scripts/check-file-size.sh`，约 300 行是拆分提醒线）。
 - 用户可见文案改动必须同步 `src/locales/zh-CN.json` 与 `en-US.json` 两份。
 - 改名 / 换 logo 后重跑 `make assets`（离线，产物生成后提交）；升级 Tauri 后重跑 `make nsis`。

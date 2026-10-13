@@ -83,6 +83,7 @@ pub fn series_by_id(&self, series_id: &str) -> AppResult<Option<Series>> {
 - Rust 热重载重启会丢在途 invoke 应答——前端已有 30s 超时兜底，别拆。
 - 高频进度事件不节流会刷爆 IPC（<0.5% 且 <500ms 不发）。
 - `#[allow]` 被 lint 拒；用 `#[expect(reason)]`。
+- 文件规模：约 300 行是拆分提醒线（往既有大文件堆方法同样算数）；**新增**源码文件超 800 行 CI 直接拒（`scripts/check-file-size.sh`）——别指望事后拆，写入时就按域分文件（参考 `crates/hongguo-gpui/src/home/` 的模块树）。
 - release profile 禁 `panic = "abort"`（wry catch_unwind 防线失效）。
 - 单实例插件必须第一个注册、db 晚于它打开，否则二次启动撞锁被报「数据损坏」。
 
