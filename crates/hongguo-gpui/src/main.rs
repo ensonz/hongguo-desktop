@@ -16,6 +16,7 @@
 
 mod bridge;
 mod danmaku_emoji;
+mod douyin_icons;
 mod downloads;
 mod emoji_files;
 mod home;
@@ -108,7 +109,7 @@ fn main() {
             shell.update(cx, |shell, cx| shell.activate(cx));
             // 图形链路取证：HONGGUO_SHOT=… 时进程内抓帧存 PNG（见截图模块头注释）
             #[cfg(feature = "screenshot")]
-            screenshot::install(shell_window, cx);
+            screenshot::install(shell_window, shell.clone(), cx);
         });
 }
 

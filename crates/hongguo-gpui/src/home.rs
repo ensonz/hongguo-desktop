@@ -1534,6 +1534,35 @@ impl HomeView {
             .unwrap_or_default()
     }
 
+    /// 取证辅助（screenshot feature 的 HONGGUO_SHOT_PAUSE）：暂停播放并把
+    /// 控制条可见窗拉长到 10 分钟——无人值守抓帧才能拍到控制条/互动栏。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_pause_player(&mut self, cx: &mut Context<Self>) {
+        if let Some(player) = &self.player
+            && !player.is_paused()
+        {
+            player.pause();
+        }
+        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        cx.notify();
+    }
+
+    /// 取证辅助（screenshot feature 的 HONGGUO_SHOT_PANEL=downloads）：
+    /// 打开下载面板（无人值守抓任务行 UI）。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_downloads(&mut self, cx: &mut Context<Self>) {
+        self.downloads_open = true;
+        self.downloads = Arc::new(crate::downloads::tasks_of(
+            &self.state,
+            &self
+                .now
+                .as_ref()
+                .map(|n| n.series_id.clone())
+                .unwrap_or_default(),
+        ));
+        cx.notify();
+    }
+
     /// 点赞当前集（裸 vid 为点赞对象）：乐观翻转 + 计数 ±1，失败回滚。
     fn toggle_digg(&mut self, cx: &mut Context<Self>) {
         if !self.logged_in() {
@@ -3646,7 +3675,7 @@ impl HomeView {
             .gap_4()
             .child(self.rail_item(
                 "collect",
-                gpui_kit::assets::IconName::Star,
+                crate::douyin_icons::star(),
                 collect_count,
                 collected,
                 gpui_kit::rgba(0xfacc15ff),
@@ -3654,7 +3683,7 @@ impl HomeView {
             ))
             .child(self.rail_item(
                 "comments",
-                gpui_kit::assets::IconName::MessageSquare,
+                crate::douyin_icons::comment(),
                 comment_count,
                 false,
                 gpui_kit::rgba(0xffffffff),
@@ -3662,7 +3691,7 @@ impl HomeView {
             ))
             .child(self.rail_item(
                 "digg",
-                gpui_kit::assets::IconName::Heart,
+                crate::douyin_icons::heart(),
                 digg_count,
                 digged,
                 gpui_kit::rgba(0xef4444ff),
@@ -3670,7 +3699,7 @@ impl HomeView {
             ))
             .child(self.rail_item(
                 "share",
-                gpui_kit::assets::IconName::Share,
+                crate::douyin_icons::share(),
                 0,
                 false,
                 gpui_kit::rgba(0xffffffff),
@@ -3732,7 +3761,7 @@ impl HomeView {
     fn rail_item(
         &self,
         id: &'static str,
-        icon: gpui_kit::assets::IconName,
+        icon: gpui_kit::component::Icon,
         count: i64,
         active: bool,
         active_color: gpui_kit::Rgba,
@@ -3751,7 +3780,7 @@ impl HomeView {
                 gpui_kit::rgb(0xffffff)
             })
             .on_click(on_click)
-            .child(Icon::new(icon).size_7().text_color(if active {
+            .child(icon.size_7().text_color(if active {
                 active_color
             } else {
                 gpui_kit::rgb(0xffffff)
@@ -5014,15 +5043,21 @@ impl HomeView {
                     } else {
                         v_flex()
                             .gap_2()
-                            .children(self.downloads.iter().map(|t| self.render_download_row(t)))
+                            .children(
+                                self.downloads
+                                    .iter()
+                                    .map(|t| self.render_download_row(t, cx)),
+                            )
                             .into_any_element()
                     }),
             )
             .into_any_element()
     }
 
-    /// 下载任务一行：集号 + 状态文本 + 进度条。
-    fn render_download_row(&self, t: &DownloadTask) -> gpui_kit::AnyElement {
+    /// 下载任务一行：集号 + 状态文本 + 进度条 + 行内操作（running → 暂停；
+    /// stopped/failed → 重试。Tauri task-row 同款操作面）。
+    fn render_download_row(&self, t: &DownloadTask, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let id = t.id.clone();
         let (status_text, percent) = match &t.status {
             hongguo_common::model::TaskStatus::Pending => ("排队中".to_string(), 0.0),
             hongguo_common::model::TaskStatus::Running => {
@@ -5036,6 +5071,12 @@ impl HomeView {
             hongguo_common::model::TaskStatus::Completed => gpui_kit::rgba(0x4ade80ff),
             hongguo_common::model::TaskStatus::Failed => gpui_kit::rgba(0xf87171ff),
             _ => gpui_kit::rgba(0xffffffb3),
+        };
+        let action: Option<(&str, bool)> = match &t.status {
+            hongguo_common::model::TaskStatus::Running => Some(("暂停", false)),
+            hongguo_common::model::TaskStatus::Stopped
+            | hongguo_common::model::TaskStatus::Failed => Some(("重试", true)),
+            _ => None,
         };
         v_flex()
             .gap_1()
@@ -5052,7 +5093,42 @@ impl HomeView {
                             .text_color(gpui_kit::rgba(0xffffffe6))
                             .child(format!("第 {} 集", t.vid_index)),
                     )
-                    .child(div().text_xs().text_color(status_color).child(status_text)),
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .children(action.map(|(label, is_retry)| {
+                                div()
+                                    .id(ElementId::from(format!("download-action-{id}")))
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .text_color(gpui_kit::rgba(0x60a5faff))
+                                    .hover(|s| s.text_color(gpui_kit::rgb(0x93c5fd)))
+                                    .on_click({
+                                        let id = id.clone();
+                                        cx.listener(move |this, _, _, cx| {
+                                            if is_retry {
+                                                crate::downloads::retry_task(&this.state, &id);
+                                            } else {
+                                                crate::downloads::stop_task(&this.state, &id);
+                                            }
+                                            // 立即刷新快照（进度靠 Frame 事件，
+                                            // 状态翻转不等下一次渲染）
+                                            this.downloads = Arc::new(crate::downloads::tasks_of(
+                                                &this.state,
+                                                &this
+                                                    .now
+                                                    .as_ref()
+                                                    .map(|n| n.series_id.clone())
+                                                    .unwrap_or_default(),
+                                            ));
+                                            cx.notify();
+                                        })
+                                    })
+                                    .child(label)
+                            }))
+                            .child(div().text_xs().text_color(status_color).child(status_text)),
+                    ),
             )
             .child(
                 div()

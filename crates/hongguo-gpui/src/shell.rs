@@ -47,6 +47,20 @@ impl Shell {
         cx.activate(true);
     }
 
+    /// 取证辅助（screenshot feature）：暂停播放 + 拉长控制条可见窗，让
+    /// 无人值守抓帧能拍到控制条/互动栏。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_pause_player(&self, cx: &mut App) {
+        self.feed.update(cx, |home, cx| home.debug_pause_player(cx));
+    }
+
+    /// 取证辅助（screenshot feature）：打开下载面板。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_downloads(&self, cx: &mut App) {
+        self.feed
+            .update(cx, |home, cx| home.debug_open_downloads(cx));
+    }
+
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {
         Sidebar::new("shell-nav").children(vec![
             SidebarMenuItem::new("首页")

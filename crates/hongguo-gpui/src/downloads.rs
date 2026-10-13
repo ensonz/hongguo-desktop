@@ -8,9 +8,11 @@
 //!
 //! 队列恢复在壳启动时完成（`restore` 把 running 视为中断改回 pending）。
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use hongguo_common::AppError;
 use hongguo_common::model::{DownloadTask, TaskStatus};
 use hongguo_service::app_state::AppStateInner;
 use hongguo_service::download_service::events::ProgressThrottle;
@@ -118,8 +120,9 @@ async fn run_one(state: Arc<AppStateInner>, task: DownloadTask) {
         .series_dir(&series_title)
         .join(format!("{file_name}.mp4"));
 
-    // 3) 下载 + 解密（取消标志恒 false：单任务暂停/取消随深化对齐补）
-    let cancelled = AtomicBool::new(false);
+    // 3) 下载 + 解密（取消标志从取消槽取：stop_task 置位后 worker 在下个
+    // 分片检查点退出，见 cancel_flags/stop_task）
+    let cancelled = cancel_flag(&id);
     let episode = hongguo_service::download_service::worker::EpisodeDownload {
         id: id.clone(),
         video_url: play.url,
@@ -144,13 +147,60 @@ async fn run_one(state: Arc<AppStateInner>, task: DownloadTask) {
             state.queue().mark_completed(&id, &path, size);
             log::info!("[Download] 第 {} 集完成（{size}B）", task.vid_index);
         }
+        // 用户停止：状态保持 stopped（stop_task 已标），不能落成 failed
+        Err(AppError::Cancelled) => {
+            log::info!(
+                "[Download] 第 {} 集已停止（保留临时文件供重试）",
+                task.vid_index
+            );
+        }
         Err(e) => {
             let msg = e.to_string();
             state.queue().mark_failed(&id, &msg);
             log::warn!("[Download] 第 {} 集失败: {msg}", task.vid_index);
         }
     }
+    cancel_flags().lock().unwrap().remove(&id);
     let _ = persist_tasks(&state.store, &state.queue(), "Download");
+}
+
+/// 单任务取消标志槽（task_id → flag）：stop_task 置位，run_one 借给
+/// worker 的分片检查点。std Mutex（壳没有 parking_lot 依赖，与
+/// danmaku_emoji 同口径）。
+fn cancel_flags() -> &'static std::sync::Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static CANCELS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>> =
+        std::sync::OnceLock::new();
+    CANCELS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn cancel_flag(id: &str) -> Arc<AtomicBool> {
+    let mut flags = cancel_flags().lock().unwrap();
+    flags
+        .entry(id.to_string())
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+/// 停止单个任务：置位取消标志（worker 在下个分片检查点退出并清临时
+/// 文件）+ 队列状态机标 stopped + 落盘。返回任务是否存在。
+pub fn stop_task(state: &Arc<AppStateInner>, id: &str) -> bool {
+    if state.queue().get(id).is_none() {
+        return false;
+    }
+    cancel_flag(id).store(true, std::sync::atomic::Ordering::SeqCst);
+    state.queue().mark_stopped(id);
+    let _ = persist_tasks(&state.store, &state.queue(), "Download");
+    true
+}
+
+/// 重试单个任务（stopped/failed → pending 重新排队）并触发调度。
+pub fn retry_task(state: &Arc<AppStateInner>, id: &str) -> bool {
+    if state.queue().retry(id).is_none() {
+        return false;
+    }
+    let _ = persist_tasks(&state.store, &state.queue(), "Download");
+    kick(Arc::clone(state));
+    true
 }
 
 /// 某剧已下载完成的集号（选集浮层完成角标数据源）。
