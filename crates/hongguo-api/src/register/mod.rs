@@ -373,7 +373,10 @@ fn applog_register_json(id: &FreshIdentity, now_ms: u64) -> Value {
     let mut h = serde_json::Map::new();
     h.insert("access".into(), json!("wifi"));
     h.insert("aid".into(), json!(8662));
-    h.insert("apk_first_install_time".into(), json!(now_ms - FIRST_INSTALL_BACKDATE_MS));
+    h.insert(
+        "apk_first_install_time".into(),
+        json!(now_ms - FIRST_INSTALL_BACKDATE_MS),
+    );
     h.insert("app_version".into(), json!("7.3.9.32"));
     h.insert("app_version_minor".into(), json!(""));
     h.insert("cdid".into(), json!(id.cdid));
