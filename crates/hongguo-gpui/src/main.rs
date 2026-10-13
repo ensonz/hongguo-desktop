@@ -29,6 +29,8 @@ mod rank;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod shell;
+#[cfg(target_os = "windows")]
+mod win32;
 
 use std::sync::Arc;
 use std::sync::OnceLock;
