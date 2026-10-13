@@ -35,7 +35,7 @@ make release      # 打包发布版
 
 ## 硬红线（违反即返工）
 
-1. **command 层禁止 `tokio::spawn`/`Handle::current`/`block_on`**——同步 command 跑在主线程 IPC 回调里没有 Tokio 上下文，会 panic→abort（2026-10-07 隐身闪退实录）。后台任务一律 `tauri::async_runtime::spawn`。有静态测试扫源码盯着。
+1. **command 层禁止 `tokio::spawn`/`Handle::current`/`block_on`**——同步 command 跑在主线程 IPC 回调里没有 Tokio 上下文，会 panic→abort（2026-10-07 隐身闪退实录）。后台任务一律走 service 共用运行时 `hongguo_service::runtime`（command 内需要 Tauri 异步设施时用 tauri 的 async_runtime）；service 层同样禁裸用，且不得引用任何 UI 框架（静态闸）。有静态测试扫源码盯着。
 2. **前端组件不直接 `invoke`**——统一走 `service/commands/`（按域拆分的封装）与 `service/tauri/invoke.ts` 的 `call<T>()`（zod 校验 + 错误 i18n 归一），否则后端契约变更在类型检查时不会暴露。
 3. **事件名两端同步改**——Rust `download_service/events.rs` 的 `names` 与前端 `service/tauri/types.ts` 的 `EVENTS` 一一对应，只改一端订阅会静默失效。
 4. **签名后不能再动 url/body/query**（`signer/ticket.rs` 产出 x-gorgon 等五件套后，连 query 顺序、URL 编码方式都会失配）。

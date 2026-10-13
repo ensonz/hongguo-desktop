@@ -1,7 +1,7 @@
 # 红果桌面客户端 · 架构重构方案
 
-> 版本：2026-10-12（rev3，定序已确认）
-> 状态：**重构完成**——阶段 0~3 全部落地（12 个成员 crate + 双壳）；`hongguo-gpui` 起步单壳已交付（操作与 Tauri 客户端一致，帧流 spike 已闭环并接入播放引擎——进度与遗留见 [`gpui-shell-progress.md`](./gpui-shell-progress.md)）
+> 版本：2026-10-13（rev4：二期——平台四 crate 拆分 + service 去 Tauri 化，见 §16）
+> 状态：**重构完成**——阶段 0~3 与二期全部落地（16 个成员 crate + 双壳）；`hongguo-gpui` 起步单壳已交付（操作与 Tauri 客户端一致，播放引擎已接入——进度与遗留见 [`gpui-shell-progress.md`](./gpui-shell-progress.md)）
 > 目标：提升后端扩展性，支持 Tauri（React）与 GPUI 长期共存，流处理契约与 UI 壳解耦
 >
 > **rev3**：双端共存确立为方案前提（非待决项，本方案即双端改造方案）；定序确认——拆分前置项先做、重叠项并入对应 crate（见 §8）。
@@ -37,15 +37,18 @@
 | 阶段 3 | 前端并行：评论/剧评双实现收敛、`components/` 归位、入参 zod 化 | ✅ 2026-10-12 | 回复线程收敛共享 reply-thread（视觉零变化）；6 散装组件归位；入参 zod 化经核已是既定设计（registry 编译期约束） |
 | GPUI 壳 | `hongguo-gpui` 起步单壳（§15 交付物） | ✅ 2026-10-12 | 窗口 + 双壳同源装配 + 推荐流；`make gpui`；帧流 spike 另行立项 |
 | GPUI 播放 | §5.3 帧流闭环 → 引擎接入：解码门面 → `hongguo-playback` → 首页沉浸流 / 排行榜 / 封面 | ✅ 2026-10-13 | 本机可播（HEVC+AAC、倍速/seek/音量、连播、榜单封面）；通道序 RGBA→BGRA 真因与封面键修复见 `docs/gpui-shell-progress.md` |
+| 二期·平台拆分 | `hongguo-media-platform` 一拆四：`-api` 契约 / `-macos`/`-windows` 实现 / 门面（含 ffmpeg + capability） | ✅ 2026-10-13 | 纯结构移动；protocol 封面去平台分支、gpui 帧类型改依赖契约；三目标 clippy + 全量测试绿 |
+| 二期·去 Tauri | service 摘除 tauri 依赖：共用任务运行时 `runtime` + 业务事件总线 `events`；Tauri 事件转发器（原名原载荷） | ✅ 2026-10-13 | 源码静态闸；事件契约零漂移（`tests/wire_contract.rs` 快照 + 映射表测试） |
+| 二期·编排下沉 | 下载/登录/合并/兼容转码编排全归 service；GPUI 下载调度与登录轮询复刻删除，接入服务事件泵 | ✅ 2026-10-13 | 停止语义统一真实取消（Tauri 修复）+ 重试立即调度；前端零改动 |
 
-**当前体量**（2026-10-12，重构完成后实测）：
+**当前体量**（2026-10-13 二期后实测）：
 
 | 位置 | 文件 | 行数 |
 | --- | --- | --- |
 | 壳 `src-tauri/src`（纯配置 + 入口） | 2 | 22 |
-| `crates/`（12 个成员） | 210 | 46,383 |
+| `crates/`（16 个成员） | 304 | 57,856 |
 
-对照 §0 的重构前快照：壳是 **198 文件 / 41,890 行**。逐 crate 明细与依赖方向见 §4。
+对照 §0 的重构前快照：壳是 **198 文件 / 41,890 行**。逐 crate 明细与依赖方向见 §4 与 §16。
 
 ---
 
@@ -147,7 +150,7 @@
 
 > **依赖修正（2026-10-11 实测，v1/rev3 原表有误）**：
 > - **`capability/` 必须随 platform、ffmpeg 一起进 `hongguo-media-platform`**。实测 `media/platform/{vt,mf}` 调 `media::{demux,hevc,transcode}`（19 处），而 `media/capability` 反手调 `media::{platform,ffmpeg}`（14 处）——照原表把 capability 留在 `hongguo-media` 里会成环。
-> - **`hongguo-protocol` 的依赖不止 stream + mp4 + common**：`protocol/cover.rs` 还要 `hongguo_media::heif` / `media::platform::wic` / `media::ffmpeg`（封面 HEIC→JPEG 的三级阶梯）。
+> - **`hongguo-protocol` 的依赖不止 stream + mp4 + common**：`protocol/cover.rs` 还要 `hongguo_media::heif` / `media::platform::wic` / `media::ffmpeg`（封面 HEIC→JPEG 的三级阶梯）。（二期后 WIC 一级经门面 `platform::cover` 收口，protocol 里已无平台分支，见 §16.1。）
 > - **`hongguo-stream` 同时收 `range.rs` 与进程级 `cache()`**：`RangeSpec` / `ProtocolResponse` 是流应答的线格式；`cache()` 是填充侧与应答侧唯一的共享句柄——不搬它，`serve()` 只能回头调 `service::play_service::online::cache()`，反向边消不掉。原表把 stream 描述为「只放共用数据类型」，偏窄。
 > - **`hongguo-media-platform` 实测依赖还含 `mp4` 与 `common`**（2026-10-12，3c 落地时核对）：`platform/{vt,mf}` 直接消费 `hongguo_mp4::sample_table::TrackInfo`（hvcC 参数集 → Annex-B 喂解码器），门面与 ffmpeg / capability 消费 `AppError` / `AppResult`。原表只写「media」。
 
@@ -422,6 +425,67 @@ hongguo-desktop/
 - ~~编译基线报告（clean build 耗时 + 增量重编译范围）~~ → **已交付**：`docs/build-baseline.md`
 - ~~迁移 Checklist（按 PR 粒度）~~ → **已交付**：本文件进度看板（逐条实测记录）
 - 健康探针/轮换异步生命周期下沉 service（GPUI 壳接入同一套设备轮换）——待 GPUI 壳演进时处理
+
+---
+
+## 16. 二期（2026-10-13）：平台四 crate 与 service 去 Tauri 化
+
+> 二期把「职责边界」落实到 crate 与依赖方向：平台实现彻底隔离、业务核心不再感知 UI 框架；编排只有一份。本节取代 §4.2/§4.3 中 media-platform 与 service 的旧描述。
+
+### 16.1 平台层一拆四
+
+```
+hongguo-media-platform-api（契约：帧载体 / 解码器 trait / PlatformRequest / 码率策略）
+    ├── hongguo-media-platform-macos（VideoToolbox + AudioToolbox；#![cfg(macos)]）
+    └── hongguo-media-platform-windows（Media Foundation + WIC；#![cfg(windows)]）
+hongguo-media-platform（门面：按编译目标 re-export 实现 + ffmpeg + capability）
+```
+
+- 门面保留 `platform::{video,audio}` 路径与全部对外函数名（下游零改动）；新增
+  `platform::cover::heic_to_jpeg`（全平台同签名，非 Windows 返回 `None`）——protocol 的
+  封面阶梯从此没有平台分支。
+- 实现 crate 的平台专属依赖全部进各自 target 表；异目标上以 `#![cfg(target_os = …)]`
+  空壳编译，`--workspace` 在三个宿主目标（Windows 宿主 + macOS 双目标交叉）全绿，
+  Makefile/CI 的排除清单无需改动。
+- 依赖方向：实现 → 契约；门面 → 契约 +（按目标）实现；**实现不得反向依赖门面/gpui/tauri**
+  （反向即 Cargo 依赖环，编不过）。契约 crate 只依赖 common 与（macOS）core-video。
+- gpui 壳只认契约（`hongguo-media-platform-api::video`）；播放引擎经门面拿具体解码器。
+
+### 16.2 service 去 Tauri 化与全量编排下沉
+
+- `hongguo-service::runtime`：进程级多线程 tokio 运行时（`spawn` / `spawn_blocking`），
+  任意线程可派发——取代 `tauri::async_runtime` 与壳注入的 `PlayRuntime`。
+- `hongguo-service::events`：`ServiceEvent` 强类型事件 + broadcast 总线（容量 1024）。
+  发布点=状态变更之后；Tauri 壳 `events.rs` 原名原载荷 `app.emit` 转发，GPUI 壳
+  `events.rs` 事件泵（broadcast→mpsc）接进视图。**事件名与载荷零漂移**
+  （`tests/wire_contract.rs` 快照 + 映射表测试锁定，前端零改动）。
+- 编排全量下沉：下载队列变更（`download_service::actions`）、登录流程
+  （`login_service::flow`）、合并启动（`merge_service::start`）、兼容转码
+  （`play_service::compat_play::compat_for_playback`）；命令层纯转调，GPUI 的下载
+  调度与登录轮询复刻删除。
+- 行为变更（有意，提交中显式标注）：调度器统一持「全局暂停位 + 每任务取消位」，
+  「停止」= 真实取消（Tauri 侧从「只标记、跑完还会覆写成 completed」修正）；
+  重试后立即触发调度（对齐 GPUI 现状）。其余行为保持。
+
+### 16.3 二期决策记录
+
+| 决策 | 选择 | 状态 |
+| --- | --- | --- |
+| 平台实现选择 | Cargo 目标平台依赖 + 门面 `cfg` 分派；不引运行时注册 | ✅ 2026-10-13 |
+| 契约形态 | 数据与 trait 进 `-api`；无状态操作走同名普通函数（静态分派，不开 dyn） | ✅ |
+| service 任务与事件 | 自带运行时 + 总线；壳只订阅适配 | ✅ |
+| 事件机制 | tokio broadcast（1024）；订阅者滞后丢旧 + 日志 | ✅ |
+| 「共用任务管理器」边界 | 运行时 + 各域既有取消机制；不建中央句柄登记表 | ✅ |
+| 停止语义 | 统一真实取消（Tauri 行为修复） | ✅ |
+| GPUI 事件消费 | 事件泵（broadcast→mpsc→视图）；下载面板保留 1s 轮询兜底 | ✅ |
+| macOS 回归口径 | CI 双腿编译 + 单测；实机功能回归列发版前 checklist | ✅ |
+| 服务层 UI 能力适配 | 当前无（文件选择/打开目录在命令层）；有真实需求再加窄接口 | ✅ |
+
+### 16.4 遗留
+
+- macOS 实机功能回归（下载 / 合并 / 转码 / 播放）列发版前 checklist。
+- `capability_service` 的 HEVC 扩展安装保留单点 Windows `cfg`（产品功能，不属媒体平台层）。
+- 健康探针/轮换异步生命周期下沉（§15 延续）。
 
 ---
 

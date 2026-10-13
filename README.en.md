@@ -217,19 +217,23 @@ make assets         # regenerate icons / macOS name localization (offline)
 ```text
 hongguo-desktop/
 ├── crates/
-│   ├── hongguo-common/  # Shared foundation: domain models / unified error / pure helpers / cross-surface constants
-│   ├── hongguo-signer/  # ByteDance request signing + device registration primitives (JS 1:1 port, constants black-box locked)
-│   ├── hongguo-mp4/     # MP4 parsing & CENC decryption
-│   ├── hongguo-api/     # Official API clients (14 domains, one directory per endpoint domain)
-│   ├── hongguo-media/   # Pure-Rust codecs (demux / hevc / remux / transcode / HEIF covers)
-│   ├── hongguo-store/   # Turso embedded database (entity/ split by aggregate / migrations / recovery)
-│   └── hongguo-stream/  # Online stream contract (progressive stream / per (vid, definition) cache / Range replies)
-├── src-tauri/src/
-│   ├── service/         # App services: download scheduler, playback, merge, transcode, storage…
-│   ├── commands/        # Thin Tauri command layer (~80 commands, mirrors service/)
-│   ├── protocol/        # Custom URI schemes (streaming / local files / cover proxy)
-│   ├── media/           # Codecs & transcode pipeline (platform HW → ffmpeg → pure Rust)
-│   └── bootstrap/       # Startup wiring (store → device → rescan → queue → transcode probe)
+│   ├── hongguo-common/                 # Shared foundation: domain models / unified error / pure helpers / cross-surface constants
+│   ├── hongguo-signer/                 # ByteDance request signing + device registration primitives (JS 1:1 port, constants black-box locked)
+│   ├── hongguo-mp4/                    # MP4 parsing & CENC decryption
+│   ├── hongguo-api/                    # Official API clients (14 domains, one directory per endpoint domain)
+│   ├── hongguo-media/                  # Pure-Rust codecs (demux / hevc / remux / transcode / HEIF covers)
+│   ├── hongguo-media-platform-api/     # Platform media contract (frame carriers / decoder traits / transcode requests)
+│   ├── hongguo-media-platform-macos/   # macOS implementation (VideoToolbox / AudioToolbox)
+│   ├── hongguo-media-platform-windows/ # Windows implementation (Media Foundation / WIC)
+│   ├── hongguo-media-platform/         # Platform facade (compile-time impl selection) + ffmpeg + capability probing
+│   ├── hongguo-store/                  # Turso embedded database (entity/ split by aggregate / migrations / recovery)
+│   ├── hongguo-stream/                 # Online stream contract (progressive stream / per (vid, definition) cache / Range replies)
+│   ├── hongguo-protocol/               # Custom URI providers (hongguo-local / stream / cover)
+│   ├── hongguo-playback/               # Playback engine (sample-table fetch → platform decode → audio clock sync)
+│   ├── hongguo-service/                # App services: nine domains + AppState + shared runtime/event bus (no UI framework deps)
+│   ├── hongguo-tauri/                  # Tauri assembly: commands / bootstrap / protocol registration / event forwarding
+│   └── hongguo-gpui/                   # GPUI shell (same service layer as Tauri)
+├── src-tauri/                          # Config + entry only (tauri.conf.json / capabilities / icons / generate_context!)
 └── src/
     ├── pages/           # TanStack file routes (thin shells) + page implementations nearby
     ├── features/        # Complex capability domains (player engine / auto update)

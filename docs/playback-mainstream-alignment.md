@@ -1,7 +1,7 @@
 # GPUI 播放引擎对齐主流：平台音频解码 + 时钟校正 + 倍速/音量/seek + 控制区
 
 > 状态：已确认方向（2026-10-12，用户三问三答：症状=音画不同步；解码路线=平台解码器；范围=三步连做）。
-> 适用范围：`crates/hongguo-playback/`（引擎）、`crates/hongguo-media-platform/src/platform/audio/`（新增平台解码）、`crates/hongguo-mp4/`（elst 解析）、`crates/hongguo-gpui/`（控制区 UI）。
+> 适用范围：`crates/hongguo-playback/`（引擎）、`crates/hongguo-media-platform-macos/src/audio.rs`（新增平台解码；架构二期前称 `media-platform/src/platform/audio/`）、`crates/hongguo-mp4/`（elst 解析）、`crates/hongguo-gpui/`（控制区 UI）。
 
 ## 1. 背景与症状
 
@@ -34,13 +34,13 @@ GPUI 壳的播放引擎（`hongguo-playback`）已经做到「画面 + 声音都
 
 ### 3.1 平台 AAC 解码器（替换 symphonia）
 
-- 新模块 `hongguo-media-platform/src/platform/audio/`（macOS cfg 门，与 `vt/` 同构）：
+- 新模块 `hongguo-media-platform-macos/src/audio.rs`（当时位于 `media-platform/src/platform/audio/`，与 `vt/` 同构）：
   - 手写 AudioToolbox FFI（`AudioConverterOpen / SetProperty(DecompressionMagicCookie) / FillComplexBuffer / Reset / Dispose`，照 `vt/ffi.rs` 的「最小声明 + framework 链接」写法，零新增依赖）；
   - 接口：`AacDecoder::open(asc: &[u8], channels, sample_rate) -> Self`，`decode(packet: &[u8]) -> AppResult<Vec<f32>>`（交错 f32，输出格式=mp4 声明的声道/采样率，HE-AAC 的 SBR/PS 上变频由系统解码器完成）；
   - mpv 的 coreaudio AAC 解码即此路线（AudioConverter + magic cookie），作为参照实现。
 - `hongguo-playback` 移除 symphonia 依赖，`audio_feeder` 改用平台解码器。
 - 起播日志加一行 ASC 的 audioObjectType（2=LC，5=HEv1，29=HEv2）——诊断留证。
-- Windows：引擎现状即 macOS-only（依赖 `platform::vt`）；MF AAC 是 Windows 壳立项时的事，此处不占位不兜底。
+- Windows：引擎现状即 macOS-only（依赖 VideoToolbox 实现）；MF AAC 是 Windows 壳立项时的事，此处不占位不兜底。
 
 ### 3.2 时钟扣除设备引线
 

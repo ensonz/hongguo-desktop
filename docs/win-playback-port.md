@@ -7,6 +7,11 @@
 >
 > 进度与遗留（含 2026-10-13 的封面/视频颜色根因定案）见
 > [`gpui-shell-progress.md`](./gpui-shell-progress.md)。
+>
+> 路径注记（架构二期后，见 `architecture-refactor.md` §16）：门面
+> `platform::video` / `platform::audio` 路径不变，Windows 实现位处
+> `crates/hongguo-media-platform-windows/`（MF / WIC），macOS 实现在
+> `crates/hongguo-media-platform-macos/`。
 
 ## 平台布局（本轮落定的结构）
 

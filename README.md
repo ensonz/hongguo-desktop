@@ -187,19 +187,23 @@ make assets         # 重新生成图标 / macOS 名称本地化（离线）
 ```text
 hongguo-desktop/
 ├── crates/
-│   ├── hongguo-common/  # 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量
-│   ├── hongguo-signer/  # 字节系请求签名 + 设备注册原语（JS 1:1 移植，常量黑盒锁定勿改）
-│   ├── hongguo-mp4/     # MP4 解析与 CENC 解密
-│   ├── hongguo-api/     # 官方 App 接口客户端（14 域，按端点域目录化）
-│   ├── hongguo-media/   # 纯 Rust 编解码（demux / hevc / remux / transcode / 封面 HEIF）
-│   ├── hongguo-store/   # Turso 内嵌数据库（entity/ 按聚合拆分 / 迁移链 / 坏档恢复）
-│   └── hongguo-stream/  # 在线流契约（渐进流 / 按 (vid, 档位) 分条的缓存 / Range 应答）
-├── src-tauri/src/
-│   ├── service/         # 应用服务：下载调度、播放编排、合并、转码、存储清理……
-│   ├── commands/        # Tauri command 薄层（约 80 个，与 service 同名同构）
-│   ├── protocol/        # 自定义 URI scheme（流式播放 / 本地文件 / 封面代理）
-│   ├── media/           # 编解码与转码管线（平台硬编 → ffmpeg → 纯 Rust）
-│   └── bootstrap/       # 启动装配（存储 → 设备 → 重扫描 → 队列 → 转码探测）
+│   ├── hongguo-common/                 # 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量
+│   ├── hongguo-signer/                 # 字节系请求签名 + 设备注册原语（JS 1:1 移植，常量黑盒锁定勿改）
+│   ├── hongguo-mp4/                    # MP4 解析与 CENC 解密
+│   ├── hongguo-api/                    # 官方 App 接口客户端（14 域，按端点域目录化）
+│   ├── hongguo-media/                  # 纯 Rust 编解码（demux / hevc / remux / transcode / 封面 HEIF）
+│   ├── hongguo-media-platform-api/     # 平台媒体契约（帧载体 / 解码器 trait / 转码请求）
+│   ├── hongguo-media-platform-macos/   # macOS 实现（VideoToolbox / AudioToolbox）
+│   ├── hongguo-media-platform-windows/ # Windows 实现（Media Foundation / WIC）
+│   ├── hongguo-media-platform/         # 平台门面（编译期选实现）+ ffmpeg + 能力探测
+│   ├── hongguo-store/                  # Turso 内嵌数据库（entity/ 按聚合拆分 / 迁移链 / 坏档恢复）
+│   ├── hongguo-stream/                 # 在线流契约（渐进流 / 按 (vid, 档位) 分条的缓存 / Range 应答）
+│   ├── hongguo-protocol/               # 自定义 URI 供数（hongguo-local / stream / cover）
+│   ├── hongguo-playback/               # 播放引擎（样本表取流 → 平台解码 → 音频时钟同步）
+│   ├── hongguo-service/                # 应用服务：九域编排 + AppState + 共用运行时/事件总线（无 UI 框架依赖）
+│   ├── hongguo-tauri/                  # Tauri 装配：commands / bootstrap / 协议注册 / 事件转发
+│   └── hongguo-gpui/                   # GPUI 壳（与 Tauri 同一套 service）
+├── src-tauri/                          # 纯配置 + 入口（tauri.conf.json / capabilities / icons / generate_context!）
 └── src/
     ├── pages/           # TanStack 文件路由（薄壳）+ 页面实现就近放置
     ├── features/        # 复杂能力域（player 播放引擎 / update 自动更新）
