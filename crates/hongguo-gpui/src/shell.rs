@@ -90,7 +90,9 @@ impl gpui_kit::Render for Shell {
             .bg(theme.background)
             .text_color(theme.foreground)
             .items_stretch()
-            .child(self.render_sidebar(cx))
+            // 小屏播放时侧栏藏掉（480×270 装不下，Tauri use-mini-window
+            // 「侧栏隐藏」同款；状态见 crate::mini）
+            .children((!crate::mini::is_active()).then(|| self.render_sidebar(cx)))
             .child(
                 // 内容区：吃掉剩余宽度；过载时只允许它收缩（coding-guides
                 // 「flex_1 仍可能拒绝收缩」），滚动归视图自己。

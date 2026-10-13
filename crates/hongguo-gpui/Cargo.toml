@@ -69,3 +69,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 smallvec = "1"
 log = "0.4"
 env_logger = "0.11"
+
+# 小屏落位/置顶的 HWND 获取（gpui Window 实现的 HasWindowHandle；只
+# Windows 小屏路径用）。
+[target.'cfg(target_os = "windows")'.dependencies]
+raw-window-handle = "0.6"

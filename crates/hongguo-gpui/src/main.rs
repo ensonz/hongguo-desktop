@@ -21,6 +21,7 @@ mod emoji_files;
 mod home;
 mod http_client;
 mod image_upload;
+mod mini;
 mod playback_prefs;
 mod rank;
 #[cfg(feature = "screenshot")]
@@ -66,42 +67,49 @@ fn main() {
     }));
     let state = build_app_state();
 
-    gpui_kit::application().run(move |cx| {
-        gpui_kit::init(cx);
-        // 封面是 CDN 签名 URL：gpui 图片缓存需要一个 HTTP 客户端才能拉远程资源。
-        http_client::ReqwestClient::install(cx);
-        // 客户端视觉身份是深色（与 Tauri 壳一致）；后续接跟随系统。
-        gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
-        let bounds = gpui_kit::Bounds::centered(
-            None,
-            gpui_kit::size(gpui_kit::px(1024.), gpui_kit::px(680.)),
-            cx,
-        );
-        // 默认构建用不到这个句柄（只有 screenshot feature 抓帧要），
-        // 关掉 feature 时按「有意不用」放行，别为一个变量把 feature 拧到反。
-        #[cfg_attr(
-            not(feature = "screenshot"),
-            expect(unused_variables, reason = "句柄只有 screenshot feature 用")
-        )]
-        let (shell_window, shell) = gpui_kit::open_window(
-            gpui_kit::WindowOptions {
-                window_bounds: Some(gpui_kit::WindowBounds::Windowed(bounds)),
-                // 标题空着的话任务栏是一条空白条目，用户根本认不出这个窗口
-                titlebar: Some(gpui_kit::TitlebarOptions {
-                    title: Some("红果".into()),
+    // 资产源必须接上：gpui 的 SvgRenderer 从 App 的 AssetSource 读 SVG——
+    // 不接的话**所有纯图标按钮都是空壳**（按钮在、图标没了，实测控制条
+    // 只剩文字按钮可见）。注意用 AllAssets（完整 Lucide 目录）而不是
+    // Assets（那只是组件兼容默认子集 106 个，音量/弹幕/小窗/全屏等
+    // 图标不在其中，缺的就是它们）。
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(move |cx| {
+            gpui_kit::init(cx);
+            // 封面是 CDN 签名 URL：gpui 图片缓存需要一个 HTTP 客户端才能拉远程资源。
+            http_client::ReqwestClient::install(cx);
+            // 客户端视觉身份是深色（与 Tauri 壳一致）；后续接跟随系统。
+            gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
+            let bounds = gpui_kit::Bounds::centered(
+                None,
+                gpui_kit::size(gpui_kit::px(1024.), gpui_kit::px(680.)),
+                cx,
+            );
+            // 默认构建用不到这个句柄（只有 screenshot feature 抓帧要），
+            // 关掉 feature 时按「有意不用」放行，别为一个变量把 feature 拧到反。
+            #[cfg_attr(
+                not(feature = "screenshot"),
+                expect(unused_variables, reason = "句柄只有 screenshot feature 用")
+            )]
+            let (shell_window, shell) = gpui_kit::open_window(
+                gpui_kit::WindowOptions {
+                    window_bounds: Some(gpui_kit::WindowBounds::Windowed(bounds)),
+                    // 标题空着的话任务栏是一条空白条目，用户根本认不出这个窗口
+                    titlebar: Some(gpui_kit::TitlebarOptions {
+                        title: Some("红果".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            cx,
-            |window, cx| cx.new(|cx| shell::Shell::new(state.clone(), window, cx)),
-        )
-        .expect("窗口创建失败");
-        shell.update(cx, |shell, cx| shell.activate(cx));
-        // 图形链路取证：HONGGUO_SHOT=… 时进程内抓帧存 PNG（见截图模块头注释）
-        #[cfg(feature = "screenshot")]
-        screenshot::install(shell_window, cx);
-    });
+                },
+                cx,
+                |window, cx| cx.new(|cx| shell::Shell::new(state.clone(), window, cx)),
+            )
+            .expect("窗口创建失败");
+            shell.update(cx, |shell, cx| shell.activate(cx));
+            // 图形链路取证：HONGGUO_SHOT=… 时进程内抓帧存 PNG（见截图模块头注释）
+            #[cfg(feature = "screenshot")]
+            screenshot::install(shell_window, cx);
+        });
 }
 
 /// 开库并组装全局状态。与 Tauri 壳的装配逐层同源：

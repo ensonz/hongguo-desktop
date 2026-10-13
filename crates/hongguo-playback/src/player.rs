@@ -268,7 +268,9 @@ impl Drop for PlayerHandle {
 
 /// 打开并起播。必须在 tokio 运行时上下文内 await（引擎任务经 `tokio::spawn`
 /// 挂在调用方的运行时上）。
-pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> {
+/// 返回 `Arc<PlayerHandle>`：GPUI 壳小窗模式下主窗与小窗两个视图共享同一
+/// 个播放器（跨窗口渲染同一份帧流），句柄析构（停播）由最后一份引用触发。
+pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<std::sync::Arc<PlayerHandle>> {
     // 起播链任何一段卡住，界面上都只是「一直转圈」——三个阶段各自打点，
     // 卡在哪一段一目了然（实测有过音频设备打开前静默两位数的秒数）。
     let t0 = std::time::Instant::now();
@@ -395,11 +397,11 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<PlayerHandle> 
         }));
     }
 
-    Ok(PlayerHandle {
+    Ok(Arc::new(PlayerHandle {
         shared,
         audio: audio_slot,
         tasks,
-    })
+    }))
 }
 
 /// 把一对音频产物接进播放：起喂送 → 预填 → 启动设备 → 换主时钟。

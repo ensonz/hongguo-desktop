@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
+use gpui_kit::component::Disableable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -182,7 +183,7 @@ pub struct HomeView {
     // —— 播放态 ——
     /// 引擎出生纪元：每次切剧 +1，陈旧事件/任务按它丢弃。
     epoch: u64,
-    player: Option<PlayerHandle>,
+    player: Option<std::sync::Arc<PlayerHandle>>,
     now: Option<NowPlaying>,
     switching: bool,
     /// 当前可上屏的帧；`None` = 还没出画（画封面占位）。
@@ -330,6 +331,11 @@ pub struct HomeView {
     incognito: bool,
     /// 全屏中（Render 时从 window.is_fullscreen 读，切图标用）。
     fullscreen: bool,
+    /// 小屏播放态（Tauri miniScreen 同款）：Some 是进入前的几何快照。
+    /// 同窗缩放语义——不换窗口、不暂停，只缩窗口 + 换紧凑控制条。
+    mini: Option<crate::mini::SavedGeometry>,
+    /// 窗口钉住（Tauri usePinWindow 同款：窗口级会话态，大小屏共用）。
+    pinned: bool,
     /// 下载任务快照（每次渲染从队列读，进度靠 Frame 事件驱动的重渲染刷新）。
     downloads: Arc<Vec<DownloadTask>>,
     /// 选集浮层的下载完成集号（渲染时刷新）。
@@ -526,6 +532,8 @@ impl HomeView {
             downloads_open: false,
             incognito: false,
             fullscreen: false,
+            mini: None,
+            pinned: false,
             downloads: Arc::new(Vec::new()),
             done_vids: Arc::new(Vec::new()),
             volume_popup_open: false,
@@ -1050,7 +1058,7 @@ impl HomeView {
         preferred_definition: Option<u32>,
         start_override: Option<f64>,
         events: mpsc::Sender<PlayerEvent>,
-    ) -> AppResult<(PlayerHandle, NowPlaying)> {
+    ) -> AppResult<(std::sync::Arc<PlayerHandle>, NowPlaying)> {
         let runtime = PlayRuntime::new(crate::tokio().handle().clone(), None);
         let settings = state.settings();
         let env = state.api_env();
@@ -2183,6 +2191,12 @@ impl HomeView {
             return;
         }
         self.last_save = Instant::now();
+        self.save_progress_now();
+    }
+
+    /// 立即落一次进度（不带节流）：关小屏等「要走了」的时刻强制落，
+    /// 别让最后一段播放丢在节流窗里（Tauri onPause 强落同款）。
+    fn save_progress_now(&mut self) {
         let Some((handle, now)) = self.player.as_ref().zip(self.now.clone()) else {
             return;
         };
@@ -2864,7 +2878,7 @@ impl HomeView {
     /// 取流/解码的间隙看到的是这部剧的封面而不是黑屏。
     ///
     /// 返回 `Div`（不是 AnyElement）：调用方要挂滚轮监听与 `.id`。
-    fn render_stage(&self, cx: &Context<Self>) -> gpui_kit::Div {
+    fn render_stage(&self, window: &gpui_kit::Window, cx: &Context<Self>) -> gpui_kit::Div {
         let theme = cx.theme();
         let video_ready = self.frame.is_some() && !self.switching;
         // 视频输出尺寸跟随舞台显示区（上一帧的布局矩形，Paint 后才精确；
@@ -2877,7 +2891,8 @@ impl HomeView {
             self.video_target.set((w as usize, h as usize));
         }
         // 周期状态取证（5s 一跳）：封面收不收、帧/图/切换位各在哪一档，
-        // 一行钉死——排障不用再猜是事件没到还是渲染没跟上。
+        // 一行钉死——排障不用再猜是事件没到还是渲染没跟上。带舞台尺寸
+        //（FFI 缩放后布局是否跟随重排，小屏排障靠它）。
         if self.stage_diag_at.get().elapsed() >= Duration::from_secs(5) {
             self.stage_diag_at.set(Instant::now());
             #[cfg(target_os = "windows")]
@@ -2888,11 +2903,24 @@ impl HomeView {
             );
             #[cfg(not(target_os = "windows"))]
             let image_state = "image=n/a".to_string();
+            let stage_size = self
+                .stage_rects
+                .get()
+                .map(|r| {
+                    format!(
+                        "{}×{}",
+                        r.first().copied().unwrap_or(0.0),
+                        r.get(1).copied().unwrap_or(0.0)
+                    )
+                })
+                .unwrap_or_else(|| "?".into());
             log::info!(
-                "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={}",
+                "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={} 舞台={stage_size} 视口={}×{}",
                 self.frame.is_some(),
                 self.switching,
-                self.epoch
+                self.epoch,
+                window.viewport_size().width.to_f64(),
+                window.viewport_size().height.to_f64()
             );
         }
         // 占位封面取**目标剧**（游标位）：切剧瞬间游标已指向下一部，先出
@@ -3021,9 +3049,16 @@ impl HomeView {
                         .child("缓冲中"),
                 )
         });
-        // 控制条（底部悬浮，鼠标活动时可见）
-        let controls =
-            (self.player.is_some() && self.controls_visible()).then(|| self.render_controls(cx));
+        // 控制条（底部悬浮，鼠标活动时可见）；小屏换紧凑条（Tauri
+        // MiniScreenControls 同款，与同一套状态源协作）
+        let in_mini = self.mini.is_some();
+        let controls = (self.player.is_some() && self.controls_visible()).then(|| {
+            if in_mini {
+                self.render_mini_controls(cx)
+            } else {
+                self.render_controls(cx)
+            }
+        });
         // 弹幕层（画面上方滚动；开着才渲染，层本身不吃任何指针事件）
         let danmaku_layer = (self.danmaku_on && self.player.is_some()).then(|| {
             let stage_w = self
@@ -3078,15 +3113,14 @@ impl HomeView {
                 }))
         });
         // 信息叠加层（左下）：剧名/集数/热度/简介——闲置淡出与控制条
-        // 同时机（Tauri chromeShown 同款，静默期不亮）
-        let overlay = self.controls_visible().then(|| self.render_overlay(cx));
-        // 互动栏（右缘竖排：收藏/评论/点赞/分享）与评论面板（右侧滑出）
-        let rail = self
-            .controls_visible()
-            .then(|| self.render_interaction_rail(cx));
-        let comment_panel = self
-            .comments_panel_open
-            .then(|| self.render_comment_panel(cx));
+        // 同时机（Tauri chromeShown 同款，静默期不亮）；小屏不渲染
+        //（剧名/简介在小窗紧凑条里，见 Tauri miniScreen 面板隐藏同款）
+        let overlay = (!in_mini && self.controls_visible()).then(|| self.render_overlay(cx));
+        // 互动栏（右缘竖排：收藏/评论/点赞/分享）与评论面板（右侧滑出）；
+        // 小屏都收起（Tauri InteractionRail visible={…&& !miniScreen} 同款）
+        let rail = (!in_mini && self.controls_visible()).then(|| self.render_interaction_rail(cx));
+        let comment_panel =
+            (!in_mini && self.comments_panel_open).then(|| self.render_comment_panel(cx));
         let rects = Rc::clone(&self.stage_rects);
         v_flex()
             .flex_1()
@@ -3105,13 +3139,17 @@ impl HomeView {
                         "space" => this.toggle_pause(cx),
                         "left" => this.seek_by(-5.0, cx),
                         "right" => this.seek_by(5.0, cx),
-                        "down" => this.step(1, cx),
-                        "up" => this.step(-1, cx),
+                        // ↑↓ 是信息流切剧——小屏里没有流上下文（Tauri 小屏是
+                        // 纯播放页同款），误触切剧=播放重启，直接吞掉
+                        "down" if this.mini.is_none() => this.step(1, cx),
+                        "up" if this.mini.is_none() => this.step(-1, cx),
                         "f" => this.toggle_fullscreen(window, cx),
-                        // Esc 固定管「退出选中」（Tauri 同款语义）：全屏 →
-                        // 浮层面板 → 连播锁定，逐层退出
+                        // Esc 固定管「退出选中」（Tauri 同款语义）：小屏 →
+                        // 全屏 → 浮层面板 → 连播锁定，逐层退出
                         "escape" => {
-                            if window.is_fullscreen() {
+                            if this.mini.is_some() {
+                                this.exit_mini(window, cx);
+                            } else if window.is_fullscreen() {
                                 window.toggle_fullscreen();
                                 this.fullscreen = false;
                             } else if this.picker_open {
@@ -3138,15 +3176,16 @@ impl HomeView {
             .children(overlay)
             .children(rail)
             .children(comment_panel)
-            // 下载面板（右侧滑出；字段快照由 Render::render 顶层刷新）
+            // 下载面板（右侧滑出；字段快照由 Render::render 顶层刷新）；小屏不带
             .children(
-                (self.downloads_open && self.player.is_some())
+                (self.downloads_open && !in_mini && self.player.is_some())
                     .then(|| self.render_downloads_panel(cx)),
             )
             .children(buffering_badge)
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
-            // 「< 第N集」，点它解除锁定；显隐跟随控制条）
-            .children(self.in_binge().then(|| {
+            // 「< 第N集」，点它解除锁定；显隐跟随控制条）；小屏不渲染
+            //（集数信息在紧凑条里，480 宽叠不下）
+            .children((self.in_binge() && !in_mini).then(|| {
                 let now = self.now.as_ref().expect("in_binge 已验 now 在");
                 h_flex()
                     .id("binge-pill")
@@ -3181,24 +3220,29 @@ impl HomeView {
             }))
             // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层
             // 拦下鼠标下传（舞台的播放/暂停与信息层都不该收到这次点击）
-            .children((self.picker_open && self.player.is_some()).then(|| {
-                div()
-                    .absolute()
-                    .size_full()
-                    .on_mouse_down(
-                        gpui_kit::MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            this.picker_open = false;
-                            this.picker_group_override = None;
-                            cx.stop_propagation();
-                            cx.notify();
-                        }),
-                    )
-                    .into_any_element()
-            }))
+            .children(
+                (self.picker_open && !in_mini && self.player.is_some()).then(|| {
+                    div()
+                        .absolute()
+                        .size_full()
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.picker_open = false;
+                                this.picker_group_override = None;
+                                cx.stop_propagation();
+                                cx.notify();
+                            }),
+                        )
+                        .into_any_element()
+                }),
+            )
             .children(controls)
             // 选集浮层本体（最顶层；自身拦鼠标，点击不落到捕获层）
-            .children((self.picker_open && self.player.is_some()).then(|| self.render_picker(cx)))
+            .children(
+                (self.picker_open && !in_mini && self.player.is_some())
+                    .then(|| self.render_picker(cx)),
+            )
             // 布局哨兵：子层矩形只在这里可见，两次准备绘制之间比对（见字段注释）。
             // 第一个子层是封面槽（恒在、恒为舞台整块），出画时第二个是视频层、
             // 尺寸必须与它一致——不一致就是布局回归。
@@ -4346,6 +4390,17 @@ impl HomeView {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_incognito(cx))),
             )
             .child(
+                // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成
+                // 480×270 落工作区右下角，播放零中断
+                Button::new("stage-mini")
+                    .icon(gpui_kit::assets::IconName::PictureInPicture2)
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.enter_mini(window, cx);
+                    })),
+            )
+            .child(
                 // 全屏切换（Tauri toggleFullscreen 同款；图标随状态换）
                 Button::new("stage-fullscreen")
                     .icon(if self.fullscreen {
@@ -4362,11 +4417,273 @@ impl HomeView {
             .into_any_element()
     }
 
+    /// 小屏紧凑控制条（Tauri MiniScreenControls 对齐）：剧名/集数/简介、
+    /// 进度条、一行紧凑按钮——480×270 里只留最必要的控件。与大屏控制栏
+    /// 共用同一套状态源（player handle / scrubbing / rate / muted）。
+    fn render_mini_controls(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let paused = self.player.as_ref().is_some_and(|p| p.is_paused());
+        let duration = self
+            .player
+            .as_ref()
+            .map(|p| p.duration_secs())
+            .unwrap_or(0.0);
+        let position = self.scrubbing.unwrap_or_else(|| {
+            self.player
+                .as_ref()
+                .map(|p| p.position_secs())
+                .unwrap_or(0.0)
+        });
+        let now = self.now.as_ref();
+        let has_next = now.is_some_and(|n| (n.vid_index as usize) < n.episode_count);
+        let episode_line = now.map(|n| {
+            let mut s = format!("第{}集", n.vid_index);
+            if n.episode_count > 0 {
+                s.push_str(&format!(" · 全{}集", n.episode_count));
+            }
+            if let Some(intro) = self.intros.get(&n.series_id) {
+                s.push(' ');
+                s.push_str(intro);
+            }
+            s
+        });
+        v_flex()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .px_3()
+            .pt_5()
+            .pb_1()
+            .gap_1()
+            .bg(gpui_kit::rgba(0x000000bf))
+            // 与大屏控制条同款：小屏控制条悬浮在画面上，点击/松开都**不能**
+            // 再落到舞台（重叠 bounds 的兄弟分支都会收到鼠标事件）
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _: &gpui_kit::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _: &gpui_kit::MouseUpEvent, _, cx| {
+                    cx.stop_propagation();
+                }),
+            )
+            // 剧名/集数/简介贴着进度条上方（第三方小屏同款两行形态），宽度
+            // 收敛 + 截断（480 宽，长剧名长简介都不挡画面）
+            .child(
+                v_flex()
+                    .max_w(gpui_kit::relative(0.62))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .text_ellipsis()
+                            .child(SharedString::from(format!(
+                                "@{}",
+                                now.map(|n| n.title.as_str()).unwrap_or("")
+                            ))),
+                    )
+                    .children(episode_line.map(|line| {
+                        div()
+                            .text_size(gpui_kit::px(10.0))
+                            .text_color(gpui_kit::rgba(0xffffffcc))
+                            .text_ellipsis()
+                            .child(SharedString::from(line))
+                    })),
+            )
+            // 进度条与大屏共用同一轨道（拖动/点击/scrubbing 状态同源）
+            .child(self.render_progress_track(cx))
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_0p5()
+                    .child(
+                        Button::new("mini-toggle-play")
+                            .icon(if paused {
+                                IconName::Play
+                            } else {
+                                IconName::Pause
+                            })
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_pause(cx))),
+                    )
+                    .child(
+                        Button::new("mini-prev-ep")
+                            .icon(gpui_kit::assets::IconName::SkipBack)
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, _, cx| this.step_episode(-1, cx))),
+                    )
+                    .child(
+                        Button::new("mini-next-ep")
+                            .icon(gpui_kit::assets::IconName::SkipForward)
+                            .ghost()
+                            .xsmall()
+                            .disabled(!has_next)
+                            .on_click(cx.listener(|this, _, _, cx| this.step_episode(1, cx))),
+                    )
+                    .child(
+                        div()
+                            .ml_1()
+                            .text_size(gpui_kit::px(10.0))
+                            .font_family("monospace")
+                            .text_color(gpui_kit::rgba(0xffffffd9))
+                            .child(format!(
+                                "{} / {}",
+                                Self::fmt_secs(position),
+                                Self::fmt_secs(duration)
+                            )),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("mini-rate")
+                            .label(Self::fmt_rate(self.rate))
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, _, cx| this.cycle_rate_mini(cx))),
+                    )
+                    .child(
+                        Button::new("mini-mute")
+                            .icon(if self.muted {
+                                gpui_kit::assets::IconName::VolumeX
+                            } else {
+                                gpui_kit::assets::IconName::Volume2
+                            })
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
+                    )
+                    .child(
+                        Button::new("mini-incognito")
+                            .icon(if self.incognito {
+                                gpui_kit::assets::IconName::Eye
+                            } else {
+                                gpui_kit::assets::IconName::EyeOff
+                            })
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_incognito(cx))),
+                    )
+                    .child(
+                        Button::new("mini-pin")
+                            .icon(if self.pinned {
+                                gpui_kit::assets::IconName::Pin
+                            } else {
+                                gpui_kit::assets::IconName::PinOff
+                            })
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_pinned(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("mini-expand")
+                            .icon(gpui_kit::assets::IconName::Maximize2)
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.exit_mini(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("mini-close")
+                            .icon(gpui_kit::assets::IconName::X)
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.stop_mini(window, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
     /// 全屏切换（Tauri toggleFullscreen 同款）。
     fn toggle_fullscreen(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
         window.toggle_fullscreen();
         self.fullscreen = window.is_fullscreen();
         cx.notify();
+    }
+
+    /// 进入小屏（Tauri enterMini 同款）：浮层全收 + **同一个窗口**缩成
+    /// 480×270 落工作区右下角（`crate::mini`，播放零中断）。全屏先进
+    /// 全屏退出——几何快照才有意义。
+    fn enter_mini(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        if self.mini.is_some() || self.player.is_none() {
+            return;
+        }
+        if window.is_fullscreen() {
+            window.toggle_fullscreen();
+            self.fullscreen = false;
+        }
+        match crate::mini::enter(window, cx) {
+            Some(saved) => {
+                self.mini = Some(saved);
+                crate::mini::set_active(true);
+                // 大屏的浮层带不进 480×270 的小窗：进小屏前一并收掉
+                //（Tauri enterMini 同款）
+                self.comments_panel_open = false;
+                self.dm_panel_open = false;
+                self.downloads_open = false;
+                self.picker_open = false;
+                self.picker_group_override = None;
+                self.volume_popup_open = false;
+                self.wake_controls(cx);
+                log::info!("[Home] 进入小屏 480×270（工作区右下角）");
+            }
+            None => log::warn!("[Home] 进入小屏失败：窗口几何不可用，保持原状"),
+        }
+        cx.notify();
+    }
+
+    /// 退出小屏：按快照还原窗口几何（最大化态一并还原）。
+    fn exit_mini(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        if let Some(saved) = self.mini.take() {
+            crate::mini::exit(window, cx, saved);
+            crate::mini::set_active(false);
+            self.wake_controls(cx);
+            log::info!("[Home] 退出小屏，窗口几何已还原");
+        }
+        cx.notify();
+    }
+
+    /// 关闭小屏（Tauri stopMini 同款：暂停 + 强落进度 + 还原窗口；gpui 壳
+    /// 只有播放流一个根，无需再跳路由）。
+    fn stop_mini(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        if let Some(player) = &self.player
+            && !player.is_paused()
+        {
+            player.pause();
+        }
+        self.save_progress_now();
+        self.exit_mini(window, cx);
+    }
+
+    /// 钉住窗口（Tauri set_always_on_top 同款）：FFI 成功才翻状态，两边
+    /// 不会各说各话。
+    fn toggle_pinned(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        let next = !self.pinned;
+        if crate::mini::set_topmost(window, cx, next) {
+            self.pinned = next;
+            log::info!("[Home] 窗口钉住 → {next}");
+            cx.notify();
+        }
+    }
+
+    /// 小屏里点倍速标签循环档位（Tauri MINI_RATES 同款，完整菜单回大屏）。
+    fn cycle_rate_mini(&mut self, cx: &mut Context<Self>) {
+        const MINI_RATES: [f64; 4] = [1.0, 1.5, 2.0, 3.0];
+        let next = match MINI_RATES.iter().position(|r| (r - self.rate).abs() < 0.01) {
+            Some(i) => MINI_RATES[(i + 1) % MINI_RATES.len()],
+            None => MINI_RATES[0],
+        };
+        self.set_rate(next, cx);
     }
 
     /// 隐身模式开关：一键暂停 + 整窗近透明（恢复显示但不自动续播）。
@@ -4980,8 +5297,10 @@ impl gpui_kit::Render for HomeView {
                 log::warn!("[Home] 纹理回收失败: {e}");
             }
         }
-        // render_tabs 要 &mut cx，先取（theme 借的是 cx 的不可变引用）
-        let tabs = self.render_tabs(cx);
+        // render_tabs 要 &mut cx，先取（theme 借的是 cx 的不可变引用）；
+        // 小屏不渲染顶栏（480×270 里只留播放器，Tauri 小屏同款）
+        let in_mini = self.mini.is_some();
+        let tabs = (!in_mini).then(|| self.render_tabs(cx));
         // 播放快捷键的焦点种子：键盘事件只派发给焦点子树，舞台的
         // FocusHandle 得在首次渲染时拿到焦点（只播种一次——之后焦点可能
         // 在弹层菜单里，每帧强抢会打架；点舞台会带回焦点）。
@@ -5029,7 +5348,7 @@ impl gpui_kit::Render for HomeView {
             .when(self.incognito, |s| s.opacity(0.06))
             // 沉浸流锁死在视口内：任何 1px 超高都会冒出页面滚动条并吃掉滚轮
             .overflow_hidden()
-            .child(tabs)
+            .children(tabs)
             .child(match notice {
                 Some(msg) => v_flex()
                     .flex_1()
@@ -5051,13 +5370,17 @@ impl gpui_kit::Render for HomeView {
                     )
                     .into_any_element(),
                 None => self
-                    .render_stage(cx)
+                    .render_stage(window, cx)
                     .id("home-stage")
                     .on_mouse_move(cx.listener(|this, _: &gpui_kit::MouseMoveEvent, _, cx| {
                         this.wake_controls(cx);
                     }))
                     .on_scroll_wheel(cx.listener(
                         |this, ev: &gpui_kit::ScrollWheelEvent, window, cx| {
+                            // 小屏里滚轮不切剧（纯播放器语义，同 ↑↓ 守卫）
+                            if this.mini.is_some() {
+                                return;
+                            }
                             // Tauri 同参：|Δy|<15 忽略，400ms 冷却在 step 里；
                             // 方向同 Tauri（deltaY>0=下滚=下一部，y<0 即下一部）
                             let y = ev.delta.pixel_delta(window.line_height()).y.to_f64();

@@ -4447,6 +4447,7 @@ dependencies = [
  "hongguo-stream",
  "image",
  "log",
+ "raw-window-handle",
  "reqwest",
  "smallvec",
  "tokio",
