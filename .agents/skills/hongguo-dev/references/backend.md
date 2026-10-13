@@ -1,19 +1,28 @@
 # 后端开发规范（crates/）
 
+壳归属：command 层与 IPC 是 **Tauri 壳专属**（GPUI 壳进程内直调 service，无 command）；service / store / api / stream / media 等 crate **两壳共用**——`crates/hongguo-gpui` 直接构造 `AppStateInner` 消费同一段服务面，壳内规范见 `references/gpui.md`。
+
 ## 分层纪律
 
 ```
-lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
-├─ commands/*_cmd.rs    # 薄：参数校验 + 转调 service，与 service 同名同构
-├─ service/*_service/   # 业务编排（一个服务一个目录）
-└─ app_state.rs         # AppState = Arc<AppStateInner>
+crates/hongguo-tauri（装配 + IPC 薄层）
+├─ lib.rs               # prepare() 产出装好的 Builder：插件/状态/协议/命令注册（generate_handler 在此）
+└─ commands/            # 薄：参数校验 + 转调 service/api（<域>_cmd.rs 或 <域>/ 目录）
+
+crates/hongguo-service（业务编排，无任何 UI 框架，两壳共用）
+├─ <域>_service/        # 九域一个服务一个目录：download/play/merge/login/series/settings/storage/transcode/capability
+├─ app_state.rs         # AppState = Arc<AppStateInner>（Tauri 壳 manage 注入，GPUI 壳直接构造）
+├─ runtime.rs           # 共用任务运行时（后台任务任意线程可派发）
+└─ events.rs            # ServiceEvent 业务事件总线（壳订阅适配，契约见 references/ipc.md 事件节）
 ```
+
+- command 与 service 不是一一镜像：`<域>_cmd.rs` 大多转调同名 service，另有直连 `hongguo_api` 的外呼命令（rank/discover/danmaku…，必须 async）与窗口类命令（window_cmd）。
 
 - 已迁出的 crate：`crates/hongguo-common`（领域模型 `model` / 统一错误 `AppError` / 纯工具 `utils` / 跨端常量 `consts`）、`crates/hongguo-signer`（请求签名，JS 1:1 禁改）、`crates/hongguo-video`（MP4 解析与 CENC 解密）、`crates/hongguo-api`（官方接口客户端，14 域；改端点前必读 `docs/hongguo-api-endpoints.md`）、`crates/hongguo-store`（Turso 持久化：db 迁移 / entity 六组实体 / bridge 同步门面 / 旧档导入与坏档恢复）、`crates/hongguo-stream`（在线流契约：渐进流 / 缓存 / Range 应答 / 进程级 `cache()` 单例）、`crates/hongguo-media`（纯 Rust 编解码：demux / hevc / remux / transcode / heif 等）。本 crate 用 `hongguo_common::…` / `hongguo_signer::…` / `hongguo_video::…` / `hongguo_api::…` / `hongguo_store::…` / `hongguo_stream::…` / `hongguo_media::…` 引用；常量归属规则见 common 的 `consts/mod.rs` 头注释。
 
-- **媒体层三块**：纯 Rust 编解码在 `hongguo-media`；平台硬编（VT / MF / WIC）与 ffmpeg 执行还在本 crate 的 `media/{platform,ffmpeg}`；解码能力探测在 `media/capability`。方向恒为「平台/ffmpeg/能力探测 → 纯 Rust 核心」，不许反向（核心不依赖 tauri）。
+- **媒体层三块**：纯 Rust 编解码在 `hongguo-media`；平台硬编（VT / MF / WIC）与 ffmpeg 执行在 `hongguo-media-platform` 门面（平台实现在 `hongguo-media-platform-{macos,windows}`，`ffmpeg` 外部进程与 `capability` 能力探测聚合并留在此）；帧契约在 `hongguo-media-platform-api`。方向恒为「平台/ffmpeg/能力探测 → 纯 Rust 核心」，不许反向（核心不依赖 tauri/gpui）。
 
-- **在线流的两侧分工（`hongguo-stream` 是唯一交点）**：填数据在 `service/play_service/online.rs`（`hongguo_stream::cache()` 拿全局缓存，塞 `ProgressiveStream` / 明文），答 Range 在 `protocol/register.rs`（`hongguo_stream::serve`）。两边都只往下依赖 stream 契约——**别再让协议层回头调 service**（历史上 `serve` 直接调 `service::play_service::online::cache()`，与 service 用本层类型构成双向耦合，2026-10-11 修掉）。
+- **在线流的两侧分工（`hongguo-stream` 是唯一交点）**：填数据在 `crates/hongguo-service/src/play_service/online/`（`hongguo_stream::cache()` 拿全局缓存，塞 `ProgressiveStream` / 明文），答 Range 的注册胶水在 `crates/hongguo-tauri/src/protocol.rs`（供数逻辑在 `hongguo-protocol` 的 `serve`）。两边都只往下依赖 stream 契约——**别再让协议层回头调 service**（历史上协议层直接调 play_service 的缓存入口，与 service 用本层类型构成双向耦合，2026-10-11 修掉）。
 
 - command 层两条硬纪律（有静态测试扫源码）：禁 `tokio::spawn`/`Handle::current`/`block_on`（主线程 IPC 回调无 Tokio 上下文，会 panic→abort）；起后台任务用 `tauri::async_runtime::spawn`。
 - **锁不跨 await**：`AppStateInner` 的字段全是 `RwLock`（parking_lot，guard 非 Send）。读状态走快照方法 `state.settings()` / `state.queue()` / `state.device()`（clone 出来用），绝不把 guard 带过 await 点。
@@ -23,23 +32,23 @@ lib.rs（只装配：插件/状态/协议/命令注册；模块全私有）
 
 ## 新增 command（五步全链路见 references/ipc.md）
 
-command 样板（storage 链路最短）：
+command 样板（`commands/storage_cmd.rs` 真实节选，链路最短）：
 
 ```rust
 #[tauri::command]
-pub fn get_settings(state: State<'_, AppState>) -> Settings { state.settings() }
+pub fn get_storage_usage(state: State<'_, AppState>) -> StorageUsage {
+    usage::usage(&state)
+}
 
 #[tauri::command]
-pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
-    let normalized = crate::service::settings_service::normalize(settings)?;
-    state.replace_settings(normalized.clone());
-    state.queue().set_limit(normalized.max_concurrency); // 立即生效
-    state.store.save_settings(&normalized)?;             // 落库
-    Ok(normalized)
+pub fn delete_series_files(state: State<'_, AppState>, series_id: String) -> AppResult<usize> {
+    let n = cleanup::delete_series(&state, &series_id)?;
+    after_cleanup(&state)?; // 清理后同步任务状态并落盘
+    Ok(n)
 }
 ```
 
-注册：`lib.rs` 的 `generate_handler![...]` 按注释分组追加。
+注册：`crates/hongguo-tauri/src/lib.rs` 的 `generate_handler![...]` 按注释分组追加。
 
 ## store 层（`crates/hongguo-store`，Turso/SQLite）
 

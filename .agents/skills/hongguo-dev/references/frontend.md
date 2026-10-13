@@ -1,4 +1,6 @@
-# 前端开发规范
+# 前端开发规范（Tauri 壳 · React）
+
+本文件只管 Tauri 壳的 WebView 前端（`src/`）。GPUI 壳的界面规范见 `references/gpui.md`；两壳共用的后端规范见 `references/backend.md`。
 
 ## 目录归属判定
 
@@ -78,7 +80,7 @@ export const useUiStore = create<UiState>()(
 ## i18n
 
 - `t('path.to.key')` 取词条、`tf(path, { vars })` 插值；**资源结构由 zh-CN.json 决定，en-US.json 必须与之完全一致**（type Dict = typeof zhCN 编译期约束）——加词条两个文件都要加。
-- 后端错误 kind 就是 i18n key（`error.network`…），新 AppError 变体要补 `error.*` 词条——**每个 kind 都必须有译文**，两份 locale 同一 commit 补齐，不透传后端原文当文案。
+- 后端错误 kind 就是 i18n key（`error.network`…，定义在 `crates/hongguo-common/src/error.rs`，14 个变体），新 AppError 变体要补 `error.*` 词条——**每个 kind 都必须有译文**，两份 locale 同一 commit 补齐。唯一例外 `Auth`：transparent，消息本身是完整人话（如「登录失败 1202: 验证码错误」），i18n **刻意不提供** `error.auth` 词条，前端透传后端原文（回落逻辑在 `invoke.ts` 的 `localizedMessage`）。
 - 缺词条回落显示 key 本身——比 undefined 好定位。
 
 ## 路由与搜索参数（有真坑）
