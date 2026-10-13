@@ -2311,12 +2311,166 @@ impl HomeView {
                 Ok(hongguo_api::login::LoginOutcome::Mfa(ctx)) => {
                     view.login_busy = false;
                     view.mfa_retry = Some((ctx.retry_tag.clone(), ctx.sms_code_key.clone()));
-                    log::info!("[Login] 需要短信上行验证");
+                    log::info!("[Login] 需要短信上行验证，转后台自动轮询");
                     view.login_message =
-                        Some("风控需短信上行验证：按短信提示回复后，点「重试登录」".into());
+                        Some(hongguo_service::login_service::polling::mfa_tips(&ctx));
+                    view.spawn_mfa_polling(cx);
                     cx.notify();
                 }
             });
+        })
+        .detach();
+    }
+
+    /// MFA 后台自动轮询（Tauri polling::spawn_mfa_polling 的 gpui 编排）：
+    /// 每 3 秒一次 `upsms_verify`，用户回复短信后自动 `mfa_relogin` 落库，
+    /// 全程只更新面板 message（壳无事件总线，message 就是状态出口）。
+    /// 退出条件：5 分钟超时 / 流程被清（取消/退出登录）/ 指纹变更（用户
+    /// 重新发起登录，旧循环自行退出）。
+    fn spawn_mfa_polling(&mut self, cx: &mut Context<Self>) {
+        const MFA_TIMEOUT: Duration = Duration::from_secs(300);
+        const MFA_POLL_INTERVAL: Duration = Duration::from_secs(3);
+        let state = Arc::clone(&self.state);
+        cx.spawn(async move |this, cx| {
+            let deadline = std::time::Instant::now() + MFA_TIMEOUT;
+            let mut round: u32 = 0;
+            loop {
+                if std::time::Instant::now() > deadline {
+                    let _ = this.update(cx, |view, cx| {
+                        view.state.login_mfa.write().take();
+                        view.login_message = Some("5 分钟未确认，登录已超时退出".into());
+                        view.mfa_retry = None;
+                        cx.notify();
+                    });
+                    log::warn!("[Login] MFA 5 分钟未确认，超时退出");
+                    return;
+                }
+                // 流程被清（取消/退出登录）→ 循环退出
+                let Some(flow) = state.login_mfa.read().clone() else {
+                    return;
+                };
+                let fingerprint = (flow.ctx.retry_tag.clone(), flow.ctx.log_id.clone());
+                let env = hongguo_service::login_service::csrf::with_csrf(&state, state.api_env());
+                round += 1;
+                let outcome = hongguo_api::login::upsms_verify(&flow.ctx, &env).await;
+                match outcome {
+                    Ok(hongguo_api::login::UpsmsState::Registered { mfa_token, .. }) => {
+                        log::info!("[Login] MFA 第 {round} 轮 registered，自动重登");
+                        // registered 响应下发新 mfa_token，重登必须带它
+                        let mut ctx = flow.ctx.clone();
+                        ctx.mfa_token = mfa_token;
+                        let relogin = hongguo_api::login::mfa_relogin(
+                            &env,
+                            &flow.mobile,
+                            &flow.code,
+                            &ctx,
+                        )
+                        .await;
+                        match relogin {
+                            Ok(hongguo_api::login::LoginOutcome::Success {
+                                cookies,
+                                user,
+                                token,
+                            }) => {
+                                let account =
+                                    hongguo_service::login_service::account::account_from_login(
+                                        flow.mobile.clone(),
+                                        cookies,
+                                        &user,
+                                        token,
+                                    );
+                                let _ = this.update(cx, |view, cx| {
+                                    if let Err(e) =
+                                        hongguo_service::login_service::account::persist_account(
+                                            &view.state,
+                                            Some(account),
+                                        ) {
+                                        view.login_message =
+                                            Some(format!("账号落库失败：{e}"));
+                                    } else {
+                                        view.login_message =
+                                            Some(format!("登录成功：{}", user.name));
+                                    }
+                                    view.state.login_mfa.write().take();
+                                    view.mfa_retry = None;
+                                    cx.notify();
+                                });
+                                // 后台拉 user_info 刷新昵称/头像（同 login_submit）
+                                let state = Arc::clone(&state);
+                                let _ = this.update(cx, |_, cx| {
+                                    cx.spawn(async move |this, cx| {
+                                        let refreshed = hongguo_service::login_service::account::fetch_and_refresh_user(&state).await;
+                                        let _ = this.update(cx, |view, cx| {
+                                            if let Ok(user) = refreshed {
+                                                view.login_message =
+                                                    Some(format!("登录成功：{}", user.name));
+                                                cx.notify();
+                                            }
+                                        });
+                                    })
+                                    .detach();
+                                });
+                                log::info!(
+                                    "[Login] MFA 自动登录成功: {} ({})",
+                                    user.name,
+                                    user.user_id
+                                );
+                                return;
+                            }
+                            Ok(hongguo_api::login::LoginOutcome::Mfa(next)) => {
+                                // 新一轮验证（换了方式）：替换流程继续等
+                                let _ = this.update(cx, |view, cx| {
+                                    view.state.login_mfa.write().replace(
+                                        hongguo_api::login::MfaFlow {
+                                            ctx: (*next).clone(),
+                                            mobile: flow.mobile.clone(),
+                                            code: flow.code.clone(),
+                                        },
+                                    );
+                                    view.mfa_retry = Some((
+                                        next.retry_tag.clone(),
+                                        next.sms_code_key.clone(),
+                                    ));
+                                    view.login_message =
+                                        Some(hongguo_service::login_service::polling::mfa_tips(
+                                            &next,
+                                        ));
+                                    cx.notify();
+                                });
+                            }
+                            Err(e) => {
+                                let _ = this.update(cx, |view, cx| {
+                                    view.state.login_mfa.write().take();
+                                    view.mfa_retry = None;
+                                    view.login_message = Some(format!("登录失败：{e}"));
+                                    cx.notify();
+                                });
+                                return;
+                            }
+                        }
+                    }
+                    Ok(hongguo_api::login::UpsmsState::Waiting) => {
+                        // 30 秒打一条，用户在等的时候日志可查轮询是否活着
+                        if round % 10 == 1 {
+                            log::info!("[Login] MFA 第 {round} 轮：等待用户回复短信");
+                        }
+                    }
+                    Err(e) => {
+                        // 单次网络抖动不致命：流程还在就继续等，直到超时
+                        log::warn!("[Login] MFA 轮询出错（继续等待）: {e}");
+                    }
+                }
+                // 指纹变了说明用户发起了新登录，旧循环退出
+                let current = state.login_mfa.read().clone();
+                if let Some(cur) = current
+                    && (cur.ctx.retry_tag, cur.ctx.log_id) != fingerprint
+                {
+                    return;
+                }
+                cx.background_executor()
+                    .timer(MFA_POLL_INTERVAL)
+                    .await;
+            }
         })
         .detach();
     }
