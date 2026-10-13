@@ -16,8 +16,8 @@ use hongguo_service::merge_service::{
 
 /// 全部合并任务。
 #[tauri::command]
-pub fn get_merge_tasks(state: State<'_, AppState>) -> Vec<MergeTask> {
-    state.store.merge_tasks().unwrap_or_default()
+pub fn get_merge_tasks(state: State<'_, AppState>) -> AppResult<Vec<MergeTask>> {
+    state.store.merge_tasks()
 }
 
 /// 可合并的剧列表（有已下载分集的那些）。

@@ -18,7 +18,7 @@ pub async fn resolve_play(
     state: &State<'_, AppState>,
     request: &PlayRequest,
 ) -> AppResult<PlayResponse> {
-    let resume_at = position::load(state, &request.series_id, request.vid_index);
+    let resume_at = position::load(state, &request.series_id, request.vid_index)?;
     // 本地文件只有一版，谈不上切清晰度：菜单会拿到空列表而自动隐藏
     let local_response = |url: String, online: bool| PlayResponse {
         url,

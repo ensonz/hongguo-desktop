@@ -30,15 +30,17 @@ pub fn save_store(
 
 /// 读播放位置。看过超过 3 秒就续播那个位置（2026-10-09 用户口径：
 /// 不管片尾——原「接近片尾归零」防线已废，位置保存原本就为它存在）。
-pub fn load(state: &State<'_, AppState>, series_id: &str, vid_index: u32) -> f64 {
-    state
+pub fn load(
+    state: &State<'_, AppState>,
+    series_id: &str,
+    vid_index: u32,
+) -> hongguo_common::AppResult<f64> {
+    Ok(state
         .store
-        .playback_position(series_id, vid_index)
-        .ok()
-        .flatten()
+        .playback_position(series_id, vid_index)?
         .filter(|p| p.is_resumable())
         .map(|p| p.current_time)
-        .unwrap_or(0.0)
+        .unwrap_or(0.0))
 }
 
 #[cfg(test)]

@@ -596,14 +596,21 @@ impl HomeView {
         };
         view.subscribe_controls(cx);
         // 下载队列恢复：running 视为中断改回 pending（Tauri bootstrap 同款），
-        // 然后触发一轮调度把中断的任务续跑起来
+        // 然后触发一轮调度把中断的任务续跑起来。库读取失败只记错误不拦
+        // 启动——壳的其余功能不依赖队列（显式容错：有日志、只此一处）。
         {
-            let tasks = view.state.store.tasks().unwrap_or_default();
-            let limit = view.state.settings().max_concurrency as usize;
-            view.state.replace_queue(
-                hongguo_service::download_service::queue::DownloadQueue::restore(tasks, limit),
-            );
-            crate::downloads::kick(Arc::clone(&view.state));
+            match view.state.store.tasks() {
+                Ok(tasks) => {
+                    let limit = view.state.settings().max_concurrency as usize;
+                    view.state.replace_queue(
+                        hongguo_service::download_service::queue::DownloadQueue::restore(
+                            tasks, limit,
+                        ),
+                    );
+                    crate::downloads::kick(Arc::clone(&view.state));
+                }
+                Err(e) => log::error!("[Home] 下载队列恢复失败，本轮从空队列开始：{e}"),
+            }
         }
         // 取证心跳（HONGGUO_DIAG=1 时启用）：2s 一跳。这行停了 = 主线程/
         // 前台执行器堵死（update 派发不到主线程），render 停跳的根因直接
@@ -1223,7 +1230,7 @@ impl HomeView {
             hongguo_api::detail::fetch_series_meta(&sid, &env)
                 .await
                 .map(|meta| (sid.clone(), meta.intro))
-                .map_err(|_| sid)
+                .map_err(|e| (sid, e))
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
@@ -1234,9 +1241,10 @@ impl HomeView {
                         view.intros.insert(sid, intro);
                     }
                 }
-                Err(sid) => {
-                    // 失败不算数：允许下次起播重试
+                Err((sid, e)) => {
+                    // 失败不算数：允许下次起播重试（rank.rs 同款记一条 warn）
                     view.intros_pending.remove(&sid);
+                    log::warn!("[Home] {sid} 简介拉取失败，下次起播重试：{e}");
                 }
             });
         })
