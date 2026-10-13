@@ -28,8 +28,12 @@ use hongguo_common::{AppError, AppResult};
 
 /// 调度器。
 pub struct DownloadScheduler {
-    /// 一键暂停时置位，让在途任务尽快收尾
+    /// 一键暂停时置位，让在途任务尽快收尾（同时阻断新派发）
     cancel: Arc<AtomicBool>,
+    /// 每任务取消位（单个停止用）：任务 id → 标志。
+    /// 任务收尾时移除；[`Self::cancel_task`] 对尚未登记的任务先建后置位，
+    /// 把「已派发、未开跑」的窗口也盖住。
+    flags: Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
     /// 正在运行的任务数
     running: Arc<Mutex<usize>>,
     throttle: Arc<ProgressThrottle>,
@@ -46,14 +50,18 @@ impl DownloadScheduler {
     pub fn new() -> Self {
         Self {
             cancel: Arc::new(AtomicBool::new(false)),
+            flags: Mutex::new(std::collections::HashMap::new()),
             running: Arc::new(Mutex::new(0)),
             throttle: Arc::new(ProgressThrottle::default()),
         }
     }
 
-    /// 一键暂停：置取消位。
+    /// 一键暂停：置全局取消位，并让在途任务尽快收尾。
     pub fn pause_all(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        for flag in self.flags.lock().values() {
+            flag.store(true, Ordering::SeqCst);
+        }
     }
 
     /// 一键启动：清取消位。
@@ -64,6 +72,18 @@ impl DownloadScheduler {
     /// 是否已取消。
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
+    }
+
+    /// 取消单个任务（真实取消：在途 worker 在下个分片检查点退出）。
+    ///
+    /// 对尚未登记的任务先建后置位——「已派发、未开跑」的窗口里，
+    /// 标志会被 [`Self::execute_inner`] 读到并立即按取消收尾。
+    pub fn cancel_task(&self, id: &str) {
+        self.flags
+            .lock()
+            .entry(id.to_string())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .store(true, Ordering::SeqCst);
     }
 
     /// 调度一轮：把能跑的任务派出去。
@@ -138,7 +158,21 @@ impl DownloadScheduler {
     async fn execute_inner(self: Arc<Self>, state: AppState, task: DownloadTask) {
         let id = task.id.clone();
         let queue = state.queue();
-        let result = run_one(Arc::clone(&self), &state, &task).await;
+        // 每任务取消位：本任务这一轮的标志（worker 在分片边界读取）。
+        // 停止命令可能先于本行到达（cancel_task 先建后置位），所以用
+        // entry 取现值，不覆盖已有的 true。
+        let flag = self
+            .flags
+            .lock()
+            .entry(id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        // 暂停发生在「已派发、未开跑」的窗口：不进入下载，直接按取消收尾
+        if self.is_cancelled() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        let result = run_one(Arc::clone(&self), &state, &task, &flag).await;
+        self.flags.lock().remove(&id);
 
         match result {
             Ok((path, size)) => {
@@ -192,7 +226,12 @@ async fn run_one(
     sched: Arc<DownloadScheduler>,
     state: &AppState,
     task: &DownloadTask,
+    cancel: &AtomicBool,
 ) -> AppResult<(String, u64)> {
+    // 停止/暂停可能在派发后、取流前到达：不再发起任何网络请求
+    if cancel.load(Ordering::SeqCst) {
+        return Err(AppError::Cancelled);
+    }
     let settings = state.settings();
 
     // 1) 取流地址（签名 + 清晰度择优）
@@ -228,7 +267,7 @@ async fn run_one(
         encrypted: play.encrypted,
         key_material: play.key_material,
         settings,
-        cancelled: &sched.cancel,
+        cancelled: cancel,
     };
 
     // 进度回调：在闭包内部取 queue，避免 guard 跨越 await
@@ -286,6 +325,29 @@ mod tests {
         let c = Arc::clone(&s);
         c.cancel.store(true, Ordering::SeqCst);
         assert!(s.is_cancelled(), "克隆应共享同一标志");
+    }
+
+    #[test]
+    fn cancel_task_survives_the_dispatch_window() {
+        // 停一个「已派发、未开跑」的任务：先建后置位，登记时不得被覆盖
+        let s = DownloadScheduler::new();
+        s.cancel_task("t1");
+        let flag = s
+            .flags
+            .lock()
+            .entry("t1".into())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        assert!(flag.load(Ordering::SeqCst), "登记不得把停止位覆盖掉");
+    }
+
+    #[test]
+    fn pause_all_cancels_in_flight_tasks() {
+        let s = DownloadScheduler::new();
+        let flag = Arc::new(AtomicBool::new(false));
+        s.flags.lock().insert("t".into(), Arc::clone(&flag));
+        s.pause_all();
+        assert!(flag.load(Ordering::SeqCst), "在途任务的取消位要被暂停置位");
     }
 
     #[test]

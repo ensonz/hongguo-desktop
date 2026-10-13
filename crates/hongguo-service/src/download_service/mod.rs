@@ -10,6 +10,7 @@
 //! 本文件只做组装：把调度器挂到全局状态上，供 command 层触发。
 
 pub mod events;
+pub mod actions;
 pub mod queue;
 pub mod rescan;
 pub mod scheduler;

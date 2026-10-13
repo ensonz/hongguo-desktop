@@ -40,7 +40,7 @@ impl HomeView {
             "downloads" => {
                 self.downloads_open = true;
                 // 假任务灌进**真实队列**：面板快照由 Render::render 每帧从
-                // 队列读（crate::downloads::tasks_of），直接种 self.downloads
+                // 队列读（state.queue().of_series），直接种 self.downloads
                 // 会被下一帧刷新覆盖。不调 kick，调度不会被触发。
                 let limit = self.state.settings().max_concurrency;
                 self.state.replace_queue(

@@ -55,8 +55,8 @@ impl super::HomeView {
             .unwrap_or_default();
         let rx = bridge::spawn(async move {
             (
-                crate::downloads::tasks_of(&state, &sid),
-                crate::downloads::completed_vids(&state, &sid),
+                state.queue().of_series(&sid),
+                state.queue().completed_vids(&sid),
             )
         });
         cx.spawn(async move |this, cx| {
@@ -75,8 +75,14 @@ impl super::HomeView {
             return;
         };
         let vids: Vec<u32> = (1..=now.episode_count as u32).collect();
-        let added = crate::downloads::enqueue_batch(&self.state, &now.series_id, &vids);
-        log::info!("[Home] 下载入队 {added} 集");
+        match hongguo_service::download_service::actions::enqueue_batch(
+            &self.state,
+            &now.series_id,
+            &vids,
+        ) {
+            Ok(added) => log::info!("[Home] 下载入队 {added} 集"),
+            Err(e) => log::warn!("[Home] 下载入队失败: {e}"),
+        }
         self.refresh_downloads(cx);
         cx.notify();
     }
@@ -215,21 +221,32 @@ impl super::HomeView {
                                     .on_click({
                                         let id = id.clone();
                                         cx.listener(move |this, _, _, cx| {
-                                            if is_retry {
-                                                crate::downloads::retry_task(&this.state, &id);
+                                            // 编排在 service（真实取消 + 事件 +
+                                            // 落盘）；这里只在失败时留日志
+                                            let r = if is_retry {
+                                                hongguo_service::download_service::actions::retry_task(
+                                                    &this.state,
+                                                    &id,
+                                                )
+                                                .map(|_| ())
                                             } else {
-                                                crate::downloads::stop_task(&this.state, &id);
+                                                hongguo_service::download_service::actions::stop_task(
+                                                    &this.state,
+                                                    &id,
+                                                )
+                                            };
+                                            if let Err(e) = r {
+                                                log::warn!("[Home] 下载操作失败: {e}");
                                             }
                                             // 立即刷新快照（进度靠 Frame 事件，
                                             // 状态翻转不等下一次渲染）
-                                            this.downloads = Arc::new(crate::downloads::tasks_of(
-                                                &this.state,
-                                                &this
-                                                    .now
-                                                    .as_ref()
-                                                    .map(|n| n.series_id.clone())
-                                                    .unwrap_or_default(),
-                                            ));
+                                            let sid = this
+                                                .now
+                                                .as_ref()
+                                                .map(|n| n.series_id.clone())
+                                                .unwrap_or_default();
+                                            this.downloads =
+                                                Arc::new(this.state.queue().of_series(&sid));
                                             cx.notify();
                                         })
                                     })
@@ -259,14 +276,12 @@ impl super::HomeView {
     #[cfg(feature = "screenshot")]
     pub(crate) fn debug_open_downloads(&mut self, cx: &mut Context<Self>) {
         self.downloads_open = true;
-        self.downloads = Arc::new(crate::downloads::tasks_of(
-            &self.state,
-            &self
-                .now
-                .as_ref()
-                .map(|n| n.series_id.clone())
-                .unwrap_or_default(),
-        ));
+        let sid = self
+            .now
+            .as_ref()
+            .map(|n| n.series_id.clone())
+            .unwrap_or_default();
+        self.downloads = Arc::new(self.state.queue().of_series(&sid));
         cx.notify();
     }
 }

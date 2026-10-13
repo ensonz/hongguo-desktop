@@ -500,7 +500,7 @@ impl HomeView {
                             tasks, limit,
                         ),
                     );
-                    crate::downloads::kick(Arc::clone(&view.state));
+                    hongguo_service::download_service::kick(view.state.clone());
                 }
                 Err(e) => log::error!("[Home] 下载队列恢复失败，本轮从空队列开始：{e}"),
             }
@@ -707,8 +707,8 @@ impl gpui_kit::Render for HomeView {
                 .as_ref()
                 .map(|n| n.series_id.clone())
                 .unwrap_or_default();
-            self.downloads = Arc::new(crate::downloads::tasks_of(&self.state, &sid));
-            self.done_vids = Arc::new(crate::downloads::completed_vids(&self.state, &sid));
+            self.downloads = Arc::new(self.state.queue().of_series(&sid));
+            self.done_vids = Arc::new(self.state.queue().completed_vids(&sid));
         }
         // 全屏态图标跟随（Render::render 有 window 可查）
         self.fullscreen = window.is_fullscreen();
