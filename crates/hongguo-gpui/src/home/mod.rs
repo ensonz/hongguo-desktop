@@ -316,6 +316,8 @@ pub struct HomeView {
     /// 指针悬在控制栏本体上：控件不倒计时（拖进度条/悬停音量时永不收，
     /// Tauri controlsHovered 同款；大小屏两套控制条都置位）。
     controls_hovered: bool,
+    /// 指针悬在进度轨道上（滑块圆点显示开关，Tauri ScrubBar 同款）。
+    progress_hovered: bool,
     /// 自动连播静默起步（Tauri quietStart 同款）：连播切集到新集首帧或
     /// 用户真实输入之间，一切悬浮层不亮（面板照常）。
     silent_until_input: bool,
@@ -418,7 +420,7 @@ impl HomeView {
             danmaku_last_pos: 0.0,
             danmaku_last_tick: None,
             dm_rng: 0x853c49e6748fea9b,
-            danmaku_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("弹幕内容"))),
+            danmaku_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("发送弹幕…"))),
             danmaku_sending: false,
             danmaku_clear_input: false,
             dm_opacity_slider: cx.new(|_| {
@@ -501,6 +503,7 @@ impl HomeView {
             controls_until: None,
             pointer_on_stage: false,
             controls_hovered: false,
+            progress_hovered: false,
             silent_until_input: false,
             progress_bounds: Rc::new(Cell::new(None)),
             wheel_at: None,

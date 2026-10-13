@@ -19,6 +19,8 @@ struct RailItem {
     active_color: gpui_kit::Rgba,
     /// 无计数项的文案（分享 → 「分享」）。
     label: Option<&'static str>,
+    /// 悬停 tooltip（悬停变手型 + 提示）。
+    tooltip: &'static str,
 }
 
 impl super::HomeView {
@@ -46,8 +48,19 @@ impl super::HomeView {
             let counts = rx.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, _| {
                 if let Some((comment_count, digg_count)) = counts {
+                    // info 常驻：点赞数不显示类问题的第一现场（档案里有没有
+                    // 这两个计数，一行钉死）
+                    log::info!(
+                        "[Home] 集级公开计数（{}#{}）：评论={} 点赞={}",
+                        view.now.as_ref().map(|n| n.series_id.as_str()).unwrap_or("?"),
+                        view.now.as_ref().map(|n| n.vid_index).unwrap_or(0),
+                        comment_count,
+                        digg_count
+                    );
                     view.ep_comment_count = comment_count;
                     view.ep_digg_count = digg_count;
+                } else {
+                    log::warn!("[Home] 集级公开计数：档案里找不到当前集");
                 }
             });
         })
@@ -271,18 +284,22 @@ impl super::HomeView {
                     active: collected,
                     active_color: gpui_kit::rgba(0xfacc15ff),
                     label: None,
+                    tooltip: "收藏",
                 },
+                cx,
                 cx.listener(|this, _, _, cx| this.toggle_collect(cx)),
             ))
             .child(self.rail_item(
                 "comments",
                 RailItem {
-                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::MessageSquare),
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::MessageCircleMore),
                     count: comment_count,
                     active: false,
                     active_color: gpui_kit::rgba(0xffffffff),
                     label: None,
+                    tooltip: "评论",
                 },
+                cx,
                 cx.listener(|this, _, _, cx| this.toggle_comments_panel(cx)),
             ))
             .child(self.rail_item(
@@ -293,7 +310,9 @@ impl super::HomeView {
                     active: digged,
                     active_color: gpui_kit::rgba(0xef4444ff),
                     label: None,
+                    tooltip: "点赞",
                 },
+                cx,
                 cx.listener(|this, _, _, cx| this.toggle_digg(cx)),
             ))
             .child(self.rail_item(
@@ -304,7 +323,9 @@ impl super::HomeView {
                     active: false,
                     active_color: gpui_kit::rgba(0xffffffff),
                     label: Some("分享"),
+                    tooltip: "分享",
                 },
+                cx,
                 cx.listener(|this, _, _, cx| this.share_series(cx)),
             ))
             .into_any_element()
@@ -316,6 +337,7 @@ impl super::HomeView {
         &self,
         id: &'static str,
         item: RailItem,
+        cx: &Context<Self>,
         on_click: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
     ) -> gpui_kit::AnyElement {
         let RailItem {
@@ -324,7 +346,9 @@ impl super::HomeView {
             active,
             active_color,
             label,
+            tooltip,
         } = item;
+        let tooltip = tooltip.to_string();
         div()
             .id(ElementId::from(format!("rail-{id}")))
             .flex()
@@ -337,6 +361,17 @@ impl super::HomeView {
             } else {
                 gpui_kit::rgb(0xffffff)
             })
+            .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx))
+            // 互动栏悬浮在画面之上，而 gpui 对重叠 bounds 的兄弟分支都会派发
+            // 鼠标事件——不拦的话点互动键会同时触发「点画面暂停」
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
             .on_click(on_click)
             .child(icon.size_7().text_color(if active {
                 active_color

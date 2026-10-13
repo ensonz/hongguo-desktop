@@ -133,7 +133,18 @@ impl super::HomeView {
         } else {
             item.horiz_cover.clone()
         };
-        let sid = item.series_id.clone();
+        self.load_cover(item.series_id.clone(), remote, cx);
+    }
+
+    /// 懒加载一张剧封面进 covers 表（全屏占位与选集系列剧卡片共用；
+    /// HEIC 签名 URL 走 cover 管线，失败静默允许重试）。
+    pub(super) fn load_cover(
+        &mut self,
+        series_id: String,
+        remote: String,
+        cx: &mut Context<Self>,
+    ) {
+        let sid = series_id.clone();
         if remote.is_empty()
             || self.covers.contains_key(&sid)
             || !self.covers_pending.insert(sid.clone())
@@ -258,12 +269,14 @@ impl super::HomeView {
                 })
                 .unwrap_or_else(|| "?".into());
             log::info!(
-                "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={} 舞台={stage_size} 视口={}×{}",
+                "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={} 舞台={stage_size} 视口={}×{} 播放={:.1}/{}s",
                 self.frame.is_some(),
                 self.switching,
                 self.epoch,
                 window.viewport_size().width.to_f64(),
-                window.viewport_size().height.to_f64()
+                window.viewport_size().height.to_f64(),
+                self.player.as_ref().map(|p| p.position_secs()).unwrap_or(0.0),
+                self.player.as_ref().map(|p| p.duration_secs()).unwrap_or(0.0),
             );
         }
         // 占位封面取**目标剧**（游标位）：切剧瞬间游标已指向下一部，先出
@@ -382,7 +395,7 @@ impl super::HomeView {
                 .into_any_element()
         };
         // 缓冲角标（右上）：引擎水位状态机的 Buffering 事件驱动，区别于左上
-        // 的切剧提示
+        // 的切剧提示；压在画面上，拦下鼠标（不拦点它=点画面暂停）
         let buffering_badge = (self.buffering && self.player.is_some()).then(|| {
             h_flex()
                 .absolute()
@@ -393,6 +406,14 @@ impl super::HomeView {
                 .py_1()
                 .rounded(theme.radius)
                 .bg(gpui_kit::rgba(0x000000aa))
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                )
+                .on_mouse_up(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                )
                 .child(Spinner::new())
                 .child(
                     div()
@@ -537,9 +558,9 @@ impl super::HomeView {
             )
             .children(buffering_badge)
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
-            // 「< 第N集」，点它解除锁定；显隐跟随控制条）；小屏不渲染
+            // 「< 第N集」，点它解除锁定；显隐跟随悬浮层总闸）；小屏不渲染
             //（集数信息在紧凑条里，480 宽叠不下）
-            .children((self.in_binge() && !in_mini).then(|| {
+            .children((self.in_binge() && !in_mini && self.controls_visible()).then(|| {
                 let now = self.now.as_ref().expect("in_binge 已验 now 在");
                 h_flex()
                     .id("binge-pill")
@@ -649,6 +670,14 @@ impl super::HomeView {
                         .py_1()
                         .rounded(theme.radius)
                         .bg(gpui_kit::rgba(0x000000aa))
+                        .on_mouse_down(
+                            gpui_kit::MouseButton::Left,
+                            cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                        )
+                        .on_mouse_up(
+                            gpui_kit::MouseButton::Left,
+                            cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                        )
                         .child(
                             div().text_xs().text_color(theme.muted_foreground).child(
                                 self.pending_title

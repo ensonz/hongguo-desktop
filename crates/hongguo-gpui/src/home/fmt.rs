@@ -66,4 +66,16 @@ impl super::HomeView {
         }
         format!("{n}")
     }
+
+    /// 播放量格式化（系列剧卡片数据行）：对齐 Tauri `formatPlayCount`
+    /// （亿/万阶梯，详情页头部同源口径）。
+    pub(super) fn fmt_play_count(n: i64) -> String {
+        if n >= 100_000_000 {
+            return format!("{:.1}亿", n as f64 / 100_000_000.0).replace(".0", "");
+        }
+        if n >= 10_000 {
+            return format!("{:.1}万", n as f64 / 10_000.0).replace(".0", "");
+        }
+        format!("{n}")
+    }
 }

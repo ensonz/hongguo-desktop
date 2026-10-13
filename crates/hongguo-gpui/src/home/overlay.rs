@@ -27,6 +27,17 @@ impl super::HomeView {
             .left_3()
             .max_w(gpui_kit::relative(0.62))
             .gap_1()
+            // 信息层压在画面上：整块拦下鼠标（gpui 重叠兄弟分支都派发，
+            // 不拦点信息文字会同时触发「点画面暂停」；子级的标题/展开钮
+            // 另有自己的拦与点击）
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
             .children(heat.map(|h| {
                 // 热度行（hgplayer 同款：剧名上方，琥珀色）
                 div()

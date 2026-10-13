@@ -660,30 +660,37 @@ impl super::HomeView {
     }
 
     /// 进度轨道（自绘）：细条填充按播放位置实时走（帧事件驱动重渲染）；
-    /// 点击即跳转，按住拖动为预览（时间读数跟手），松手才 seek——对齐
-    /// Tauri 版「拖动不抢播、松手定位」。轨道矩形经 prepainted 哨兵存取，
-    /// 拖动事件只带窗口坐标。
+    /// 悬停加粗并亮出滑块圆点（Tauri ScrubBar 同款）；点击即跳转，按住
+    /// 拖动为预览（时间读数跟手），松手才 seek。轨道矩形经 prepainted
+    /// 哨兵存取，拖动事件只带窗口坐标。
     pub(super) fn render_progress_track(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let duration = self
             .player
             .as_ref()
             .map(|p| p.duration_secs())
             .unwrap_or(0.0);
-        let position = self.scrubbing.unwrap_or_else(|| {
-            self.player
-                .as_ref()
-                .map(|p| p.position_secs())
-                .unwrap_or(0.0)
-        });
+        // 显示位置钳在时长内：挂钟收尾时钟会轻微越过结尾（~1s），不钳的
+        // 话时间读数会走出「043/0:59 → 1:01/0:59」这种对不上的观感
+        let position = self
+            .scrubbing
+            .unwrap_or_else(|| {
+                self.player
+                    .as_ref()
+                    .map(|p| p.position_secs())
+                    .unwrap_or(0.0)
+            })
+            .min(duration.max(0.0));
         let frac = if duration > 0.0 {
             (position / duration).clamp(0.0, 1.0)
         } else {
             0.0
         };
         let bounds = Rc::clone(&self.progress_bounds);
+        let hovered = self.progress_hovered;
         h_flex()
             .flex_1()
             .items_center()
+            .cursor_pointer()
             // 命中区加高（好点），视觉条只有 4px
             .h_4()
             .relative()
@@ -703,7 +710,18 @@ impl super::HomeView {
                             .w(gpui_kit::relative(frac as f32))
                             .rounded_full()
                             .bg(gpui_kit::rgb(0xffffff)),
-                    ),
+                    )
+                    // 滑块圆点（Tauri ScrubBar 同款：悬停轨道才亮）
+                    .children(hovered.then(|| {
+                        div()
+                            .absolute()
+                            .top(gpui_kit::px(-4.0))
+                            .left(gpui_kit::relative(frac as f32))
+                            .ml(gpui_kit::px(-6.0))
+                            .size_3()
+                            .rounded_full()
+                            .bg(gpui_kit::rgb(0xffffff))
+                    })),
             )
             // prepainted 哨兵是 Div 的方法：必须在 .id() 变 Stateful 之前挂
             .on_children_prepainted(move |children, _window, _cx| {
@@ -713,6 +731,12 @@ impl super::HomeView {
                 }
             })
             .id("stage-progress-track")
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if this.progress_hovered != *hovered {
+                    this.progress_hovered = *hovered;
+                    cx.notify();
+                }
+            }))
             .on_mouse_down(
                 gpui_kit::MouseButton::Left,
                 cx.listener(|this, ev: &gpui_kit::MouseDownEvent, _window, cx| {

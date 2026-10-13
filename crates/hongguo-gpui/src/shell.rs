@@ -202,13 +202,42 @@ impl Shell {
 
     // —— 渲染 ——
 
-    /// 顶栏（组件库 TitleBar 拉到 44px，Tauri app-shell 的 header 同位）：
-    /// 应用名居左；首页的分类 tab 绝对居中（Tauri portal 插槽同位，居中层
-    /// 用 w_fit——只有 tab 本体拦鼠标，其余带仍可拖窗）；置顶居右（Tauri
-    /// usePinWindow 同款，与播放器小屏钉住共用同一份窗口 FFI 与状态）。
-    fn render_title_bar(&mut self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    /// 顶栏（Tauri app-shell header 同位，40px）：应用名 | tab 居中 | 置顶
+    /// | 窗口钮。
+    ///
+    /// **为什么不用组件库 TitleBar**：它把整条 bar 标成
+    /// `WindowControlArea::Drag`，gpui 的原生命中测试把落在这条栏里的一切
+    /// 点击都判成 HTCAPTION 交给系统拖拽——自家窗口钮有 Min/Max/Close 标记
+    /// 才幸免，我们的 tab/置顶全被吞（Tauri 端 window-controls.tsx 注释的
+    /// 同一个坑：宿主拖拽区里的按钮必须自己排除）。所以这里自绘切区：
+    /// 拖拽只标在空白段（应用名 + 两条 flex 空带），可点控件是拖拽区里的
+    /// 岛屿；窗口钮自己标 Min/Max/Close，行为仍走原生命中测试。
+    fn render_title_bar(
+        &mut self,
+        window: &gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        // theme 借 cx，先拷出本段要用的色值再建 listener 闭包
+        let theme = cx.theme();
+        let (fg, muted_fg, secondary_hover, danger, bg, border) = (
+            theme.foreground,
+            theme.muted_foreground,
+            theme.secondary_hover,
+            theme.danger,
+            theme.background,
+            theme.border,
+        );
         let active_source = self.feed.read(cx).active_source();
         let pinned = self.feed.read(cx).pinned_window();
+        let maximized = window.is_maximized();
+        // 双 flex_1 空带夹住 tab：宽度相等 → tab 真居中，两条空带都是拖拽区
+        let drag_spacer = |id: &'static str| {
+            div()
+                .id(id)
+                .flex_1()
+                .h_full()
+                .window_control_area(gpui_kit::WindowControlArea::Drag)
+        };
         let tabs = (self.dest == Dest::Home).then(|| {
             h_flex()
                 .gap_2()
@@ -228,46 +257,95 @@ impl Shell {
                 }))
                 .into_any_element()
         });
-        gpui_kit::component::TitleBar::new()
-            .h(gpui_kit::px(44.0))
+        // 窗口钮（Windows 惯例）：方钮等宽，关闭 hover 红底；动作由平台在
+        // 对应 WindowControlArea 的原生命中测试里完成，这里只管外观
+        let window_button = |id: &'static str,
+                             icon: IconName,
+                             area: gpui_kit::WindowControlArea,
+                             tooltip: &'static str,
+                             danger_hue: bool| {
+            div()
+                .id(ElementId::from(id))
+                .window_control_area(area)
+                .flex()
+                .items_center()
+                .justify_center()
+                .w(gpui_kit::px(44.0))
+                .h_full()
+                .text_color(muted_fg)
+                .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+                .hover(|s| {
+                    s.text_color(fg).bg(if danger_hue { danger } else { secondary_hover })
+                })
+                .child(gpui_kit::component::Icon::new(icon).small())
+                .into_any_element()
+        };
+        h_flex()
+            .id("title-bar")
+            .h(gpui_kit::px(40.0))
+            .w_full()
+            .flex_shrink_0()
+            .items_center()
+            .bg(bg)
+            .border_b_1()
+            .border_color(border)
             .child(
-                // 三段流式布局：应用名 | tab 居中（flex_1）| 置顶。两端的宽
-                // 度近似对称（应用名 ~40px vs 置顶钮 ~32px），flex 居中的
-                // 偏移可忽略；不做绝对定位居中——那会横贯整条顶栏，空白带
-                // 会拦掉拖窗区
-                h_flex()
-                    .flex_1()
+                // 应用名段（拖拽区；双击 = 原生最大化）
+                div()
+                    .id("title-bar-name")
+                    .window_control_area(gpui_kit::WindowControlArea::Drag)
                     .h_full()
+                    .flex()
                     .items_center()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                            .child("红果"),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .flex()
-                            .justify_center()
-                            .children(tabs),
-                    )
-                    .child(
-                        Button::new("topbar-pin")
-                            .icon(if pinned {
-                                IconName::Pin
-                            } else {
-                                IconName::PinOff
-                            })
-                            .ghost()
-                            .small()
-                            .tooltip(if pinned { "取消置顶" } else { "置顶窗口" })
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.feed
-                                    .update(cx, |home, cx| home.toggle_pinned(window, cx));
-                            })),
-                    ),
+                    .pl_3()
+                    .pr_2()
+                    .text_sm()
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .child("红果"),
             )
+            .child(drag_spacer("title-bar-drag-l"))
+            .children(tabs)
+            .child(drag_spacer("title-bar-drag-r"))
+            .child(
+                Button::new("topbar-pin")
+                    .icon(if pinned {
+                        IconName::Pin
+                    } else {
+                        IconName::PinOff
+                    })
+                    .ghost()
+                    .small()
+                    .tooltip(if pinned { "取消置顶" } else { "置顶窗口" })
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.feed
+                            .update(cx, |home, cx| home.toggle_pinned(window, cx));
+                    })),
+            )
+            .child(window_button(
+                "titlebar-min",
+                IconName::WindowMinimize,
+                gpui_kit::WindowControlArea::Min,
+                "最小化",
+                false,
+            ))
+            .child(window_button(
+                "titlebar-max",
+                if maximized {
+                    IconName::WindowRestore
+                } else {
+                    IconName::WindowMaximize
+                },
+                gpui_kit::WindowControlArea::Max,
+                if maximized { "向下还原" } else { "最大化" },
+                false,
+            ))
+            .child(window_button(
+                "titlebar-close",
+                IconName::WindowClose,
+                gpui_kit::WindowControlArea::Close,
+                "关闭",
+                true,
+            ))
             .into_any_element()
     }
 
@@ -288,6 +366,7 @@ impl Shell {
                 .px_3()
                 .py(gpui_kit::px(7.0))
                 .text_sm()
+                .cursor_pointer()
                 .when(collapsed, |s| s.justify_center().px_0())
                 .text_color(if active {
                     theme.foreground
@@ -352,6 +431,7 @@ impl Shell {
                             .px_3()
                             .py(gpui_kit::px(7.0))
                             .text_sm()
+                            .cursor_pointer()
                             .text_color(theme.muted_foreground)
                             .hover(|s| s.bg(theme.secondary_hover))
                             .when(collapsed, |s| s.justify_center().px_0())
@@ -441,7 +521,7 @@ impl Shell {
 impl gpui_kit::Render for Shell {
     fn render(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
         // chrome 全藏的两种形态：小屏播放（480×270 纯播放器，Tauri 小屏
@@ -452,7 +532,7 @@ impl gpui_kit::Render for Shell {
         let chrome_hidden = in_mini || immersive;
         // 先建好所有吃 cx 的闭包/子渲染，再取 theme（theme 借 cx，两者不能
         // 交叠——闭包里要 &mut Context）
-        let title_bar = (!chrome_hidden).then(|| self.render_title_bar(cx));
+        let title_bar = (!chrome_hidden).then(|| self.render_title_bar(window, cx));
         let sidebar = (!chrome_hidden).then(|| self.render_sidebar(cx));
         let content = self.render_content(cx);
         let theme = cx.theme();

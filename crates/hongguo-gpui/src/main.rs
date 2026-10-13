@@ -104,7 +104,8 @@ fn main() {
             gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
             let bounds = gpui_kit::Bounds::centered(
                 None,
-                gpui_kit::size(gpui_kit::px(1024.), gpui_kit::px(680.)),
+                // 默认窗口与 Tauri conf 同参（1280×840，最小 1024×680）
+                gpui_kit::size(gpui_kit::px(1280.), gpui_kit::px(840.)),
                 cx,
             );
             // 默认构建用不到这个句柄（只有 screenshot feature 抓帧要），

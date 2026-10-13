@@ -13,7 +13,7 @@ use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::*;
-use gpui_kit::{ElementId, SharedString, div};
+use gpui_kit::{ElementId, ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_api::detail::{RelatedItem, fetch_related_series};
 use hongguo_api::reservation::{fetch_reservations, reserve_series};
 
@@ -43,8 +43,12 @@ impl super::HomeView {
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
-            let _ = this.update(cx, |view, _| match result {
+            let _ = this.update(cx, |view, cx| match result {
                 Ok(works) => {
+                    // 季卡片封面走同一张 covers 表（懒加载，与全屏占位同源）
+                    for item in &works {
+                        view.load_cover(item.series_id.clone(), item.cover.clone(), cx);
+                    }
                     view.related_seasons
                         .insert(series_id.clone(), Arc::new(works));
                 }
@@ -430,8 +434,10 @@ impl super::HomeView {
         .detach();
     }
 
-    /// 系列剧 tab：各季卡片（当前季红框高亮「播放中」；未上线季灰卡
-    /// 「即将上线」+ 预约按钮；可播季点击换剧）。封面用首字圆形占位。
+    /// 系列剧 tab：各季卡片（Tauri EpisodePicker 同款：封面 + 剧名 +
+    /// 「tag · 全N集 · 播放量」数据行，右侧 播放中/预约/播放 三态；当前季
+    /// 红框高亮，可播季点击换剧，浮层不关）。封面走 covers 表（HEIC 签名
+    /// URL 经 cover 管线，拉取在 load_related_seasons 完成处发起）。
     fn render_seasons_tab(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let (current_sid, seasons) = self.seasons_of();
         v_flex()
@@ -445,13 +451,25 @@ impl super::HomeView {
                     gpui_kit::rgba(0x00000000)
                 };
                 let sid_click = item.series_id.clone();
-                v_flex()
+                let cover = self.covers.get(&item.series_id).cloned();
+                let mut meta: Vec<String> = Vec::new();
+                if !item.tag.is_empty() {
+                    meta.push(item.tag.clone());
+                }
+                if item.episode_cnt > 0 {
+                    meta.push(format!("全{}集", item.episode_cnt));
+                }
+                if item.play_cnt > 0 {
+                    meta.push(format!("{}次播放", Self::fmt_play_count(item.play_cnt)));
+                }
+                h_flex()
                     .id(gpui_kit::ElementId::from(format!(
                         "season-{}",
                         item.series_id
                     )))
+                    .items_center()
+                    .gap_2p5()
                     .p_2p5()
-                    .gap_1()
                     .rounded(gpui_kit::px(8.0))
                     .border_1()
                     .border_color(border_color)
@@ -468,31 +486,27 @@ impl super::HomeView {
                         }))
                     })
                     .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                // 季号方块（当前季红底）
-                                div()
-                                    .size_7()
-                                    .rounded(gpui_kit::px(4.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(if current {
-                                        gpui_kit::rgba(0xef4444ff)
-                                    } else {
-                                        gpui_kit::rgba(0x404040ff)
-                                    })
-                                    .text_xs()
-                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                    .text_color(gpui_kit::rgb(0xffffff))
-                                    .child(format!("{no}")),
-                            )
+                        // 封面（竖版 40×56；未就绪给底色占位，到位即换）
+                        div()
+                            .h(gpui_kit::px(56.0))
+                            .w(gpui_kit::px(40.0))
+                            .flex_shrink_0()
+                            .overflow_hidden()
+                            .rounded(gpui_kit::px(6.0))
+                            .bg(gpui_kit::rgba(0x333333cc))
+                            .children(cover.map(|bitmap| {
+                                img(ImageSource::Render(bitmap))
+                                    .size_full()
+                                    .object_fit(ObjectFit::Cover)
+                            })),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
                             .child(
                                 div()
-                                    .flex_1()
-                                    .min_w_0()
                                     .text_sm()
                                     .font_weight(gpui_kit::FontWeight::MEDIUM)
                                     .text_color(gpui_kit::rgb(0xffffff))
@@ -503,84 +517,100 @@ impl super::HomeView {
                                         item.title.clone()
                                     })),
                             )
-                            .children(current.then(|| {
-                                div()
-                                    .text_xs()
-                                    .font_weight(gpui_kit::FontWeight::MEDIUM)
-                                    .text_color(gpui_kit::rgb(0xef4444))
-                                    .child("播放中")
-                            }))
-                            .children(unreleased.then(|| {
-                                // 未上线季：预约按钮（Tauri BellRing 圆胶囊同款；
-                                // 已预约置灰禁点，预约在途防重复）
-                                let sid = item.series_id.clone();
-                                let reserved = self.reserved_ids.contains(&item.series_id);
-                                let pending = self.reserve_pending.contains(&item.series_id);
-                                div()
-                                    .id(gpui_kit::ElementId::from(format!(
-                                        "season-reserve-{}",
-                                        item.series_id
-                                    )))
-                                    .h_7()
-                                    .px_3()
-                                    .rounded_full()
-                                    .border_1()
-                                    .border_color(if reserved {
-                                        gpui_kit::rgba(0xffffff26)
-                                    } else {
-                                        gpui_kit::rgba(0x525252ff)
-                                    })
-                                    .flex()
+                            .child(
+                                h_flex()
                                     .items_center()
                                     .gap_1p5()
-                                    .text_xs()
-                                    .text_color(if reserved {
-                                        gpui_kit::rgba(0xffffff73)
-                                    } else {
-                                        gpui_kit::rgb(0xffffff)
-                                    })
-                                    .when(!reserved && !pending, |s| {
-                                        s.cursor_pointer()
-                                            .hover(|s| s.bg(gpui_kit::rgba(0x333333cc)))
-                                    })
-                                    .when(!reserved && !pending, |s| {
-                                        s.on_click(cx.listener(move |this, _, _, cx| {
-                                            this.reserve_season(sid.clone(), cx);
-                                        }))
-                                    })
-                                    .child(Icon::new(gpui_kit::assets::IconName::BellRing).size_3())
-                                    .child(if reserved {
-                                        "已预约"
-                                    } else if pending {
-                                        "预约中…"
-                                    } else {
-                                        "预约"
-                                    })
-                            })),
+                                    .children(unreleased.then(|| {
+                                        div()
+                                            .px_1()
+                                            .rounded(gpui_kit::px(2.0))
+                                            .bg(gpui_kit::rgba(0xef4444e6))
+                                            .text_size(gpui_kit::px(10.0))
+                                            .line_height(gpui_kit::relative(1.45))
+                                            .text_color(gpui_kit::rgb(0xffffff))
+                                            .child("即将上线")
+                                    }))
+                                    .child(
+                                        div()
+                                            .text_size(gpui_kit::px(11.0))
+                                            .text_color(gpui_kit::rgba(0xa3a3a3ff))
+                                            .truncate()
+                                            .child(SharedString::from(meta.join(" · "))),
+                                    ),
+                            ),
                     )
-                    .child(
-                        h_flex()
+                    .children(current.then(|| {
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .font_weight(gpui_kit::FontWeight::MEDIUM)
+                            .text_color(gpui_kit::rgb(0xef4444))
+                            .child("播放中")
+                    }))
+                    .children((unreleased && !current).then(|| {
+                        // 未上线季：预约按钮（Tauri BellRing 圆胶囊同款；
+                        // 已预约置灰禁点，预约在途防重复）
+                        let sid = item.series_id.clone();
+                        let reserved = self.reserved_ids.contains(&item.series_id);
+                        let pending = self.reserve_pending.contains(&item.series_id);
+                        div()
+                            .id(gpui_kit::ElementId::from(format!(
+                                "season-reserve-{}",
+                                item.series_id
+                            )))
+                            .h_7()
+                            .px_3()
+                            .rounded_full()
+                            .border_1()
+                            .border_color(if reserved {
+                                gpui_kit::rgba(0xffffff26)
+                            } else {
+                                gpui_kit::rgba(0x525252ff)
+                            })
+                            .flex()
                             .items_center()
-                            .gap_2()
-                            .children((!item.tag.is_empty()).then(|| {
-                                div()
-                                    .text_xs()
-                                    .text_color(gpui_kit::rgba(0xffffff99))
-                                    .child(SharedString::from(item.tag.clone()))
-                            }))
-                            .children(unreleased.then(|| {
-                                div()
-                                    .text_xs()
-                                    .text_color(gpui_kit::rgba(0xffffff73))
-                                    .child("即将上线")
-                            }))
-                            .children((item.episode_cnt > 0).then(|| {
-                                div()
-                                    .text_xs()
-                                    .text_color(gpui_kit::rgba(0xffffff73))
-                                    .child(format!("{} 集", item.episode_cnt))
-                            })),
-                    )
+                            .gap_1p5()
+                            .text_xs()
+                            .text_color(if reserved {
+                                gpui_kit::rgba(0xffffff73)
+                            } else {
+                                gpui_kit::rgb(0xffffff)
+                            })
+                            .when(!reserved && !pending, |s| {
+                                s.cursor_pointer()
+                                    .hover(|s| s.bg(gpui_kit::rgba(0x333333cc)))
+                            })
+                            .when(!reserved && !pending, |s| {
+                                s.on_click(cx.listener(move |this, _, _, cx| {
+                                    this.reserve_season(sid.clone(), cx);
+                                }))
+                            })
+                            .child(Icon::new(gpui_kit::assets::IconName::BellRing).size_3())
+                            .child(if reserved {
+                                "已预约"
+                            } else if pending {
+                                "预约中…"
+                            } else {
+                                "预约"
+                            })
+                    }))
+                    .children((!current && !unreleased).then(|| {
+                        // 可播季：播放胶囊（Tauri Play 圆角描边胶囊同款）
+                        h_flex()
+                            .flex_shrink_0()
+                            .h_7()
+                            .px_3()
+                            .rounded_full()
+                            .border_1()
+                            .border_color(gpui_kit::rgba(0x525252ff))
+                            .items_center()
+                            .gap_1()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0xd4d4d4ff))
+                            .child(Icon::new(gpui_kit::assets::IconName::Play).size_3())
+                            .child("播放")
+                    }))
             }))
             .into_any_element()
     }
