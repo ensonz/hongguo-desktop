@@ -158,8 +158,6 @@ pub struct HomeView {
     rate: f64,
     volume: f32,
     muted: bool,
-    /// 音量滑杆（0–1；纯用户驱动，无需程序化回写）。
-    volume_slider: Entity<SliderState>,
     /// 进度拖动中的目标秒（None = 跟随播放位置显示）。
     scrubbing: Option<f64>,
     /// 上一次真正下发给引擎的 scrub seek 时刻：拖动中的连续 seek 按它节流
@@ -315,6 +313,13 @@ pub struct HomeView {
     done_vids: Arc<Vec<u32>>,
     /// 音量悬停弹层开着（Tauri VolumePopup 同款，随 wrapper hover 开合）。
     volume_popup_open: bool,
+    /// 音量按钮 / 弹层本体各自的 hover 位：gpui 的 hover 按命中盒判定，
+    /// 弹层在按钮盒外——两个 hover 取并集才是「弹层开着」。
+    volume_hovered: bool,
+    volume_popup_hovered: bool,
+    /// 音量竖条的轨道矩形哨兵（拖动换算用，与 progress_bounds 同模式）。
+    #[cfg(target_os = "windows")]
+    volume_bounds: Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
     buffering: bool,
     /// 控制条可见截止时刻；拖动中/暂停时常显。
@@ -369,16 +374,10 @@ impl HomeView {
             feeds.insert(s, SourceFeed::default());
             indexes.insert(s, 0usize);
         }
-        // 偏好先于引擎与滑杆：滑杆初值、起播后重放都吃它
+        // 偏好先于引擎：起播后重放都吃它
         let prefs = crate::playback_prefs::load_from(
             &hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME),
         );
-        let volume_slider = cx.new(|_| {
-            SliderState::new()
-                .min(0.0)
-                .max(1.0)
-                .default_value(prefs.volume)
-        });
         let mut view = Self {
             state: Arc::clone(&state),
             active: Source::Feed,
@@ -406,7 +405,6 @@ impl HomeView {
             rate: prefs.rate,
             volume: prefs.volume,
             muted: prefs.muted,
-            volume_slider,
             scrubbing: None,
             last_scrub_seek: Cell::new(Instant::now() - Duration::from_secs(10)),
             binge: None,
@@ -511,6 +509,10 @@ impl HomeView {
             downloads: Arc::new(Vec::new()),
             done_vids: Arc::new(Vec::new()),
             volume_popup_open: false,
+            volume_hovered: false,
+            volume_popup_hovered: false,
+            #[cfg(target_os = "windows")]
+            volume_bounds: Rc::new(Cell::new(None)),
             buffering: false,
             controls_until: None,
             pointer_on_stage: false,
@@ -709,15 +711,6 @@ impl HomeView {
     }
 
     fn subscribe_controls(&mut self, cx: &mut Context<Self>) {
-        // subscribe 的处理器签名与 listener 不同（实体 + 事件，无 window），
-        // 直接给闭包再转发到方法
-        cx.subscribe(
-            &self.volume_slider,
-            |this: &mut Self, _: Entity<SliderState>, event: &SliderEvent, cx| {
-                this.on_volume_event(event, cx);
-            },
-        )
-        .detach();
         // 弹幕设置滑杆：Change 即生效，Release 落盘（音量滑杆同节奏）
         let dm_sliders = [
             (&self.dm_opacity_slider, 0u8),
@@ -916,13 +909,19 @@ impl gpui_kit::Render for HomeView {
                     .on_mouse_move(cx.listener(|this, _: &gpui_kit::MouseMoveEvent, _, cx| {
                         this.wake_controls(cx);
                     }))
-                    // 指针离开画面 → 悬浮层立即收（Tauri hideChrome 同款）：
-                    // 清活动窗即收，暂停态的常显由 controls_visible 的暂停项
-                    // 裁决、不受此影响
+                    // 指针离开画面（含鼠标直接甩出窗口）：立即收——控制栏
+                    // hover 位一并清掉，不然「指针最后停在控制栏上时甩出窗」
+                    // 会永久常显，得点一下别处才收
                     .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                         this.pointer_on_stage = *hovered;
-                        if !hovered && this.controls_until.is_some() {
-                            this.controls_until = None;
+                        if !hovered {
+                            this.controls_hovered = false;
+                            this.volume_hovered = false;
+                            this.volume_popup_hovered = false;
+                            this.volume_popup_open = false;
+                            if this.controls_until.is_some() {
+                                this.controls_until = None;
+                            }
                             cx.notify();
                         }
                     }))

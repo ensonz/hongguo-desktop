@@ -12,7 +12,6 @@ use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_kit::component::slider::{Slider, SliderEvent, SliderValue};
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::*;
 use gpui_kit::{Window, div};
@@ -27,6 +26,9 @@ pub(super) const CONTROLS_HOLD_SECS: u64 = 600;
 
 /// 进度拖动的拖拽载荷（`on_drag`/`on_drag_move` 按类型配对）。
 struct ScrubDrag;
+
+/// 音量竖条拖拽载荷（与进度拖动同套 on_drag 机制）。
+struct VolumeDrag;
 
 /// 拖动期间跟指针的幽灵视图：空 div（拖动不需要可视残影，预览走进度条本身）。
 struct ScrubGhost;
@@ -99,24 +101,108 @@ impl super::HomeView {
     const SCRUB_SEEK_MIN_INTERVAL: Duration = Duration::from_millis(250);
 
     /// 音量滑杆：拖动即生效（引擎在设备回调里乘 PCM，零延迟），松手落盘。
-    pub(super) fn on_volume_event(&mut self, event: &SliderEvent, cx: &mut Context<Self>) {
-        let value = match event {
-            SliderEvent::Change(v) | SliderEvent::Release(v) => v,
-        };
-        let SliderValue::Single(v) = *value else {
-            return;
-        };
-        self.volume = v;
-        // Tauri setVolumeValue 同款：拖到 0 = 静音，拖离 0 = 解除静音
-        self.muted = v == 0.0;
-        if let Some(player) = &self.player {
-            player.set_volume(v);
-            player.set_muted(self.muted);
-        }
-        if matches!(event, SliderEvent::Release(_)) {
+    /// 音量弹层开合裁决（按钮 hover ∥ 弹层 hover 取并集，见挂载处注释）。
+    fn update_volume_popup(&mut self, cx: &mut Context<Self>) {
+        let open = self.volume_hovered || self.volume_popup_hovered;
+        if open {
+            self.wake_controls(cx);
+        } else {
+            // 收起时落一次盘：拖动过程中的音量值别丢
             self.persist_prefs();
         }
+        if self.volume_popup_open != open {
+            self.volume_popup_open = open;
+            cx.notify();
+        }
+    }
+
+    /// 指针在音量竖条上的取值（竖向：顶部 = 1；轨道矩形来自哨兵）。
+    fn volume_ratio_at(&self, y: f64) -> f32 {
+        match self.volume_bounds.get() {
+            Some(b) => {
+                let top = b.origin.y.to_f64();
+                let height = b.size.height.to_f64().max(1.0);
+                (1.0 - (y - top) / height).clamp(0.0, 1.0) as f32
+            }
+            None => 0.0,
+        }
+    }
+
+    /// 设音量（拖/点音量条；静音独立，由喇叭钮切换——Tauri 同语义）。
+    fn set_volume_value(&mut self, v: f32, cx: &mut Context<Self>) {
+        self.volume = v.clamp(0.0, 1.0);
+        if let Some(player) = &self.player {
+            player.set_volume(self.volume);
+        }
+        self.wake_controls(cx);
         cx.notify();
+    }
+
+    /// 竖向音量条（Tauri VerticalSlider 同款三段自绘：轨道/已填/滑块）。
+    /// 组件库 Slider 的竖向形态与播放器的白色系视觉不一致，这里照抄三段。
+    fn render_volume_slider(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let value = (if self.muted { 0.0 } else { self.volume }).clamp(0.0, 1.0);
+        let bounds = Rc::clone(&self.volume_bounds);
+        div()
+            // prepaint 哨兵是 Div 的方法：必须在 .id() 变 Stateful 之前挂
+            .on_children_prepainted(move |children, _, _| {
+                if let Some(b) = children.first() {
+                    bounds.set(Some(*b));
+                }
+            })
+            .id("volume-slider")
+            .relative()
+            .cursor_pointer()
+            .w(gpui_kit::px(24.0))
+            .h(gpui_kit::px(96.0))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, ev: &gpui_kit::MouseDownEvent, _, cx| {
+                    let v = this.volume_ratio_at(ev.position.y.to_f64());
+                    this.set_volume_value(v, cx);
+                }),
+            )
+            .on_drag(VolumeDrag, |_, _, _, cx| cx.new(|_| ScrubGhost))
+            .on_drag_move::<VolumeDrag>(cx.listener(
+                |this, ev: &gpui_kit::DragMoveEvent<VolumeDrag>, _, cx| {
+                    let v = this.volume_ratio_at(ev.event.position.y.to_f64());
+                    this.set_volume_value(v, cx);
+                },
+            ))
+            // 轨道（w-1 居中）
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(gpui_kit::px(10.0))
+                    .w(gpui_kit::px(4.0))
+                    .rounded_full()
+                    .bg(gpui_kit::rgba(0xffffff40)),
+            )
+            // 已填（自下而上）
+            .child(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left(gpui_kit::px(10.0))
+                    .w(gpui_kit::px(4.0))
+                    .h(gpui_kit::relative(value))
+                    .rounded_full()
+                    .bg(gpui_kit::rgb(0xffffff)),
+            )
+            // 滑块（底部锚定 value 高度，负 margin 下移半格对中线）
+            .child(
+                div()
+                    .absolute()
+                    .bottom(gpui_kit::relative(value))
+                    .left(gpui_kit::px(6.0))
+                    .mb(gpui_kit::px(-6.0))
+                    .size_3()
+                    .rounded_full()
+                    .bg(gpui_kit::rgb(0xffffff)),
+            )
+            .into_any_element()
     }
 
     pub(super) fn toggle_pause(&mut self, cx: &mut Context<Self>) {
@@ -618,73 +704,24 @@ impl super::HomeView {
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_picker(cx))),
                     )
                     .child(
-                        // 音量（Tauri VolumePopup 同款）：图标按钮单击=静音切换，
-                        // 悬停向上弹竖向滑杆（弹层是按钮 wrapper 的子层，移过去
-                        // 不会收）；拖到 0 即静音、拖离 0 自动解除静音
-                        div()
-                            .id("volume-wrapper")
-                            .relative()
-                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                if this.volume_popup_open != *hovered {
-                                    this.volume_popup_open = *hovered;
-                                    cx.notify();
-                                }
-                            }))
-                            .child(
-                                Button::new("stage-mute")
-                                    .icon(if self.muted || self.volume == 0.0 {
-                                        gpui_kit::assets::IconName::VolumeX
-                                    } else if self.volume < 0.5 {
-                                        gpui_kit::assets::IconName::Volume1
-                                    } else {
-                                        gpui_kit::assets::IconName::Volume2
-                                    })
-                                    .ghost()
-                                    .small()
-                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
-                            )
-                            .children(self.volume_popup_open.then(|| {
-                                v_flex()
-                                    .absolute()
-                                    .bottom(gpui_kit::px(36.0))
-                                    // 右对齐向左展开：音量按钮贴窗口右缘，左锚会把
-                                    // 弹层推出窗外
-                                    .right_0()
-                                    .items_center()
-                                    .p_2()
-                                    .rounded(gpui_kit::px(8.0))
-                                    .bg(gpui_kit::rgba(0x171717f2))
-                                    .child(
-                                        Slider::new(&self.volume_slider)
-                                            .vertical()
-                                            .h(gpui_kit::px(96.0)),
-                                    )
-                                    .into_any_element()
-                            })),
-                    )
-                    .child({
-                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
-                        Button::new("stage-danmaku")
-                            .icon(gpui_kit::assets::IconName::MessageSquare)
+                        // 下载入口（Tauri download-sheet 同款位置：右段）
+                        Button::new("stage-downloads")
+                            .label("下载")
                             .ghost()
                             .small()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.danmaku_on = !this.danmaku_on;
-                                // 关=清屏+游标落当前位（重开不补放积压）；落盘
-                                this.danmaku_flights.clear();
-                                this.danmaku_cursor = this
-                                    .player
-                                    .as_ref()
-                                    .map(|p| {
-                                        this.danmaku_items.partition_point(|d| {
-                                            (d.offset_ms as f64) / 1000.0 <= p.position_secs()
-                                        })
-                                    })
-                                    .unwrap_or(0);
-                                this.persist_prefs();
-                                cx.notify();
-                            }))
-                    })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
+                    )
+                    .child(
+                        // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成
+                        // 480×270 落工作区右下角，播放零中断
+                        Button::new("stage-mini")
+                            .icon(gpui_kit::assets::IconName::PictureInPicture2)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.enter_mini(window, cx);
+                            })),
+                    )
                     .child({
                         // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）
                         div()
@@ -724,29 +761,129 @@ impl super::HomeView {
                             }))
                             .into_any_element()
                     })
-                    .child(
-                        // 下载入口（Tauri download-sheet 同款位置：右段）
-                        Button::new("stage-downloads")
-                            .label("下载")
+                    .child({
+                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
+                        Button::new("stage-danmaku")
+                            .icon(gpui_kit::assets::IconName::MessageSquareText)
                             .ghost()
                             .small()
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
-                    )
+                            .tooltip(if self.danmaku_on {
+                                "关闭弹幕"
+                            } else {
+                                "开启弹幕"
+                            })
+                            // 开=纯白 / 关=40% 白（Tauri 同款亮暗态；按钮必须
+                            // 随状态变，不然「点了没反应」）
+                            .text_color(if self.danmaku_on {
+                                gpui_kit::rgb(0xffffff)
+                            } else {
+                                gpui_kit::rgba(0xffffff66)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.danmaku_on = !this.danmaku_on;
+                                // 关=清屏+游标落当前位（重开不补放积压）；落盘
+                                this.danmaku_flights.clear();
+                                this.danmaku_cursor = this
+                                    .player
+                                    .as_ref()
+                                    .map(|p| {
+                                        this.danmaku_items.partition_point(|d| {
+                                            (d.offset_ms as f64) / 1000.0 <= p.position_secs()
+                                        })
+                                    })
+                                    .unwrap_or(0);
+                                this.persist_prefs();
+                                cx.notify();
+                            }))
+                    })
+                    .child({
+                        // 音量（Tauri VolumePopup 同款）：图标按钮单击=静音切换；
+                        // 悬停向上弹竖向滑杆，弹层与按钮几何贴合，按钮/弹层两
+                        // 个 hover 取并集裁决开合（间隙 = 移过去就收的元凶）
+                        div()
+                            .id("volume-wrapper")
+                            .relative()
+                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                this.volume_hovered = *hovered;
+                                this.update_volume_popup(cx);
+                            }))
+                            .child(
+                                Button::new("stage-mute")
+                                    .icon(if self.muted || self.volume == 0.0 {
+                                        gpui_kit::assets::IconName::VolumeX
+                                    } else if self.volume < 0.5 {
+                                        gpui_kit::assets::IconName::Volume1
+                                    } else {
+                                        gpui_kit::assets::IconName::Volume2
+                                    })
+                                    .ghost()
+                                    .small()
+                                    .tooltip("静音")
+                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_mute(cx))),
+                            )
+                            .children(self.volume_popup_open.then(|| {
+                                v_flex()
+                                    .id("volume-popup")
+                                    .absolute()
+                                    // 贴合按钮上沿（bottom-full），视觉留白进
+                                    // 自己的 padding
+                                    .bottom(gpui_kit::relative(1.0))
+                                    .left(gpui_kit::relative(0.5))
+                                    .ml(gpui_kit::px(-30.0))
+                                    .items_center()
+                                    .pt_1()
+                                    .pb_3()
+                                    .px_3()
+                                    .rounded(gpui_kit::px(8.0))
+                                    .bg(gpui_kit::rgba(0x000000cc))
+                                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                        this.volume_popup_hovered = *hovered;
+                                        this.update_volume_popup(cx);
+                                    }))
+                                    .on_mouse_down(
+                                        gpui_kit::MouseButton::Left,
+                                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                                    )
+                                    .on_mouse_up(
+                                        gpui_kit::MouseButton::Left,
+                                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                                    )
+                                    // 百分比读数（Tauri VolumePopup 同款）
+                                    .child(
+                                        div()
+                                            .mb_1()
+                                            .text_size(gpui_kit::px(10.0))
+                                            .font_family("monospace")
+                                            .text_color(gpui_kit::rgba(0xffffffcc))
+                                            .child(format!(
+                                                "{}",
+                                                ((if self.muted { 0.0 } else { self.volume })
+                                                    * 100.0)
+                                                    .round()
+                                                    as i64
+                                            )),
+                                    )
+                                    .child(self.render_volume_slider(cx))
+                                    .into_any_element()
+                            }))
+                    })
                     .child(
                         // 隐身模式（Tauri incognito 同款）：开着时光标脱离窗口 →
                         // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播
                         Button::new("stage-incognito")
-                            .icon(if self.incognito {
-                                gpui_kit::assets::IconName::Eye
-                            } else {
-                                gpui_kit::assets::IconName::EyeOff
-                            })
+                            .icon(gpui_kit::assets::IconName::Eye)
                             .ghost()
                             .small()
                             .tooltip(if self.incognito {
                                 "退出隐身"
                             } else {
                                 "隐身模式"
+                            })
+                            // 单图标亮暗态（Tauri 同款：白 / 55% 白）
+                            .text_color(if self.incognito {
+                                gpui_kit::rgb(0xffffff)
+                            } else {
+                                gpui_kit::rgba(0xffffff8c)
                             })
                             .on_click(
                                 cx.listener(|this, _, window, cx| {
@@ -772,17 +909,6 @@ impl super::HomeView {
                             })
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.toggle_pinned(window, cx);
-                            })),
-                    )
-                    .child(
-                        // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成
-                        // 480×270 落工作区右下角，播放零中断
-                        Button::new("stage-mini")
-                            .icon(gpui_kit::assets::IconName::PictureInPicture2)
-                            .ghost()
-                            .small()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.enter_mini(window, cx);
                             })),
                     )
                     .child(
@@ -844,7 +970,10 @@ impl super::HomeView {
                 div()
                     .relative()
                     .w_full()
-                    .h_1()
+                    // 静止态 2px 半透明细条贴着画面，悬停/拖动涨到 4px 并
+                    // 提亮（ScrubBar 同款「平时隐身、上手好用」）
+                    .when(hovered, |s| s.h_1())
+                    .when(!hovered, |s| s.h(gpui_kit::px(2.0)))
                     .rounded_full()
                     .bg(gpui_kit::rgba(0xffffff33))
                     .child(
@@ -852,10 +981,15 @@ impl super::HomeView {
                             .absolute()
                             .top_0()
                             .left_0()
-                            .h_1()
+                            .when(hovered, |s| s.h_1())
+                            .when(!hovered, |s| s.h(gpui_kit::px(2.0)))
                             .w(gpui_kit::relative(frac as f32))
                             .rounded_full()
-                            .bg(gpui_kit::rgb(0xffffff)),
+                            .bg(gpui_kit::rgba(if hovered {
+                                0xffffffe6
+                            } else {
+                                0xffffff99
+                            })),
                     )
                     // 滑块圆点（Tauri ScrubBar 同款：悬停轨道才亮）
                     .children(hovered.then(|| {
