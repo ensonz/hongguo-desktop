@@ -13,6 +13,8 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::Icon;
 use gpui_kit::component::IconName;
 use gpui_kit::component::Sizable;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::v_flex;
@@ -23,7 +25,7 @@ use gpui_kit::{ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_media_platform_api::video::{FrameBuffer, VideoFrame};
 
 use super::danmaku::DM_LANE_GAP;
-use super::feed::StreamItem;
+use super::feed::{Source, StreamItem};
 use crate::bridge;
 
 /// 舞台周期状态日志（HONGGUO_DIAG 取证）的最小间隔（秒）。
@@ -596,6 +598,41 @@ impl super::HomeView {
                         .child(format!("第{}集", now.vid_index))
                 }),
             )
+            // 分类 tab（Tauri 顶栏 portal 的悬浮形态）：舞台顶部居中，与
+            // 左上连播胶囊同一行，显隐跟随悬浮层总闸；小屏不渲染。tab 按钮
+            // 拦下鼠标下传（点击不能同时落到画面触发暂停）
+            .children((!in_mini && self.controls_visible()).then(|| {
+                h_flex()
+                    .absolute()
+                    .top_3()
+                    .left_0()
+                    .right_0()
+                    .justify_center()
+                    .gap_2()
+                    .children(Source::ALL.map(|s| {
+                        let active = s == self.active;
+                        let button = Button::new(format!("stage-tab-{}", s.label()))
+                            .label(s.label())
+                            .small();
+                        let button = if active {
+                            button.secondary()
+                        } else {
+                            button.ghost()
+                        };
+                        button
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Left,
+                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                            )
+                            .on_mouse_up(
+                                gpui_kit::MouseButton::Left,
+                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.switch_source(s, cx);
+                            }))
+                    }))
+            }))
             // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层
             // 拦下鼠标下传（舞台的播放/暂停与信息层都不该收到这次点击）
             .children(

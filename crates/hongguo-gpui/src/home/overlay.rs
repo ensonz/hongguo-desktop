@@ -95,23 +95,10 @@ impl super::HomeView {
                             .on_click({
                                 let sid = now.series_id.clone();
                                 cx.listener(move |_, _, _, cx| {
+                                    // 点剧名 → 应用内详情页（壳订阅事件切目的
+                                    // 地）；stop_propagation 防触发画面暂停
                                     cx.stop_propagation();
-                                    let url =
-                                        format!("https://hongguoduanju.com/detail?series_id={sid}");
-                                    log::info!("[Home] 打开详情页: {url}");
-                                    #[cfg(target_os = "windows")]
-                                    {
-                                        use std::os::windows::process::CommandExt;
-                                        let _ = std::process::Command::new("cmd")
-                                            .args(["/C", "start", "", &url])
-                                            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
-                                            .spawn();
-                                    }
-                                    #[cfg(not(target_os = "windows"))]
-                                    {
-                                        let _ =
-                                            std::process::Command::new("open").arg(&url).spawn();
-                                    }
+                                    cx.emit(super::HomeEvent::OpenDetail(sid.clone()));
                                 })
                             })
                             .child(SharedString::from(format!("@{}", now.title)))

@@ -21,8 +21,9 @@ use gpui_kit::prelude::*;
 use gpui_kit::{App, ElementId, Entity, Window, div};
 use hongguo_service::app_state::AppStateInner;
 
+use crate::detail::{DetailEvent, DetailView};
+use crate::home::HomeEvent;
 use crate::home::HomeView;
-use crate::home::feed::Source;
 use crate::rank::RankView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
@@ -41,6 +42,8 @@ pub(crate) enum Dest {
     Merge,
     Storage,
     Settings,
+    /// 应用内详情页（不在侧栏：播放页点剧名 / 播放入口进入）。
+    Detail,
 }
 
 impl Dest {
@@ -73,6 +76,8 @@ impl Dest {
             Dest::Merge => "一键合并",
             Dest::Storage => "磁盘清理",
             Dest::Settings => "设置",
+            // 不在侧栏（播放页进入），仅兜匹配
+            Dest::Detail => "详情",
         }
     }
 
@@ -90,6 +95,7 @@ impl Dest {
             Dest::Merge => IconName::Combine,
             Dest::Storage => IconName::HardDrive,
             Dest::Settings => IconName::Settings,
+            Dest::Detail => IconName::Info,
         }
     }
 
@@ -98,14 +104,17 @@ impl Dest {
         match self {
             Dest::Home => Some(View::Home),
             Dest::Rank => Some(View::Rank),
+            Dest::Detail => Some(View::Detail),
             _ => None,
         }
     }
 }
 
+/// 壳内视图（Dest::view 的落点；Detail 不在侧栏，由播放页点剧名进入）。
 enum View {
     Home,
     Rank,
+    Detail,
 }
 
 /// 壳窗口实体：持有各视图实体，切换当前目的地。服务面由视图各自持有。
@@ -115,12 +124,20 @@ pub struct Shell {
     sidebar_collapsed: bool,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
+    detail: Option<Entity<DetailView>>,
+    /// 详情页当前加载的剧（同剧重复点击不重载）。
+    detail_series: Option<String>,
 }
 
 impl Shell {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
+        // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
+        cx.subscribe(&feed, |this, _, event: &HomeEvent, cx| match event {
+            HomeEvent::OpenDetail(series_id) => this.open_detail(series_id.clone(), cx),
+        })
+        .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
         // 预览进程有自己的目的地种子，不吃这个环境变量（可能残留）
         let dest = if !crate::preview::is_active() && std::env::var("HONGGUO_RANK").is_ok() {
@@ -135,6 +152,53 @@ impl Shell {
             sidebar_collapsed: false,
             feed,
             rank,
+            detail: None,
+            detail_series: None,
+        }
+    }
+
+    /// 打开应用内详情页（播放页点剧名）：同剧重复点击不重载。
+    fn open_detail(&mut self, series_id: String, cx: &mut Context<Self>) {
+        if self.dest == Dest::Detail && self.detail_series.as_deref() == Some(&series_id) {
+            return;
+        }
+        let view = match &self.detail {
+            Some(v) => v.clone(),
+            None => {
+                let v = cx.new(|cx| DetailView::new(self.state.clone(), cx));
+                // 详情页事件（返回/播放）→ 壳裁决目的地与起播
+                cx.subscribe(&v, |this, _, event: &DetailEvent, cx| {
+                    this.on_detail_event(event.clone(), cx);
+                })
+                .detach();
+                self.detail = Some(v.clone());
+                v
+            }
+        };
+        view.update(cx, |detail, cx| detail.load(series_id.clone(), cx));
+        self.detail_series = Some(series_id);
+        self.dest = Dest::Detail;
+        cx.notify();
+    }
+
+    /// 详情页的返回/播放入口（DetailView 发事件，壳裁决目的地）。
+    fn on_detail_event(&mut self, event: DetailEvent, cx: &mut Context<Self>) {
+        match event {
+            DetailEvent::Back => {
+                self.dest = Dest::Home;
+                cx.notify();
+            }
+            DetailEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => {
+                self.dest = Dest::Home;
+                self.feed.update(cx, |home, cx| {
+                    home.play_from_detail(series_id, vid_index, start_secs, cx)
+                });
+                cx.notify();
+            }
         }
     }
 
@@ -202,159 +266,18 @@ impl Shell {
 
     // —— 渲染 ——
 
-    /// 顶栏（Tauri app-shell header 同位，40px）：应用名 | tab 居中 | 置顶
-    /// | 窗口钮。
-    ///
-    /// **为什么不用组件库 TitleBar**：它把整条 bar 标成
-    /// `WindowControlArea::Drag`，gpui 的原生命中测试把落在这条栏里的一切
-    /// 点击都判成 HTCAPTION 交给系统拖拽——自家窗口钮有 Min/Max/Close 标记
-    /// 才幸免，我们的 tab/置顶全被吞（Tauri 端 window-controls.tsx 注释的
-    /// 同一个坑：宿主拖拽区里的按钮必须自己排除）。所以这里自绘切区：
-    /// 拖拽只标在空白段（应用名 + 两条 flex 空带），可点控件是拖拽区里的
-    /// 岛屿；窗口钮自己标 Min/Max/Close，行为仍走原生命中测试。
-    fn render_title_bar(
-        &mut self,
-        window: &gpui_kit::Window,
-        cx: &mut Context<Self>,
-    ) -> gpui_kit::AnyElement {
-        // theme 借 cx，先拷出本段要用的色值再建 listener 闭包
-        let theme = cx.theme();
-        let (fg, muted_fg, secondary_hover, danger, bg, border) = (
-            theme.foreground,
-            theme.muted_foreground,
-            theme.secondary_hover,
-            theme.danger,
-            theme.background,
-            theme.border,
-        );
-        let active_source = self.feed.read(cx).active_source();
-        let pinned = self.feed.read(cx).pinned_window();
-        let maximized = window.is_maximized();
-        // 双 flex_1 空带夹住 tab：宽度相等 → tab 真居中，两条空带都是拖拽区
-        let drag_spacer = |id: &'static str| {
-            div()
-                .id(id)
-                .flex_1()
-                .h_full()
-                .window_control_area(gpui_kit::WindowControlArea::Drag)
-        };
-        let tabs = (self.dest == Dest::Home).then(|| {
-            h_flex()
-                .gap_2()
-                .children(Source::ALL.map(|s| {
-                    let active = s == active_source;
-                    let button = Button::new(ElementId::from(format!("topbar-tab-{}", s.label())))
-                        .label(s.label())
-                        .small();
-                    let button = if active {
-                        button.secondary()
-                    } else {
-                        button.ghost()
-                    };
-                    button.on_click(cx.listener(move |this, _, _, cx| {
-                        this.feed.update(cx, |home, cx| home.switch_source(s, cx));
-                    }))
-                }))
-                .into_any_element()
-        });
-        // 窗口钮（Windows 惯例）：方钮等宽，关闭 hover 红底；动作由平台在
-        // 对应 WindowControlArea 的原生命中测试里完成，这里只管外观
-        let window_button = |id: &'static str,
-                             icon: IconName,
-                             area: gpui_kit::WindowControlArea,
-                             tooltip: &'static str,
-                             danger_hue: bool| {
-            div()
-                .id(ElementId::from(id))
-                .window_control_area(area)
-                .flex()
-                .items_center()
-                .justify_center()
-                .w(gpui_kit::px(44.0))
-                .h_full()
-                .text_color(muted_fg)
-                .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
-                .hover(|s| {
-                    s.text_color(fg)
-                        .bg(if danger_hue { danger } else { secondary_hover })
-                })
-                .child(gpui_kit::component::Icon::new(icon).small())
-                .into_any_element()
-        };
-        h_flex()
-            .id("title-bar")
-            .h(gpui_kit::px(40.0))
-            .w_full()
-            .flex_shrink_0()
-            .items_center()
-            .bg(bg)
-            .border_b_1()
-            .border_color(border)
+    /// 顶栏（组件库 TitleBar）：应用名居左，窗口钮（组件在非 macOS 自动
+    /// 附上并标 WindowControlArea）居右。**不放任何自绘可点控件**——组件
+    /// 把整条 bar 标成 Drag 区，落进去的点击都会被原生命中测试判成拖拽
+    /// 吞掉（置顶钮上一版就栽在这）；它需要的入口都放在舞台/控制栏里。
+    fn render_title_bar(&self) -> gpui_kit::AnyElement {
+        gpui_kit::component::TitleBar::new()
             .child(
-                // 应用名段（拖拽区；双击 = 原生最大化）
                 div()
-                    .id("title-bar-name")
-                    .window_control_area(gpui_kit::WindowControlArea::Drag)
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .pl_3()
-                    .pr_2()
                     .text_sm()
                     .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                     .child("红果"),
             )
-            .child(drag_spacer("title-bar-drag-l"))
-            .children(tabs)
-            .child(drag_spacer("title-bar-drag-r"))
-            .child(
-                Button::new("topbar-pin")
-                    .icon(if pinned {
-                        IconName::Pin
-                    } else {
-                        IconName::PinOff
-                    })
-                    .ghost()
-                    .small()
-                    .tooltip(if pinned {
-                        "取消置顶"
-                    } else {
-                        "置顶窗口"
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.feed
-                            .update(cx, |home, cx| home.toggle_pinned(window, cx));
-                    })),
-            )
-            .child(window_button(
-                "titlebar-min",
-                IconName::WindowMinimize,
-                gpui_kit::WindowControlArea::Min,
-                "最小化",
-                false,
-            ))
-            .child(window_button(
-                "titlebar-max",
-                if maximized {
-                    IconName::WindowRestore
-                } else {
-                    IconName::WindowMaximize
-                },
-                gpui_kit::WindowControlArea::Max,
-                if maximized {
-                    "向下还原"
-                } else {
-                    "最大化"
-                },
-                false,
-            ))
-            .child(window_button(
-                "titlebar-close",
-                IconName::WindowClose,
-                gpui_kit::WindowControlArea::Close,
-                "关闭",
-                true,
-            ))
             .into_any_element()
     }
 
@@ -522,6 +445,12 @@ impl Shell {
         match self.dest.view() {
             Some(View::Home) => self.feed.clone().into_any_element(),
             Some(View::Rank) => self.rank.clone().into_any_element(),
+            Some(View::Detail) => self
+                .detail
+                .as_ref()
+                .expect("Detail 目的地必有实体")
+                .clone()
+                .into_any_element(),
             None => self.render_stub(self.dest, cx),
         }
     }
@@ -530,7 +459,7 @@ impl Shell {
 impl gpui_kit::Render for Shell {
     fn render(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
         // chrome 全藏的两种形态：小屏播放（480×270 纯播放器，Tauri 小屏
@@ -541,7 +470,7 @@ impl gpui_kit::Render for Shell {
         let chrome_hidden = in_mini || immersive;
         // 先建好所有吃 cx 的闭包/子渲染，再取 theme（theme 借 cx，两者不能
         // 交叠——闭包里要 &mut Context）
-        let title_bar = (!chrome_hidden).then(|| self.render_title_bar(window, cx));
+        let title_bar = (!chrome_hidden).then(|| self.render_title_bar());
         let sidebar = (!chrome_hidden).then(|| self.render_sidebar(cx));
         let content = self.render_content(cx);
         let theme = cx.theme();

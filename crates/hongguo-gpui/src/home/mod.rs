@@ -52,6 +52,13 @@ use tokio::sync::mpsc;
 use danmaku::DmFlight;
 use feed::{Source, SourceFeed, StreamItem};
 
+/// 首页发往壳的事件（页面间不互相持有，壳订阅后裁决目的地）。
+#[derive(Debug, Clone)]
+pub(crate) enum HomeEvent {
+    /// 点剧名 → 打开应用内详情页。
+    OpenDetail(String),
+}
+
 pub(crate) mod auth;
 pub(crate) mod comment_view;
 pub(crate) mod comments;
@@ -352,6 +359,8 @@ pub struct HomeView {
     stage_rects: Rc<Cell<Option<[f32; 4]>>>,
 }
 
+impl gpui_kit::EventEmitter<HomeEvent> for HomeView {}
+
 impl HomeView {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut feeds = HashMap::new();
@@ -643,10 +652,6 @@ impl HomeView {
 
     // —— 壳协作面（Shell 顶栏/侧栏读写的最小开口） ——
 
-    pub(crate) fn active_source(&self) -> Source {
-        self.active
-    }
-
     /// 切沉浸流 tab（顶栏 tab 入口）：重复点当前 tab = 换一批（重开会话、
     /// 游标归零）；切到别的 tab 后当前游标的剧不在播就切过去（起点决策
     /// effect 同语义）。
@@ -677,10 +682,6 @@ impl HomeView {
 
     pub(crate) fn immersive_fullscreen(&self) -> bool {
         self.immersive
-    }
-
-    pub(crate) fn pinned_window(&self) -> bool {
-        self.pinned
     }
 
     /// 置顶窗口（顶栏入口与小屏紧凑条共用；FFI 成功才翻状态，两边不各说

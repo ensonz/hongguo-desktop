@@ -323,7 +323,7 @@ impl super::HomeView {
             .child(self.rail_item(
                 "share",
                 RailItem {
-                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Share),
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Forward),
                     count: 0,
                     active: false,
                     active_color: gpui_kit::rgba(0xffffffff),

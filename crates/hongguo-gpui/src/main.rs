@@ -15,7 +15,9 @@
 //! 播放（帧流 → GPU 纹理）是 §5.3 spike，另行立项。
 
 mod bridge;
+mod cover_img;
 mod danmaku_emoji;
+mod detail;
 mod emoji_files;
 mod events;
 mod home;

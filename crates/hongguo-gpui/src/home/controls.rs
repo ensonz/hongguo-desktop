@@ -331,7 +331,9 @@ impl super::HomeView {
             .bottom_0()
             .left_0()
             .right_0()
-            .bg(gpui_kit::rgba(0x000000aa))
+            // 纯悬浮（Tauri PlayerControls 同款）：**不要底板/渐变蒙版**，
+            // 一组白色控件压在画面上，可读性靠白 + 画面暗部——底板一加就是
+            // 一条色块，破坏画面
             // 悬在控制栏本体上不倒计时（Tauri onControlsEnter 同款：拖进度/
             // 悬停音量时静止超时收起 = 抢走控件）；移出照常走台内静止 3s
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
@@ -741,11 +743,36 @@ impl super::HomeView {
                             })
                             .ghost()
                             .small()
+                            .tooltip(if self.incognito {
+                                "退出隐身"
+                            } else {
+                                "隐身模式"
+                            })
                             .on_click(
                                 cx.listener(|this, _, window, cx| {
                                     this.toggle_incognito(window, cx)
                                 }),
                             ),
+                    )
+                    .child(
+                        // 置顶（Tauri 控制栏钉住钮同位；顶栏是组件库 Drag 区，
+                        // 放不了自绘可点控件，入口落在这里，与小屏共用状态）
+                        Button::new("stage-pin")
+                            .icon(if self.pinned {
+                                gpui_kit::assets::IconName::Pin
+                            } else {
+                                gpui_kit::assets::IconName::PinOff
+                            })
+                            .ghost()
+                            .small()
+                            .tooltip(if self.pinned {
+                                "取消置顶"
+                            } else {
+                                "置顶窗口"
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.toggle_pinned(window, cx);
+                            })),
                     )
                     .child(
                         // 小屏播放（Tauri onOpenMini 同款）：**同一个窗口**缩成

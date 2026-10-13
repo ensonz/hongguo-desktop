@@ -388,6 +388,55 @@ impl super::HomeView {
         cx.notify();
     }
 
+    /// 详情页播放入口（DetailEvent::Play → 壳 → 这里）：明确要追这部，
+    /// 锁定连播；起播集与起点由详情页的继续播放决策给定。标题/封面从
+    /// 档案抄（阻塞池读，UI 线程不碰库）。
+    pub(crate) fn play_from_detail(
+        &mut self,
+        series_id: String,
+        vid_index: u32,
+        start_secs: f64,
+        cx: &mut Context<Self>,
+    ) {
+        let state = Arc::clone(&self.state);
+        let sid = series_id.clone();
+        let done = bridge::spawn(async move {
+            tokio::task::spawn_blocking(move || {
+                state
+                    .store
+                    .series_by_id(&sid)
+                    .ok()
+                    .flatten()
+                    .map(|s| (s.title, s.cover))
+            })
+            .await
+            .expect("阻塞池 join")
+        });
+        cx.spawn(async move |this, cx| {
+            let info = done.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                let (title, cover) = info.unwrap_or_default();
+                let item = StreamItem {
+                    series_id: series_id.clone(),
+                    title,
+                    cover,
+                    horiz_cover: String::new(),
+                    heat_text: String::new(),
+                    season_tag: String::new(),
+                    badge: String::new(),
+                };
+                view.binge = Some(series_id.clone());
+                view.play_target(
+                    item,
+                    Some(vid_index),
+                    (start_secs > 0.0).then_some(start_secs),
+                    cx,
+                );
+            });
+        })
+        .detach();
+    }
+
     /// 连播：下一集；末集接流内下一部（剧终接力的跨季/换批语义后续对齐）。
     pub(super) fn advance_after_end(&mut self, cx: &mut Context<Self>) {
         self.frame = None;
