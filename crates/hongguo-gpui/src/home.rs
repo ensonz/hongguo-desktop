@@ -387,29 +387,9 @@ impl DmFlight {
     }
 }
 
-/// 弹幕估宽：CJK 记一字宽，其余记 0.55 字宽（无预渲染测量，误差对
-/// 出屏回收无感）。
+/// 弹幕估宽：按表情分段估（表情 1.3 字号，文本 CJK/非 CJK）。
 fn dm_text_width(text: &str, font_px: f32) -> f32 {
-    let units: f32 = text
-        .chars()
-        .map(|c| if is_wide_char(c) { 1.0 } else { 0.55 })
-        .sum();
-    units * font_px
-}
-
-/// 宽字符判定（CJK/谚文/全形；估宽够用，不引 unicode-width 依赖——
-/// gpui 依赖树里它与 unicode-properties 的版本钉子有过冲突史）。
-fn is_wide_char(c: char) -> bool {
-    matches!(
-        c as u32,
-        0x2E80..=0x9FFF
-            | 0xAC00..=0xD7AF
-            | 0xF900..=0xFAFF
-            | 0xFE30..=0xFE4F
-            | 0xFF00..=0xFF60
-            | 0xFFE0..=0xFFE6
-            | 0x20000..=0x2FFFD
-    )
+    crate::danmaku_emoji::segment_widths(text, font_px)
 }
 
 /// 滚过一屏的时长（hgplayer durationMs 默认 9000）。
@@ -3066,15 +3046,35 @@ impl HomeView {
                 .children(self.danmaku_flights.iter().map(|f| {
                     let top = f.lane as f32 * (font_px + DM_LANE_GAP);
                     let x = f.x_offset(stage_w) as f32;
+                    // 表情分段：[名字] 换打包 webp（1.3 字号，基线下沉
+                    // 0.28em 对齐 hgplayer），文本段照旧
+                    let segments = crate::danmaku_emoji::parse_emoji_segments(&f.text);
                     div()
                         .absolute()
                         .left(gpui_kit::px(x))
                         .top(gpui_kit::px(top))
+                        .flex()
+                        .items_center()
                         .whitespace_nowrap()
                         .text_size(gpui_kit::px(font_px))
                         .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                         .text_color(gpui_kit::rgb(0xffffff))
-                        .child(SharedString::from(f.text.clone()))
+                        .children(segments.into_iter().map(|seg| {
+                            match seg {
+                                crate::danmaku_emoji::EmojiSegment::Text(t) => {
+                                    div().child(SharedString::from(t)).into_any_element()
+                                }
+                                crate::danmaku_emoji::EmojiSegment::Emoji(img_arc) => {
+                                    gpui_kit::img(gpui_kit::ImageSource::Render(img_arc))
+                                        .w(gpui_kit::px(font_px * 1.3))
+                                        .h(gpui_kit::px(font_px * 1.3))
+                                        .mt(gpui_kit::px(-font_px * 0.28))
+                                        .mx(gpui_kit::px(1.0))
+                                        .object_fit(gpui_kit::ObjectFit::Contain)
+                                        .into_any_element()
+                                }
+                            }
+                        }))
                 }))
         });
         // 信息叠加层（左下）：剧名/集数/热度/简介——闲置淡出与控制条
