@@ -20,19 +20,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-export CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true
-export CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true
-
+# 占位 CC/AR 只随两条交叉命令生效（逐命令前缀，不全局 export）：
+# x64 Mac 宿主的自身目标就是 x86_64-apple-darwin，全局 export 会把宿主的
+# C 编译（ring/aws-lc/simsimd 等 build script）一并毒化，后面的 cargo test
+# 全部炸「could not find native static library」。
 STRICT='-D warnings -D clippy::allow_attributes'
 
-echo '[pre-commit] cargo clippy（Windows 宿主）'
+echo '[pre-commit] cargo clippy（本机宿主）'
 cargo clippy --workspace --all-targets -- $STRICT
 
 echo '[pre-commit] cargo clippy（macOS aarch64 交叉）'
-cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target aarch64-apple-darwin --all-targets -- $STRICT
+CC_aarch64_apple_darwin=true AR_aarch64_apple_darwin=true \
+  cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target aarch64-apple-darwin --all-targets -- $STRICT
 
 echo '[pre-commit] cargo clippy（macOS x86_64 交叉）'
-cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target x86_64-apple-darwin --all-targets -- $STRICT
+CC_x86_64_apple_darwin=true AR_x86_64_apple_darwin=true \
+  cargo clippy --workspace --exclude hongguo-gpui --exclude hongguo-playback --target x86_64-apple-darwin --all-targets -- $STRICT
 
 echo '[pre-commit] cargo test（lib）'
 cargo test --workspace --lib --quiet
