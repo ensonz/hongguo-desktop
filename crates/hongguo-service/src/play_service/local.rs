@@ -10,10 +10,7 @@ use hongguo_store::Store;
 ///
 /// `preferOnline` 只在**本地没有这一集**时才起作用：已经下好的文件永远走
 /// `hongguo-local://`，没必要重新下一遍。
-pub async fn resolve_play(
-    state: &AppState,
-    request: &PlayRequest,
-) -> AppResult<PlayResponse> {
+pub async fn resolve_play(state: &AppState, request: &PlayRequest) -> AppResult<PlayResponse> {
     let resume_at = position::load(state, &request.series_id, request.vid_index)?;
     // 本地文件只有一版，谈不上切清晰度：菜单会拿到空列表而自动隐藏
     let local_response = |url: String, online: bool| PlayResponse {

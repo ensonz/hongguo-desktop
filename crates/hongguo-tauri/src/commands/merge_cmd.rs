@@ -109,6 +109,9 @@ mod tests {
             .lines()
             .find(|l| l.contains("fn merge_series("))
             .expect("应能找到 merge_series 的签名");
-        assert!(sig.contains("pub async fn"), "merge_series 必须是 async。实际: {sig}");
+        assert!(
+            sig.contains("pub async fn"),
+            "merge_series 必须是 async。实际: {sig}"
+        );
     }
 }

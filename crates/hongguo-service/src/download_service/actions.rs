@@ -40,7 +40,9 @@ pub fn enqueue_batch(state: &AppState, series_id: &str, vids: &[u32]) -> AppResu
             continue; // 已在队列里
         }
         added += 1;
-        state.events().publish(ServiceEvent::DownloadTaskAdded(task));
+        state
+            .events()
+            .publish(ServiceEvent::DownloadTaskAdded(task));
     }
 
     persist_tasks(&state.store, &state.queue(), "Download")?;

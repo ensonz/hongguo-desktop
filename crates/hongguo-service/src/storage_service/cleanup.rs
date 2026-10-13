@@ -31,11 +31,7 @@ pub fn delete_series(state: &AppState, series_id: &str) -> AppResult<usize> {
 }
 
 /// 删除单集文件。
-pub fn delete_episode(
-    state: &AppState,
-    series_id: &str,
-    vid_index: u32,
-) -> AppResult<bool> {
+pub fn delete_episode(state: &AppState, series_id: &str, vid_index: u32) -> AppResult<bool> {
     let path = state.queue().completed_path(series_id, vid_index);
     match path {
         Some(p) => {

@@ -8,8 +8,8 @@ pub mod compat;
 pub mod guard;
 pub mod prepare;
 pub mod progress;
-pub mod start;
 pub mod quick;
+pub mod start;
 
 use std::path::{Path, PathBuf};
 

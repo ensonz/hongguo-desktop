@@ -23,10 +23,7 @@ pub async fn play_series(
 /// 幂等且静默：本地没档案就先解析登记（通常前端已预取过分集，这里秒回），
 /// 流已取/在取直接返回；取流表失败不报错——预取是优化，失败大不了现场取。
 #[tauri::command]
-pub async fn play_prefetch(
-    state: State<'_, AppState>,
-    series_id: String,
-) -> AppResult<()> {
+pub async fn play_prefetch(state: State<'_, AppState>, series_id: String) -> AppResult<()> {
     let series = match state.store.series_by_id(&series_id)? {
         Some(s) => s,
         None => {

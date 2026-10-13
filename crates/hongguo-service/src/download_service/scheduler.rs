@@ -178,9 +178,11 @@ impl DownloadScheduler {
             Ok((path, size)) => {
                 queue.mark_completed(&id, &path, size);
                 self.throttle.forget(&id);
-                state.events().publish(ServiceEvent::DownloadCompleted(
-                    super::events::TaskEvent { id: id.clone() },
-                ));
+                state
+                    .events()
+                    .publish(ServiceEvent::DownloadCompleted(super::events::TaskEvent {
+                        id: id.clone(),
+                    }));
             }
             Err(e) => {
                 if is_cancelled(&e) {

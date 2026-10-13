@@ -79,11 +79,11 @@ use sample::{sample_to_bytes, secs_to_hns, type_stride, video_type};
 
 // 下方 tests 原样保留，引用的跨子模块名字由此供给。
 #[cfg(test)]
+use annexb::param_sets_annexb;
+#[cfg(test)]
 use hongguo_media_platform_api::PlatformRequest;
 #[cfg(test)]
 use hongguo_media_platform_api::video::bitrate_for;
-#[cfg(test)]
-use annexb::param_sets_annexb;
 
 #[cfg(test)]
 mod tests {

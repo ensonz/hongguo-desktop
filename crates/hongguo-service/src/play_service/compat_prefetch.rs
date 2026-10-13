@@ -24,11 +24,7 @@ static HANDLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 /// 门控按序：有 HEVC 解码直接回；账本里有过直接回；档案里查不到下一集
 /// 的 vid 直接回（起播它时 resolve_play 会自行解析）。通过门控才起后台
 /// 任务，不挡当前起播响应。
-pub fn schedule_next_episode(
-    state: AppState,
-    series_id: &str,
-    next_vid_index: u32,
-) {
+pub fn schedule_next_episode(state: AppState, series_id: &str, next_vid_index: u32) {
     if hongguo_media_platform::capability::playback::hevc_playable() {
         return;
     }

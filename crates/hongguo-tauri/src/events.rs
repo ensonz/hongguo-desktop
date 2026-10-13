@@ -178,8 +178,7 @@ mod tests {
                     hongguo_service::play_service::compat_play::CompatProgressEvent {
                         key: "1:1".into(),
                         percent: 0.0,
-                        phase:
-                            hongguo_service::play_service::compat_play::CompatPhase::Downloading,
+                        phase: hongguo_service::play_service::compat_play::CompatPhase::Downloading,
                     },
                 ),
             ),

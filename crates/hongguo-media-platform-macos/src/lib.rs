@@ -11,8 +11,8 @@
 //! 其余目标上空壳编译（`#![cfg]` 剥掉全部内容）。
 
 pub mod audio;
-mod vt;
 pub mod video;
+mod vt;
 
 pub use audio::AacDecoder;
 pub use video::HevcDecoder;

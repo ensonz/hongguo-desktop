@@ -101,10 +101,7 @@ pub async fn prepare(
     let c = cache();
     let state = state.clone();
     crate::runtime::spawn(async move {
-        let filled = fill(
-            &state, c, &owned, &owned_key, want, &play, &settings, false,
-        )
-        .await;
+        let filled = fill(&state, c, &owned, &owned_key, want, &play, &settings, false).await;
         // 取流权一直持有到数据落盘：中途放开会让并发的第二个请求以为
         // 「没人管这一档」而重新下一遍。
         c.end_fetch(&owned, want);
@@ -134,11 +131,7 @@ fn prepared(c: &StreamCache, vid: &str, definition: u32) -> Option<Prepared> {
 ///
 /// 幂等：已有条目或已在取流时静默返回。失败同样静默——预取是锦上添花，
 /// 报错只会把噪音推给根本没请求这件事的前端。
-pub async fn prefetch_stream(
-    state: &AppState,
-    vid: &str,
-    progress_key: &str,
-) -> AppResult<()> {
+pub async fn prefetch_stream(state: &AppState, vid: &str, progress_key: &str) -> AppResult<()> {
     let vid = vid.trim();
     if vid.is_empty() {
         return Ok(());
@@ -181,10 +174,7 @@ pub async fn prefetch_stream(
     let settings = state.settings();
     let state = state.clone();
     crate::runtime::spawn(async move {
-        let filled = fill(
-            &state, c, &owned, &owned_key, want, &play, &settings, true,
-        )
-        .await;
+        let filled = fill(&state, c, &owned, &owned_key, want, &play, &settings, true).await;
         c.end_fetch(&owned, want);
         if let Err(e) = filled {
             log::warn!("[Online] 预取填充 {owned} 失败: {e}");
@@ -202,11 +192,7 @@ pub async fn prefetch_stream(
 /// 幂等与礼让全部复用 [`prefetch_stream`]（StreamCache 去重 + FillBudget
 /// 让位）。档案里查不到下一集的 vid 就放弃：连播到它时 resolve_play 会
 /// 自行解析（与 compat_prefetch 同款语义）。
-pub fn schedule_next_episode_prefetch(
-    state: AppState,
-    series_id: &str,
-    next_vid_index: u32,
-) {
+pub fn schedule_next_episode_prefetch(state: AppState, series_id: &str, next_vid_index: u32) {
     let Some(vid) =
         crate::play_service::local::episode_vid(&state.store, series_id, next_vid_index)
     else {

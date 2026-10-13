@@ -144,11 +144,13 @@ pub fn merge_series(
         // 覆盖刚才那条 pending/running 记录，这次连同结果一起落库
         upsert(&state, &task);
 
-        state.events().publish(if task.status == MergeStatus::Failed {
-            ServiceEvent::MergeFailed(task)
-        } else {
-            ServiceEvent::MergeCompleted(task)
-        });
+        state
+            .events()
+            .publish(if task.status == MergeStatus::Failed {
+                ServiceEvent::MergeFailed(task)
+            } else {
+                ServiceEvent::MergeCompleted(task)
+            });
     });
 
     // 立刻返回 running 任务：前端据此把列表刷新成「合并中」，
