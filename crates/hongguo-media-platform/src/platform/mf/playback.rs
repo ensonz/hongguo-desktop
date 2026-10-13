@@ -19,6 +19,7 @@ use windows::core::PWSTR;
 
 use hongguo_common::{AppError, AppResult};
 
+use super::sample::{finish_sample, locked_buffer};
 use super::{
     Driver, MF_VERSION, SESSION_INIT, enum_activates, frame_size_of, hr, sample_to_bytes,
     secs_to_hns, type_info, type_stride, video_type,
@@ -36,24 +37,15 @@ fn session_init_once() {
     });
 }
 
-/// 喂入字节数据 → IMFSample（压缩样本共用的构造：锁缓冲、拷贝、定时戳）。/// 流程对齐 super 的 nv12_sample，只是源是裸字节不是 NV12 平面。
+/// 喂入字节数据 → IMFSample（压缩样本共用的构造：锁缓冲、拷贝、定时戳）。
+/// 建样本骨架（MFCreateSample→建缓冲→Lock→拷贝→Unlock→SetCurrentLength→
+/// AddBuffer→SetSampleTime/Duration）与 [`super::sample`] 的 nv12_sample
+/// 共用 locked_buffer/finish_sample 实现，只是源是裸字节不是 NV12 平面。
 unsafe fn bytes_sample(data: &[u8], pts_100ns: i64, dur_100ns: i64) -> AppResult<IMFSample> {
     unsafe {
-        let sample = hr(MFCreateSample(), "建样本")?;
-        let buf = hr(MFCreateMemoryBuffer(data.len() as u32), "建样本缓冲")?;
-        let mut ptr = std::ptr::null_mut();
-        hr(buf.Lock(&mut ptr, None, None), "锁样本缓冲")?;
-        let dst = std::slice::from_raw_parts_mut(ptr, data.len());
-        dst.copy_from_slice(data);
-        let _ = buf.Unlock();
-        hr(buf.SetCurrentLength(data.len() as u32), "设样本长度")?;
-        hr(sample.AddBuffer(&buf), "挂样本缓冲")?;
-        if pts_100ns >= 0 {
-            hr(sample.SetSampleTime(pts_100ns), "设样本时间")?;
-        }
-        if dur_100ns >= 0 {
-            hr(sample.SetSampleDuration(dur_100ns), "设样本时长")?;
-        }
+        let (sample, buf, ptr) = locked_buffer(data.len())?;
+        std::slice::from_raw_parts_mut(ptr, data.len()).copy_from_slice(data);
+        finish_sample(&sample, &buf, data.len(), pts_100ns, dur_100ns)?;
         Ok(sample)
     }
 }
@@ -64,7 +56,8 @@ unsafe fn bytes_sample(data: &[u8], pts_100ns: i64, dur_100ns: i64) -> AppResult
 /// 2.5.x）直驱 `IMFTransform` 时长度前缀样本被无声吞掉（喂 244 个零输出），
 /// 起始码形态立即出帧（与 H.264 时代 mf 解码器只认 Annex-B 同款脾气）。
 /// 解析不出合法长度（首 4 字节超出总长/长度为 0）时原样返回，交给解码器
-/// 报错而不是在这里猜。
+/// 报错而不是在这里猜。边界语义与参数集侧的 [`super::annexb::split_avcc`]
+/// （moov/定长 4 字节截断）有意不同，对照见其注释。
 fn annexb_from_length_prefixed(data: &[u8], length_size: usize) -> Vec<u8> {
     let n = length_size.clamp(1, 4);
     let mut out = Vec::with_capacity(data.len());
