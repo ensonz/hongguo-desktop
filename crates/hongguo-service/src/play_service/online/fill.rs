@@ -1,80 +1,16 @@
-//! 在线播放：取流 → 解密 → 推进内存流。
-//!
-//! 数据面在 [`hongguo_stream`]，这里只负责把数据推进去。
-//!
-//! 两条取流路径：
-//! - **渐进**（首选）：首探头部 256KB → 盒游走定位 moov → 精确补齐 → 建
-//!   解密计划 → 注册进协议层（此刻起即可应答 Range）→ 顺序填充余下字节
-//!   （探针序列对齐 hgplayer 取流 worker）。seek 到未下载区段时由读者需求
-//!   登记（ReaderDemand）驱动优先填充，回跳与前进一视同仁。
-//! - **整集**（回落）：CDN 不支持 Range、moov 定位失败等情形下，整集取回 +
-//!   解密后一次性交给协议，行为与本功能加入前完全一致。
-//!
-//! ⚠️ 起后台填充任务一律走 [`PlayRuntime`] 显式给的运行时 handle，不裸
-//! `tokio::spawn`：后者依赖调用点所在的 Tokio 上下文，[`resume_fill`] 是
-//! 同步入口、可能被协议/回调线程调用（那里没有上下文，会 panic→abort，
-//! 见 2026-10-07 闪退）。壳在装配期把运行时交进来（Tauri 壳 =
-//! `tauri::async_runtime::handle()`，语义与 `tauri::async_runtime::spawn`
-//! 一致；GPUI 壳 = 自己常驻的运行时），任意线程都可安全派发。
-//!
-//! 本模块壳无关：进度事件只产出给 [`ProgressSink`]，送达方式由壳定。
+//! 填充门闸与填充循环：FILL_GATE 串行门闸、渐进/整集两条填充路径、
+//! 三级调度器（需求优先 → 顺序前沿 → 收尾回绕）与预取动态预算。
 
 use std::sync::Arc;
 
-use futures_util::StreamExt;
-
-use hongguo_api::client::{ApiEnv, STREAM_RETRY_ATTEMPTS, stream_retry_backoff};
-use hongguo_common::model::{Settings, VideoDefinition};
+use hongguo_api::client::{STREAM_RETRY_ATTEMPTS, stream_retry_backoff};
+use hongguo_common::model::Settings;
 use hongguo_common::{AppError, AppResult};
-use hongguo_store::Store;
 use hongguo_stream::{ProgressiveStream, StreamCache, cache};
 
-/// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，
-/// 顶层盒表从这里算出 moov 落点。
-const HEAD_BYTES: u64 = 256 * 1024;
-/// moov 不在首探里时的盒游走步进，对齐 hgplayer 的 `it(f, f+64*1024)`：
-/// 从「最后一个顶层盒的结束处」起探。
-const BOX_WALK_STEP: u64 = 64 * 1024;
-/// 盒游走最多轮数，对齐 hgplayer `Me()` 的 `for(i<4)`：正常尾-moov 布局
-/// 第一轮就命中，多轮只防非常规盒序（fragmented 之类）。
-const BOX_WALK_MAX: usize = 4;
-/// 顺序填充的步长：每段一个 Range 请求。
-///
-/// 1MB，对齐 hgplayer（第三方 Go+Wails 客户端）实测值——其前端 worker 按
-/// mp4 样本表分组拉流，单请求上限 `1<<20`（首探 256KB、盒游走 64KB 步进；
-/// 见 captures/hgplayer-116-frontend.js 的取流 worker）。分块越小，
-/// seek 需求打断顺序填充的粒度越细，回跳响应越快。
-const FETCH_CHUNK: u64 = 1024 * 1024;
-
-/// 在线播放就绪后带回的档位信息。
-pub struct Prepared {
-    pub url: String,
-    /// 实际选中的档位。请求的档位平台没给时会回退，这里是回退后的真实值。
-    pub definition: u32,
-    /// 本集提供的全部档位
-    pub definitions: Vec<VideoDefinition>,
-}
-
-/// 进度事件出口：service 只负责产出事件，送达方式由壳决定
-/// （Tauri 壳 emit 给前端；GPUI 壳现阶段没有订阅方，传 [`PlayRuntime::progress`] = None）。
-pub type ProgressSink = Arc<dyn Fn(&OnlineProgressEvent) + Send + Sync>;
-
-/// 取流编排的壳侧运行时：后台任务派发 + 进度事件去向。
-///
-/// service 可能被协议回调、主线程等**无 Tokio 上下文**的线程调用（2026-10-07
-/// 闪退教训），后台任务不能依赖调用点上下文起——派发用壳显式给的运行时
-/// handle，任意线程可调。进度事件也经它送达壳（Tauri emit / GPUI 忽略）。
-#[derive(Clone)]
-pub struct PlayRuntime {
-    pub handle: tokio::runtime::Handle,
-    pub progress: Option<ProgressSink>,
-}
-
-impl PlayRuntime {
-    pub fn new(handle: tokio::runtime::Handle, progress: Option<ProgressSink>) -> Self {
-        Self { handle, progress }
-    }
-}
+use super::PlayRuntime;
+use super::plain::fetch_plain_with;
+use super::progress::ProgressReporter;
 
 /// 填充门闸：数据填充段（真正抢带宽的下载+解密）同时只允许一路。
 ///
@@ -83,243 +19,6 @@ impl PlayRuntime {
 /// 整集填充压住，切过去就得现场重走整条探针链（滚轮后 1-2s 的主因）。
 /// 拿着门闸的调用方在 `begin_fetch` 已登记取流权，不会重复发请求。
 static FILL_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
-
-/// 准备在线播放，返回流地址与档位信息。
-///
-/// 缓存按 (vid, 档位) 分条目（见 [`hongguo_stream`]），所以切清晰度
-/// 既不用下载、也不会动到正在播的那一档：切回去直接命中内存里的旧数据。
-pub async fn prepare(
-    runtime: &PlayRuntime,
-    vid: &str,
-    progress_key: &str,
-    definition: Option<u32>,
-    settings: Settings,
-    env: &hongguo_api::client::ApiEnv,
-) -> AppResult<Prepared> {
-    let vid = vid.trim();
-    if vid.is_empty() {
-        return Err(AppError::InvalidArgs("缺少 vid".into()));
-    }
-    let c = cache();
-    // 记下当前集：逐出策略保它、预填礼让它、切走后旧填充据此自杀
-    c.set_current(vid);
-    // 一次只看一集的**语义下有界保留**：当前集全部档位 + 显式预取 + 最近几条。
-    // 全清的话，信息流切剧目标一弹，正在被 <video> 读的那条流就被逐掉，
-    // 播放追上缓冲前沿就是 30s 超时 + MediaError（「视频处理失败」根因）。
-    c.retain_playing_set(vid);
-
-    // 不指定档位时先认上一轮解析到的档位——缓存的键里必须有具体档位，
-    // 否则无从查起。连 auto 记录都没有（重启后第一次、预取还没走到），
-    // 就认领同 vid 任一已就绪的条目：有现成的流，别把取流表+建流+填头部
-    // 整条链路再走一遍。顺带让「拉分集」与「起播」两个并发请求认到同一条缓存。
-    let want = match definition.or_else(|| c.auto_definition(vid)) {
-        Some(w) => Some(w),
-        None => c.ready_any(vid).map(|(d, _)| {
-            c.remember_auto(vid, d);
-            d
-        }),
-    };
-    if let Some(want) = want {
-        if let Some(hit) = prepared(c, vid, want) {
-            // 预取只填了头部的条目：转正后立刻续填余下（后台，不挡播放）
-            resume_fill(runtime, vid, want, progress_key);
-            log::info!("[Online] {vid} 档位 {want} 已缓存，直接复用");
-            return Ok(hit);
-        }
-        // 另一个请求正在把这一档取下来：等它，而不是自己也发一次下载。
-        if c.is_fetching(vid, want) {
-            log::info!("[Online] {vid} 档位 {want} 正在取流，等待复用");
-            return wait_for_fetch(c, vid, want).await;
-        }
-    }
-
-    // 还没有键可查：先做一次很小的接口调用把流表拿回来，解析出的真实档位
-    // 才是缓存的键。贵的那一步（整集下载 + 解密）要等拿到取流权之后才发生。
-    // 无 HEVC 扩展的机器选流翻转到 h264（官方 CodecStrategy 语义，见 stream_pick）。
-    let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
-        hongguo_media_platform::capability::playback::hevc_playable(),
-    );
-    let play = hongguo_api::play_url::fetch_play_url(vid, definition, cap, env).await?;
-    let want = play.definition;
-    // 只记「不指定档位」那次解析到的结果。手动选过 720 之后再点「自动」，
-    // 要的仍然是平台给的最高档，而不是上一次手动选的那档。
-    if definition.is_none() {
-        c.remember_auto(vid, want);
-    }
-    log::info!(
-        "[Online] {vid} 选中档位 {want}（共 {} 档可选）",
-        play.definitions.len()
-    );
-
-    if !c.begin_fetch(vid, want) {
-        // 抢取流权时又被别人插队（窗口极窄），转为等待
-        return wait_for_fetch(c, vid, want).await;
-    }
-    c.set_definitions(vid, want, &play.definitions);
-    let url = hongguo_protocol::stream_url(vid, want);
-    // play 整份 move 进后台填充任务，这里先把要回给调用方的字段取出来
-    let result = Prepared {
-        url,
-        definition: want,
-        definitions: play.definitions.clone(),
-    };
-    let owned = vid.to_string();
-    let owned_key = progress_key.to_string();
-    // `cache()` 返回 `&'static StreamCache`，可以直接带进 spawn 的 future
-    let c = cache();
-    let runtime = runtime.clone();
-    let handle = runtime.handle.clone();
-    handle.spawn(async move {
-        let filled = fill(
-            &runtime, c, &owned, &owned_key, want, &play, &settings, false,
-        )
-        .await;
-        // 取流权一直持有到数据落盘：中途放开会让并发的第二个请求以为
-        // 「没人管这一档」而重新下一遍。
-        c.end_fetch(&owned, want);
-        if let Err(e) = filled {
-            log::warn!("[Online] 填充 {owned} 失败: {e}");
-            c.remove(&owned, want);
-        }
-    });
-
-    Ok(result)
-}
-
-/// 缓存里这一档已经能供数时，组装出播放响应。
-fn prepared(c: &StreamCache, vid: &str, definition: u32) -> Option<Prepared> {
-    c.ready(vid, definition).map(|definitions| Prepared {
-        url: hongguo_protocol::stream_url(vid, definition),
-        definition,
-        definitions,
-    })
-}
-
-/// 预取一集的流（沉浸流「一切就下一部」的后台铺垫）。
-///
-/// 提前走完「取流表 + 建渐进流」这两步贵的前置，数据在后台渐进填充；
-/// 用户真滚过去时 `prepare` 会命中 `ready`（渐进条目注册即就绪），
-/// 立刻拿到流地址，首帧只等头部数据区间，不再黑屏干等。
-///
-/// 幂等：已有条目或已在取流时静默返回。失败同样静默——预取是锦上添花，
-/// 报错只会把噪音推给根本没请求这件事的前端。
-pub async fn prefetch_stream(
-    runtime: &PlayRuntime,
-    vid: &str,
-    progress_key: &str,
-    settings: &Settings,
-    env: &hongguo_api::client::ApiEnv,
-) -> AppResult<()> {
-    let vid = vid.trim();
-    if vid.is_empty() {
-        return Ok(());
-    }
-    let c = cache();
-    // 已解析过档位且条目在场/在取：无事可做
-    if let Some(want) = c.auto_definition(vid)
-        && (c.exists(vid, want) || c.is_fetching(vid, want))
-    {
-        return Ok(());
-    }
-    // 预取与真实播放同一条选流模式：无 HEVC 机器预取的也必须是 h264，
-    // 否则起播时探测结论翻转会命中一条播不了的缓存流。
-    let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
-        hongguo_media_platform::capability::playback::hevc_playable(),
-    );
-    let play = match hongguo_api::play_url::fetch_play_url(vid, None, cap, env).await {
-        Ok(p) => p,
-        Err(e) => {
-            log::info!("[Online] 预取 {vid} 取流表失败（忽略）: {e}");
-            return Ok(());
-        }
-    };
-    let want = play.definition;
-    c.remember_auto(vid, want);
-    if c.is_fetching(vid, want) || c.exists(vid, want) {
-        return Ok(());
-    }
-    if !c.begin_fetch(vid, want) {
-        return Ok(());
-    }
-    c.set_definitions(vid, want, &play.definitions);
-    // 显式标记预取：keep_only 只豁免这一条，别让在途填充占住串行队列
-    c.mark_prefetch(vid, want);
-    log::info!("[Online] 预取 {vid} 档位 {want}，后台渐进填充开始");
-    let owned = vid.to_string();
-    let owned_key = progress_key.to_string();
-    let c = cache();
-    let runtime = runtime.clone();
-    let settings = settings.clone();
-    let handle = runtime.handle.clone();
-    handle.spawn(async move {
-        let filled = fill(
-            &runtime, c, &owned, &owned_key, want, &play, &settings, true,
-        )
-        .await;
-        c.end_fetch(&owned, want);
-        if let Err(e) = filled {
-            log::warn!("[Online] 预取填充 {owned} 失败: {e}");
-            c.remove(&owned, want);
-        }
-    });
-    Ok(())
-}
-
-/// 连播预取：本集起播成功后排队**下一集**的流预取。
-///
-/// 切剧预取（首页 `play_prefetch`）只覆盖「换一部剧」；同剧的集间切换此前
-/// 完全没有预取，自动连播每集都要冷走一遍取流表+探针链（2026-10-12 实测
-/// 1.4s，正是「下一集黑一两秒」的来源——同现场切剧命中预取只要 20ms）。
-/// 幂等与礼让全部复用 [`prefetch_stream`]（StreamCache 去重 + FillBudget
-/// 让位）。档案里查不到下一集的 vid 就放弃：连播到它时 resolve_play 会
-/// 自行解析（与 compat_prefetch 同款语义）。
-pub fn schedule_next_episode_prefetch(
-    runtime: &PlayRuntime,
-    store: &Store,
-    settings: Settings,
-    env: ApiEnv,
-    series_id: &str,
-    next_vid_index: u32,
-) {
-    let Some(vid) = super::local::episode_vid(store, series_id, next_vid_index) else {
-        return;
-    };
-    let progress_key = format!("{series_id}:{next_vid_index}");
-    let runtime = runtime.clone();
-    let handle = runtime.handle.clone();
-    handle.spawn(async move {
-        if let Err(e) = prefetch_stream(&runtime, &vid, &progress_key, &settings, &env).await {
-            log::info!("[Online] 第 {next_vid_index} 集连播预取失败（忽略）: {e}");
-        }
-    });
-}
-
-/// 等另一个请求把这一档取完，复用它的结果。
-///
-/// 播放页对同一集会并发发两次 `play_series`（拉分集 + 起播），第二次不再发一次
-/// 下载（那会把整集白下一遍），而是等数据落进缓存。取流失败时对方会把条目删掉，
-/// 这里据此判定「等不到」，按失败返回。
-async fn wait_for_fetch(c: &StreamCache, vid: &str, definition: u32) -> AppResult<Prepared> {
-    const POLL: std::time::Duration = std::time::Duration::from_millis(20);
-    // 上限要大于单次取流耗时（整集下载+解密），但别无限等：
-    // 网络挂住时用户看到的是一条明确报错，而不是永远转圈。
-    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
-
-    let start = std::time::Instant::now();
-    loop {
-        if let Some(hit) = prepared(c, vid, definition) {
-            return Ok(hit);
-        }
-        // 对方失败并清掉了条目
-        if !c.exists(vid, definition) {
-            return Err(AppError::Network(format!("取流失败: {vid}")));
-        }
-        if start.elapsed() > DEADLINE {
-            return Err(AppError::Network(format!("等待取流超时: {vid}")));
-        }
-        tokio::time::sleep(POLL).await;
-    }
-}
 
 /// 下载一集、解密、整段推进缓存。
 ///
@@ -344,7 +43,7 @@ async fn wait_for_fetch(c: &StreamCache, vid: &str, definition: u32) -> AppResul
     clippy::too_many_arguments,
     reason = "参数表与平台 C API（虚表/会话属性）一一对应，硬拆参数结构反而失真"
 )]
-async fn fill(
+pub(super) async fn fill(
     runtime: &PlayRuntime,
     c: &StreamCache,
     vid: &str,
@@ -818,138 +517,22 @@ fn sparse_snapshot(sparse: &hongguo_mp4::streaming::SparseBuffer, start: u64, en
     out
 }
 
-/// 取一集并解密成明文字节（CDN 下载 + CENC 解密）。
+/// 头部首探量，对齐 hgplayer 的 `it(0, 262144)`：ftyp + mdat 头都装得下，
+/// 顶层盒表从这里算出 moov 落点。
+const HEAD_BYTES: u64 = 256 * 1024;
+/// moov 不在首探里时的盒游走步进，对齐 hgplayer 的 `it(f, f+64*1024)`：
+/// 从「最后一个顶层盒的结束处」起探。
+const BOX_WALK_STEP: u64 = 64 * 1024;
+/// 盒游走最多轮数，对齐 hgplayer `Me()` 的 `for(i<4)`：正常尾-moov 布局
+/// 第一轮就命中，多轮只防非常规盒序（fragmented 之类）。
+const BOX_WALK_MAX: usize = 4;
+/// 顺序填充的步长：每段一个 Range 请求。
 ///
-/// 在线播放与兼容转码都要这一步，抽出来避免两份「取流 + 解密」逻辑各自漂移。
-pub async fn fetch_plain(
-    play: &hongguo_api::play_url::PlayInfo,
-    settings: &Settings,
-) -> AppResult<Vec<u8>> {
-    fetch_plain_with(play, settings, &|_, _, _| {}).await
-}
-
-/// 在线播放进度上报器。
-///
-/// 复用下载服务那套节流（0.5% 或 500ms 才发一次）：取流是每秒好几 MB 的量，
-/// 每次都发会把 UI 线程打满。事件经壳给的 [`ProgressSink`] 送达——service
-/// 不关心前端在哪；没有 sink（GPUI 壳现阶段）时是纯空操作。
-///
-/// 进度不是可选装饰：整集取回 + 解密期间界面上只有一个转圈，用户既看不出在动
-/// 还是卡住，也看不到还要多久。
-pub struct ProgressReporter {
-    sink: Option<ProgressSink>,
-    /// 前端按 `{seriesId}:{vidIndex}` 过滤事件（episodeKey，与
-    /// compat-play-progress 同一格式）——曾经发裸 vid 导致「正在缓存 X%」
-    /// 永远匹配不上，别改回 vid。
-    key: String,
-    throttle: crate::download_service::events::ProgressThrottle,
-}
-
-impl ProgressReporter {
-    pub fn new(sink: Option<ProgressSink>, key: String) -> Self {
-        Self {
-            sink,
-            key,
-            throttle: Default::default(),
-        }
-    }
-
-    /// 报一次进度。`total` 为 0（CDN 没给 Content-Length）时不发百分比。
-    pub fn report(&self, received: u64, total: u64, phase: &str) {
-        let Some(sink) = &self.sink else {
-            return;
-        };
-        let percent = if total > 0 {
-            received as f64 / total as f64 * 100.0
-        } else {
-            0.0
-        };
-        if !self.throttle.should_send(&self.key, percent) {
-            return;
-        }
-        sink(&OnlineProgressEvent {
-            key: self.key.clone(),
-            received,
-            total,
-            percent: percent.min(100.0),
-            phase: phase.to_string(),
-        });
-    }
-
-    /// 100%：解密完成、缓冲就绪。
-    pub fn done(&self) {
-        self.throttle.forget(&self.key);
-        let Some(sink) = &self.sink else {
-            return;
-        };
-        sink(&OnlineProgressEvent {
-            key: self.key.clone(),
-            received: 0,
-            total: 0,
-            percent: 100.0,
-            phase: "ready".to_string(),
-        });
-    }
-}
-
-/// 在线播放进度事件（`online-play-progress`，红线 10：强类型载荷）。
-///
-/// `key` 是 `{seriesId}:{vidIndex}`（episodeKey），前端按它过滤事件——
-/// 曾经发裸 vid 导致「正在缓存 X%」永远匹配不上，别改回 vid。
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct OnlineProgressEvent {
-    pub key: String,
-    pub received: u64,
-    pub total: u64,
-    pub percent: f64,
-    pub phase: String,
-}
-
-/// 带进度回调的取流+解密。
-pub async fn fetch_plain_with(
-    play: &hongguo_api::play_url::PlayInfo,
-    settings: &Settings,
-    progress: &(dyn Fn(u64, u64, &str) + Sync),
-) -> AppResult<Vec<u8>> {
-    let client = hongguo_api::client::build_client(&settings.proxy)?;
-
-    // 首选裸 UA；个别 CDN 节点反过来要求 Referer，403 时在里面补上重试
-    let resp = hongguo_api::client::get_video_stream(&client, &play.url).await?;
-
-    // 拿不到 Content-Length 就发不了百分比，但「开始动了」这件事仍要告诉界面
-    let total = resp.content_length().unwrap_or(0);
-    progress(0, total, "downloading");
-
-    let mut body: Vec<u8> = Vec::with_capacity(total as usize);
-    let mut received = 0u64;
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| AppError::Network(e.to_string()))?;
-        received += chunk.len() as u64;
-        body.extend_from_slice(&chunk);
-        progress(received, total, "downloading");
-    }
-    progress(received, total.max(received), "decrypting");
-
-    if play.encrypted {
-        let key = hongguo_mp4::crypto::key_derive::derive_key(&play.key_material)?;
-        hongguo_mp4::decrypt_buffer::decrypt_mp4_buffer(&body, &key)
-    } else {
-        Ok(body)
-    }
-}
-
-/// 在线缓存现状（分条数、已填充字节），供缓存占用统计读。
-pub fn status() -> (usize, u64) {
-    cache().status()
-}
-
-/// 清空在线缓存。
-pub fn clear() -> usize {
-    let (count, _) = cache().status();
-    cache().clear();
-    count
-}
+/// 1MB，对齐 hgplayer（第三方 Go+Wails 客户端）实测值——其前端 worker 按
+/// mp4 样本表分组拉流，单请求上限 `1<<20`（首探 256KB、盒游走 64KB 步进；
+/// 见 captures/hgplayer-116-frontend.js 的取流 worker）。分块越小，
+/// seek 需求打断顺序填充的粒度越细，回跳响应越快。
+const FETCH_CHUNK: u64 = 1024 * 1024;
 
 #[cfg(test)]
 mod scheduler_tests {
