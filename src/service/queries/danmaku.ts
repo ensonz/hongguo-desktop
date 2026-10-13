@@ -10,10 +10,37 @@ import { keys } from './common';
 // 信息这类不变或重资产）。乐观写回只解决「自己操作后到重拉之间」的
 // 即时反馈，数据新鲜度全靠每次打开重拉。
 
+/** 播放键 `{groupId}:{bookId}` → 弹幕/互动接口的两个参数。 */
+function parseVid(vid: string): { groupId: string; bookId: string } {
+  const [groupId = '', bookId = ''] = vid.split(':');
+  return { groupId, bookId };
+}
+
+/** 乐观点赞的通用缓存手术：id 命中的条目翻 userDigg 并把计数 ±1（夹 0）。
+ *  评论/回复两条数据线 × 单集/剧评两侧共四份同构，差异只有缓存 key 与
+ *  id 字段，2026-10-13 收敛成这一份。 */
+function diggInPages<P extends { items: Array<{ userDigg: boolean; diggCount: number }> }>(
+  draft: InfiniteData<P, string>,
+  idOf: (item: P['items'][number]) => string,
+  id: string,
+  digg: boolean,
+): InfiniteData<P, string> {
+  return {
+    ...draft,
+    pages: draft.pages.map((p) => ({
+      ...p,
+      items: p.items.map((it) =>
+        idOf(it) === id
+          ? { ...it, userDigg: digg, diggCount: Math.max(0, it.diggCount + (digg ? 1 : -1)) }
+          : it,
+      ),
+    })),
+  };
+}
+
 /** 一集的弹幕（按 vid；后端已按时间轴排序并拉全窗口）。 */
 export function useDanmaku(vid: string) {
-  const groupId = vid.split(':')[0] ?? '';
-  const bookId = vid.split(':')[1] ?? '';
+  const { groupId, bookId } = parseVid(vid);
   return useQuery({
     queryKey: keys.danmaku(vid),
     queryFn: () => danmakuCmd.list(groupId, bookId),
@@ -32,8 +59,8 @@ export function useSendDanmaku() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { vid: string; text: string; offsetMs: number }) => {
-      const [groupId, bookId] = input.vid.split(':');
-      return interactCmd.sendDanmaku(groupId ?? '', bookId ?? '', input.text, input.offsetMs);
+      const { groupId, bookId } = parseVid(input.vid);
+      return interactCmd.sendDanmaku(groupId, bookId, input.text, input.offsetMs);
     },
     onSuccess: (commentId, input) => {
       queryClient.setQueryData<Danmaku[]>(keys.danmaku(input.vid), (prev) => {
@@ -52,8 +79,7 @@ export function useSendDanmaku() {
  * total 取自第一页的 need_count 回传，失败时报错由面板显示不打断播放）。
  */
 export function useComments(vid: string) {
-  const groupId = vid.split(':')[0] ?? '';
-  const bookId = vid.split(':')[1] ?? '';
+  const { groupId, bookId } = parseVid(vid);
   return useInfiniteQuery({
     queryKey: keys.comments(vid),
     queryFn: ({ pageParam }) => danmakuCmd.comments(groupId, bookId, pageParam),
@@ -72,8 +98,8 @@ export function useSendComment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { vid: string; text: string }) => {
-      const [groupId, bookId] = input.vid.split(':');
-      return interactCmd.sendComment(groupId ?? '', bookId ?? '', input.text);
+      const { groupId, bookId } = parseVid(input.vid);
+      return interactCmd.sendComment(groupId, bookId, input.text);
     },
     onSuccess: (comment, input) => {
       queryClient.setQueryData<InfiniteData<CommentPage, string>>(
@@ -113,10 +139,10 @@ export function useSendReply() {
       replyToReplyId?: string;
       text: string;
     }) => {
-      const [groupId, bookId] = input.vid.split(':');
+      const { groupId, bookId } = parseVid(input.vid);
       return interactCmd.sendReply(
-        groupId ?? '',
-        bookId ?? '',
+        groupId,
+        bookId,
         input.replyToCommentId,
         input.replyToReplyId ?? null,
         input.text,
@@ -130,8 +156,7 @@ export function useSendReply() {
  * 一页 10 条，面板内「展开更多回复」续拉（cursor 数字串原样回传）。
  */
 export function useCommentReplies(vid: string, commentId: string, enabled: boolean) {
-  const groupId = vid.split(':')[0] ?? '';
-  const bookId = vid.split(':')[1] ?? '';
+  const { groupId, bookId } = parseVid(vid);
   return useInfiniteQuery({
     queryKey: keys.commentReplies(vid, commentId),
     queryFn: ({ pageParam }) => danmakuCmd.commentReplies(groupId, bookId, commentId, pageParam),
@@ -172,22 +197,7 @@ export function useCommentDigg(vid: string) {
       if (prev) {
         queryClient.setQueryData<InfiniteData<CommentPage, string>>(
           keys.comments(vid),
-          (draft) =>
-            draft && {
-              ...draft,
-              pages: draft.pages.map((p) => ({
-                ...p,
-                items: p.items.map((c) =>
-                  c.commentId === input.commentId
-                    ? {
-                        ...c,
-                        userDigg: input.digg,
-                        diggCount: Math.max(0, c.diggCount + (input.digg ? 1 : -1)),
-                      }
-                    : c,
-                ),
-              })),
-            },
+          (draft) => draft && diggInPages(draft, (c) => c.commentId, input.commentId, input.digg),
         );
       }
       return { prev };
@@ -216,22 +226,7 @@ export function useReplyDigg(vid: string) {
       if (prev) {
         queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
           key,
-          (draft) =>
-            draft && {
-              ...draft,
-              pages: draft.pages.map((p) => ({
-                ...p,
-                items: p.items.map((r) =>
-                  r.replyId === input.replyId
-                    ? {
-                        ...r,
-                        userDigg: input.digg,
-                        diggCount: Math.max(0, r.diggCount + (input.digg ? 1 : -1)),
-                      }
-                    : r,
-                ),
-              })),
-            },
+          (draft) => draft && diggInPages(draft, (r) => r.replyId, input.replyId, input.digg),
         );
       }
       return { prev, key };
@@ -315,22 +310,7 @@ export function useReviewDigg(seriesId: string) {
       if (prev) {
         queryClient.setQueryData<InfiniteData<CommentPage, string>>(
           keys.seriesComments(seriesId),
-          (draft) =>
-            draft && {
-              ...draft,
-              pages: draft.pages.map((p) => ({
-                ...p,
-                items: p.items.map((c) =>
-                  c.commentId === input.reviewId
-                    ? {
-                        ...c,
-                        userDigg: input.digg,
-                        diggCount: Math.max(0, c.diggCount + (input.digg ? 1 : -1)),
-                      }
-                    : c,
-                ),
-              })),
-            },
+          (draft) => draft && diggInPages(draft, (c) => c.commentId, input.reviewId, input.digg),
         );
       }
       return { prev };
@@ -360,22 +340,7 @@ export function useReviewReplyDigg(seriesId: string) {
       if (prev) {
         queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
           key,
-          (draft) =>
-            draft && {
-              ...draft,
-              pages: draft.pages.map((p) => ({
-                ...p,
-                items: p.items.map((r) =>
-                  r.replyId === input.replyId
-                    ? {
-                        ...r,
-                        userDigg: input.digg,
-                        diggCount: Math.max(0, r.diggCount + (input.digg ? 1 : -1)),
-                      }
-                    : r,
-                ),
-              })),
-            },
+          (draft) => draft && diggInPages(draft, (r) => r.replyId, input.replyId, input.digg),
         );
       }
       return { prev, key };

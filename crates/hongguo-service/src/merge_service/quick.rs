@@ -36,8 +36,7 @@ pub fn quick_merge(
     }
 
     let settings = state.settings();
-    let dir = settings.series_dir(output_name);
-    let output = dir.join(format!("{output_name} 合集.mp4"));
+    let output = super::output_file(&settings, output_name);
 
     let total = inputs.len();
     on_progress(0.0, total, task);

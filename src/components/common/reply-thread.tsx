@@ -93,7 +93,7 @@ interface RowActions {
 
 /** 一条回复行：头像 / 昵称 / 表情文本 / 时间 / ♡（回复点赞与评论点赞同形态，
  *  object_id 传 reply_id）。自己的回复（userId 对上登录 uid）带删除入口。 */
-export function ReplyRow({
+function ReplyRow({
   reply,
   myUserId,
   variant,

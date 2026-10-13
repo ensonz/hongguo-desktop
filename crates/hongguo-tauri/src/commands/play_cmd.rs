@@ -33,11 +33,6 @@ pub async fn play_series(
     hongguo_service::play_service::local::resolve_play(&play_runtime(&app), &state, &request).await
 }
 
-/// 与首页起点决策同口径（home-page 的起点 effect：看过 >3 秒就续播那一集）。
-/// 预取要瞄准的是切过去**真正会播**的那一集——固定第 1 集在看过几集的剧上
-/// 永远命中不了，「你的内容」种子（历史/书架排头）部部如此。
-const RESUME_THRESHOLD_SECS: f64 = 3.0;
-
 /// 预取一集的在线流（沉浸流「一切就下一部」）。
 ///
 /// 幂等且静默：本地没档案就先解析登记（通常前端已预取过分集，这里秒回），
@@ -58,12 +53,12 @@ pub async fn play_prefetch(
             s
         }
     };
-    // 起点对齐首页的续播决策：看过 >3 秒的剧预取上次看到的那一集；
-    // 没看过的（或那一集已不在分集表里）回落第 1 集。
-    let vid_index = match state.store.series_last_position(&series_id)? {
-        Some((idx, p)) if p.current_time > RESUME_THRESHOLD_SECS => idx,
-        _ => 1,
-    };
+    // 起点与首页同一份续播决策（resolve_entry；传空历史 = 只看本地断点）：
+    // 看过 >3 秒的剧预取上次看到的那一集；没看过的（或那一集已不在分集表
+    // 里）回落第 1 集。
+    let vid_index =
+        hongguo_service::play_service::resume::resolve_entry(&state.store, &series_id, &[])
+            .map(|(idx, _)| idx)?;
     let ep = series
         .episodes
         .iter()

@@ -4,6 +4,7 @@ import { useCompatPlayback } from '@/service/queries';
 import { useEvent } from '@/service/tauri/events';
 import { EVENTS } from '@/service/tauri/types';
 import { t, tf } from '@/locales';
+import { STREAM_SCHEME } from '@/utils/scheme';
 import type { CompatProgress, Series } from '@/service/schema';
 
 /**
@@ -73,7 +74,7 @@ export function useTranscodeFallback(params: {
    * query 是纯缓存钉（后端已补 no-store，这层双保险兜老进程/旧缓存）。
    */
   const playSrc =
-    baseSrc && baseSrc.includes('hongguo-stream') && retryTick > 0
+    baseSrc && baseSrc.includes(STREAM_SCHEME) && retryTick > 0
       ? `${baseSrc}?r=${retryTick}`
       : baseSrc;
   /** 当前流的指纹：live/stalled 状态读时校验它，换流（切剧/切集/换清晰度）即失效 */

@@ -127,7 +127,7 @@ pub async fn merge_series(
     task.status = MergeStatus::Running;
     // 开跑就落库。跑到结束才落的话，进程一崩这十几分钟的进度就凭空消失，
     // 用户重开应用既看不到「刚才合过」也看不到「合到哪了」。
-    upsert_merge_task(&state, &task);
+    upsert_merge_task_owned(state.inner(), &task);
     // 合并可能跑好几分钟，先广播「开始了」，UI 立刻能看到 running 状态
     let _ = app.emit(names::MERGE_TASK_ADDED, &task);
 
@@ -234,13 +234,8 @@ pub async fn merge_series(
 ///
 /// 记录本身不是产物：为了写一条状态把整个任务判失败，会让用户以为
 /// 白转了十几分钟。开始时先插一条 running 记录让 UI 立刻看到任务；
-/// 跑完后再用同一条覆盖它。
-fn upsert_merge_task(state: &State<'_, AppState>, task: &MergeTask) {
-    upsert_merge_task_owned(state.inner(), task);
-}
-
-/// [`upsert_merge_task`] 的自有类型版本，供后台线程使用
-/// （后台线程拿不到 command 的 `State` 生命周期）。
+/// 跑完后再用同一条覆盖它。命令层拿 `State`、后台线程拿 `&AppState`，
+/// 都直接调这里。
 fn upsert_merge_task_owned(state: &AppState, task: &MergeTask) {
     if let Err(e) = state.store.upsert_merge_task(task) {
         log::error!("[Merge] 合并记录落库失败: {e}");

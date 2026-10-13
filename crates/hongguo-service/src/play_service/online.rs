@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 
-use hongguo_api::client::ApiEnv;
+use hongguo_api::client::{ApiEnv, STREAM_RETRY_ATTEMPTS, stream_retry_backoff};
 use hongguo_common::model::{Settings, VideoDefinition};
 use hongguo_common::{AppError, AppResult};
 use hongguo_store::Store;
@@ -406,7 +406,7 @@ async fn fill(
                 Box::new(|| FillBudget::Unbounded)
             };
             let mut last_err = None;
-            for attempt in 0..3 {
+            for attempt in 0..STREAM_RETRY_ATTEMPTS {
                 if cancelled() {
                     log::info!("[Online] {vid} 已被切走，中止填充");
                     return Ok(());
@@ -427,9 +427,8 @@ async fn fill(
                             attempt + 1
                         );
                         last_err = Some(e);
-                        // 退避对齐 hgplayer 取流 worker 的 it()：300ms×(第几次)
-                        let backoff = std::time::Duration::from_millis(300 * (attempt as u64 + 1));
-                        tokio::time::sleep(backoff).await;
+                        // 退避与 client 的 Range 重试同一份 it() 口径
+                        tokio::time::sleep(stream_retry_backoff(attempt)).await;
                     }
                 }
             }

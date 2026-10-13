@@ -34,6 +34,7 @@ use hongguo_common::{AppError, AppResult};
 use hongguo_mp4::sample_table::TrackInfo;
 
 use super::PlatformRequest;
+use super::video::bitrate_for;
 
 /// 探测结果缓存：「会话能建吗」与「会话是不是硬件」分开回答——前者决定
 /// 生产链路是否走 VT（软编会话也算数），后者只喂能力徽标与并行度。
@@ -1066,14 +1067,7 @@ impl Transfer {
 // 编排
 // ————————————————————————————————————————————————————————————
 
-/// 码率标定：VT 没有 CRF，按「0.12 bit/像素/帧」给出与 libx264 `-crf 23`
-/// 同档的码率（1080p25 ≈ 6.2 Mbps）。系数与 mf 侧同源——2026-10-07 在
-/// Windows 侧用 NVENC MFT + libvmaf 双源复核后从 0.1 提到 0.12（高运动
-/// 内容 CBR 偏低的收窄），VT 侧沿用同一档；偏差大时只调这个系数。
-fn bitrate_for(width: usize, height: usize, fps: f64) -> i32 {
-    let bps = width as f64 * height as f64 * fps.max(1.0) * 0.12;
-    bps.clamp(800_000.0, 12_000_000.0) as i32
-}
+// 码率标定 bitrate_for 收敛到 super::video（mf/vt 两侧原本逐字节相同）。
 
 /// 一帧解码输出 →（缩放）→ 编码 → 收割产物。`pts` 是该帧与源槽位配对
 /// 好的显示时间（见 run() 流水注释）。

@@ -60,12 +60,15 @@ pub async fn fetch_related_series(
     .collect();
 
     let mut last = RelatedSeries::default();
-    for attempt in 0..4u8 {
+    /// 相关推荐的重试次数与递增退避（400/700/1000ms）。实测冷填充通常
+    /// 第二次就有数据，连冷到第四次极罕见（间隔拉长给服务端填充留时间）。
+    const PLAN_RETRY_ATTEMPTS: u8 = 4;
+    const PLAN_RETRY_BASE_MS: u64 = 400;
+    const PLAN_RETRY_STEP_MS: u64 = 300;
+    for attempt in 0..PLAN_RETRY_ATTEMPTS {
         if attempt > 0 {
-            // 递增退避：400/700/1000ms。实测冷填充通常第二次就有数据，
-            // 连冷到第四次极罕见（间隔拉长给服务端填充留时间）。
             tokio::time::sleep(std::time::Duration::from_millis(
-                400 + 300 * (attempt - 1) as u64,
+                PLAN_RETRY_BASE_MS + PLAN_RETRY_STEP_MS * (attempt - 1) as u64,
             ))
             .await;
         }

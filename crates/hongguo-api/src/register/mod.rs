@@ -363,13 +363,17 @@ fn fresh_identity() -> FreshIdentity {
     }
 }
 
+/// 首次安装时间戳相对当前时间的回拨量（毫秒）：抓包模板值，设备「刚
+/// 装不久」的拟真参数（apk_first_install_time 与 first_launch_timestamp 共用）。
+const FIRST_INSTALL_BACKDATE_MS: u64 = 12_000;
+
 /// 构造 AppLog 注册 JSON（抓包模板：47 个指纹字段，设备身份替换为新生成的）。
 fn applog_register_json(id: &FreshIdentity, now_ms: u64) -> Value {
     // 字段多，json! 宏会顶爆递归限制，header 用 Map 逐项构建
     let mut h = serde_json::Map::new();
     h.insert("access".into(), json!("wifi"));
     h.insert("aid".into(), json!(8662));
-    h.insert("apk_first_install_time".into(), json!(now_ms - 12000));
+    h.insert("apk_first_install_time".into(), json!(now_ms - FIRST_INSTALL_BACKDATE_MS));
     h.insert("app_version".into(), json!("7.3.9.32"));
     h.insert("app_version_minor".into(), json!(""));
     h.insert("cdid".into(), json!(id.cdid));
@@ -453,7 +457,7 @@ pub async fn register_device(env: &ApiEnv) -> AppResult<RegisterResult> {
         let _ = std::fs::write(dir.join("rust_reg_plain.json"), &plain);
         let hex: String = body.iter().map(|b| format!("{b:02x}")).collect();
         let _ = std::fs::write(dir.join("rust_reg_body.hex"), &hex);
-        let meta = serde_json::json!({"cdid": id.cdid, "openudid": id.openudid, "clientudid": id.clientudid, "req_id": id.req_id, "_rticket": now_ms.to_string(), "ts": (now_ms / 1000).to_string(), "first_launch_timestamp": ((now_ms - 12000) / 1000).to_string()});
+        let meta = serde_json::json!({"cdid": id.cdid, "openudid": id.openudid, "clientudid": id.clientudid, "req_id": id.req_id, "_rticket": now_ms.to_string(), "ts": (now_ms / 1000).to_string(), "first_launch_timestamp": ((now_ms - FIRST_INSTALL_BACKDATE_MS) / 1000).to_string()});
         let _ = std::fs::write(
             dir.join("rust_reg_meta.json"),
             serde_json::to_string(&meta).unwrap(),

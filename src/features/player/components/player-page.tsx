@@ -28,6 +28,7 @@ import {
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
 import { readLastTarget } from '@/utils/playback-prefs';
+import { STREAM_SCHEME } from '@/utils/scheme';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import { useIncognitoMode } from './incognito';
@@ -473,7 +474,7 @@ export function PlayerView({
     // （裁决矩阵见 recovery-policy）。本地文件/转码产物坏了重试也是白搭，
     // 直接报错。在线的失败把 <video> 撤下来，换成封面 + 明确错误 + 重试
     // 按钮，不再是一根小小的报错条挂在冻结画面上。
-    const online = playSrc?.includes('hongguo-stream') ?? false;
+    const online = playSrc?.includes(STREAM_SCHEME) ?? false;
     if (online && !compatSrc && !compat) {
       const kind = classifyMediaError(me?.code);
       const action = recoveryAction(kind, failuresOf());
@@ -659,7 +660,6 @@ export function PlayerView({
                 {/* 沉浸流评论区：右侧滑出（💬 触发）；进小屏时已收起 */}
                 {commentPanelOpen && !miniScreen && (
                   <CommentPanel
-                    seriesId={seriesId}
                     vid={currentVid ? `${currentVid}:${seriesId}` : ''}
                     onClose={() => setCommentPanelOpen(false)}
                   />

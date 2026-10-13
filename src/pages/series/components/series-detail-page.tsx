@@ -15,6 +15,7 @@ import { ReserveButton } from './reserve-button';
 import { ResolveButton } from './resolve-button';
 import { ReviewList } from './review-list';
 import { formatCountPrecise, formatDuration } from '@/utils/format';
+import { resolveResumeEntry } from '@/utils/resume-entry';
 import {
   useAccount,
   useBookshelf,
@@ -95,8 +96,10 @@ export function SeriesDetailPage({
    * 与后端 resumeAt 同口径：位置 ≤3 秒视为没看过，从头播）。
    */
   const continueIndex = useMemo(() => {
-    if (localProgress && localProgress.currentTime > 3) return localProgress.vidIndex;
-    if (historyItem && historyItem.positionMs > 3000) return Math.max(1, historyItem.vidIndex);
+    // 与首页起点/后端 resolve_entry 同一份决策（utils/resume-entry）
+    const entry = resolveResumeEntry(localProgress, historyItem);
+    if (entry) return entry.index;
+    // 本地有记录但 ≤3 秒：仍视作「看到这一集」，从头播
     if (localProgress) return localProgress.vidIndex;
     return 1;
   }, [localProgress, historyItem]);
@@ -210,7 +213,7 @@ export function SeriesDetailPage({
           {/* 头部：封面 + 档案。对齐第三方详情页构图，数据全走 App 接口 */}
           <div className="mt-4 flex gap-8">
             <div className="bg-muted relative aspect-[3/4] w-44 shrink-0 overflow-hidden rounded-xl">
-              <DetailCover cover={activeSeries.cover} name={activeSeries.title} />
+              <SeriesCover cover={activeSeries.cover} alt={activeSeries.title} />
             </div>
 
             <div className="min-w-0 flex-1">
@@ -419,9 +422,4 @@ export function SeriesDetailPage({
       )}
     </div>
   );
-}
-
-/** 详情封面：统一走 SeriesCover（本地转码代理 + 占位图）。 */
-function DetailCover({ cover, name }: { cover: string; name: string }) {
-  return <SeriesCover cover={cover} alt={name} />;
 }

@@ -204,6 +204,9 @@ fn bytes_of<'a>(slot: &'a mut Option<Vec<u8>>, remote: &str) -> Result<&'a [u8],
     Ok(slot.as_deref().expect("刚填充过"))
 }
 
+/// 封面下载超时（秒）：封面链路对延迟敏感，超时即放弃走占位图。
+const DOWNLOAD_TIMEOUT_SECS: u64 = 15;
+
 /// 同步 GET。worker 线程上没有 runtime：借用 DB 线程同款 current_thread
 /// 内联 runtime 跑一段 async（reqwest 本身是异步 API）。
 fn http_get(remote: &str) -> Result<Vec<u8>, String> {
@@ -214,7 +217,7 @@ fn http_get(remote: &str) -> Result<Vec<u8>, String> {
     rt.block_on(async {
         let resp = reqwest::Client::builder()
             .user_agent("Mozilla/5.0")
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
             .build()
             .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?
             .get(remote)

@@ -7,6 +7,7 @@ import { SkeletonCardGrid } from '@/components/ui/skeletons';
 import { useDownloadTasks, useNewDrama } from '@/service/queries';
 import { useScrollRestore } from '@/hooks/use-scroll-restore';
 import { t } from '@/locales';
+import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
 import type { RankItem } from '@/service/schema';
 import { NewDramaCard } from './new-drama-card';
 
@@ -56,7 +57,7 @@ export function NewDramaRecommends({
           void f.loadMore();
         }
       },
-      { rootMargin: '400px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     );
     io.observe(el);
     return () => io.disconnect();

@@ -4377,6 +4377,7 @@ version = "0.4.4"
 dependencies = [
  "anyhow",
  "bytes",
+ "chrono",
  "core-foundation 0.10.0",
  "env_logger",
  "futures",

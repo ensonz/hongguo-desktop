@@ -23,6 +23,9 @@ import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { useUiStore } from '@/stores/ui';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
+import { isImeComposing } from '@/utils/ime';
+import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
+import { formatCountPrecise } from '@/utils/format';
 import type { BrowseFilters, FeedItem, SeriesCard, SuggestItem } from '@/service/schema';
 
 /** App 筛选条目转官网卡形态喂同一块网格。 */
@@ -39,12 +42,11 @@ function toCard(it: FeedItem): SeriesCard {
 }
 
 /** 播放数 → 短格式（12606352 → 「1260.6万播放」）；搜索卡热度行用。
- *  服务端给不了搜索结果的标签/热度列表，播放数是同位信息。 */
+ *  服务端给不了搜索结果的标签/热度列表，播放数是同位信息。精度走
+ *  formatCountPrecise（万/亿一位小数，hgplayer 口径）。 */
 function formatPlayCount(n: number): string {
   if (n <= 0) return '';
-  const wan = n / 10_000;
-  const count = wan >= 1 ? `${wan.toFixed(1).replace(/\.0$/, '')}万` : String(n);
-  return tf('browse.playCount', { count });
+  return tf('browse.playCount', { count: formatCountPrecise(n) });
 }
 
 /** 服务端面板缺「长度」行时的合成兜底（选项 id 来自 2026-10-07 抓包，
@@ -187,7 +189,7 @@ export function BrowsePage() {
           void b.loadMore();
         }
       },
-      { rootMargin: '400px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -275,7 +277,7 @@ export function BrowsePage() {
                 onKeyDown={(e) => {
                   // 输入法组合中（拼音未上屏）：Enter 是字母上屏、方向键归
                   // 输入法——不碰联想/提交
-                  if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+                  if (isImeComposing(e.nativeEvent)) return;
                   if (!showSuggest) return;
                   if (e.key === 'ArrowDown') {
                     e.preventDefault();

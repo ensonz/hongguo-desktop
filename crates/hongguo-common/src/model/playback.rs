@@ -19,6 +19,11 @@ pub struct PlaybackPosition {
 /// 全部剧集的播放进度。
 pub type PlaybackMap = BTreeMap<String, BTreeMap<u32, PlaybackPosition>>;
 
+/// 续播阈值（秒）：看过超过这个数才接上原位，否则视为没看过从头播。
+/// 2026-10-09 用户口径，一处定义供 Rust 侧各消费点引用（前端 utils/resume-entry
+/// 同口径，技术栈不同不共享实现）。
+pub const RESUME_THRESHOLD_SECS: f64 = 3.0;
+
 /// 一部剧「最近看到的那一集」。发给前端 `seriesProgressSchema`，camelCase。
 ///
 /// 详情页「继续看第 N 集」的真值来源：本地 playback 表 5 秒一写，
@@ -47,11 +52,11 @@ impl PlaybackPosition {
         }
     }
 
-    /// 是否值得续播：看过超过 3 秒就接上那个位置。
+    /// 是否值得续播：看过超过 [`RESUME_THRESHOLD_SECS`] 就接上那个位置。
     /// （2026-10-09 用户口径：只要超过三秒都需播放，不管片尾——原
     /// 「接近片尾不续播」的 95%/剩余 10 秒防线已废。）
     pub fn is_resumable(&self) -> bool {
-        self.current_time > 3.0
+        self.current_time > RESUME_THRESHOLD_SECS
     }
 }
 

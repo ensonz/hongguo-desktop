@@ -17,8 +17,12 @@ import { useEvent } from '@/service/tauri/events';
 import { localizedMessage } from '@/service/tauri/invoke';
 import { EVENTS } from '@/service/tauri/types';
 import { useAuthRefresh } from '@/service/queries';
+import { isImeComposing } from '@/utils/ime';
 import { t, tf } from '@/locales';
 import type { LoginResult } from '@/service/schema';
+
+/** 验证码倒计时的默认秒数（服务端 retryTime 缺省或为 0 时）。 */
+const RETRY_DEFAULT_SECS = 60;
 
 /**
  * 登录弹窗（hgplayer 同款形态）：表单 → MFA 上行短信等待 → 自动登录。
@@ -92,7 +96,8 @@ export function LoginDialog({
     setBusy(true);
     try {
       const out = await loginApi.sendCode(mobile.trim());
-      const wait = out.retryTime || 60;
+      // 服务端给 0/缺省视为无倒计时要求，回退 60 秒（显式区分 0 与缺省）
+      const wait = out.retryTime > 0 ? out.retryTime : RETRY_DEFAULT_SECS;
       toast.success(tf('settings.codeSent', { s: wait }));
       setCodeDeadlines((prev) => ({ ...prev, [mobile.trim()]: Date.now() + wait * 1000 }));
       setNow(Date.now());
@@ -184,7 +189,7 @@ export function LoginDialog({
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                   onKeyDown={(e) => {
                     // 输入法组合中的 Enter 是字母上屏，不是提交
-                    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+                    if (isImeComposing(e.nativeEvent)) return;
                     if (e.key === 'Enter') void doLogin();
                   }}
                 />

@@ -17,8 +17,15 @@ import {
   useWatchHistory,
 } from '@/service/queries';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
+import { resolveResumeEntry } from '@/utils/resume-entry';
 import { usePlayerStore } from '@/stores/player';
 import { t } from '@/locales';
+
+/** 推荐流的「换一批」过期阈值（毫秒）：恢复游标后流数据比这更旧就整体
+ *  重开会话（hgplayer 换一批同款 reset 语义）。 */
+const FEED_STALE_MS = 5 * 60_000;
+/** 首帧未出画时兜底预取下一部流前的等待（毫秒）：给当前剧起播让路。 */
+const PREFETCH_FALLBACK_DELAY_MS = 8_000;
 import type { Series } from '@/service/schema';
 import { TABS, TopBarTabs } from './top-bar-tabs';
 import type { StreamSource } from './top-bar-tabs';
@@ -169,7 +176,7 @@ export function HomePage() {
   useEffect(() => {
     if (!restored || !playingId) return;
     if (feed.isRefreshing || feed.isLoading) return;
-    if (!(feed.dataUpdatedAt > 0 && Date.now() - feed.dataUpdatedAt > 5 * 60_000)) return;
+    if (!(feed.dataUpdatedAt > 0 && Date.now() - feed.dataUpdatedAt > FEED_STALE_MS)) return;
     feed.restart();
     // 游标归零放到微任务：effect 体里同步 setState 会触发 react-hooks 告警
     queueMicrotask(() => setIndexes((prev) => ({ ...prev, [source]: 0 })));
@@ -259,23 +266,20 @@ export function HomePage() {
     if (playingId === currentSeries.seriesId) return;
     if (progressQuery.isPending || historyPending) return;
 
-    let idx = 1;
-    let positionMs = 0;
+    // >3 秒都续播（不看片尾）：本地档案优先，云端历史兜底（共享决策，
+    // 与详情页「继续看」/后端 resolve_entry 同口径）
+    const entry = resolveResumeEntry(
+      localProgress,
+      history?.items.find((i) => i.seriesId === currentSeries.seriesId),
+    );
 
-    // >3 秒都续播（不看片尾）：本地档案优先，云端历史兜底
-    if (localProgress && localProgress.currentTime > 3) {
-      idx = localProgress.vidIndex;
-    } else {
-      const h = history?.items.find((i) => i.seriesId === currentSeries.seriesId);
-      if (h && h.positionMs > 3000) {
-        idx = Math.max(1, h.vidIndex);
-        positionMs = h.positionMs;
-      }
-    }
-
-    setTarget(currentSeries.seriesId, idx);
-    if (positionMs > 3000) {
-      setResumeHint({ seriesId: currentSeries.seriesId, vidIndex: idx, positionMs });
+    setTarget(currentSeries.seriesId, entry?.index ?? 1);
+    if (entry && entry.positionMs > 0) {
+      setResumeHint({
+        seriesId: currentSeries.seriesId,
+        vidIndex: entry.index,
+        positionMs: entry.positionMs,
+      });
     }
   }, [
     currentSeries,
@@ -330,7 +334,7 @@ export function HomePage() {
   useEffect(() => {
     if (!nextItem || stageLive) return;
     const id = nextItem.seriesId;
-    const timer = setTimeout(() => prefetchStream(id), 8_000);
+    const timer = setTimeout(() => prefetchStream(id), PREFETCH_FALLBACK_DELAY_MS);
     return () => clearTimeout(timer);
   }, [nextItem, stageLive, prefetchStream]);
 

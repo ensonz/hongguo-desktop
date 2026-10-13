@@ -17,7 +17,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Heart, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import type { InfiniteData } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { t, tf } from '@/locales';
@@ -32,15 +31,16 @@ import {
   useSendComment,
   useSendReply,
 } from '@/service/queries';
+import { appendReply, bumpReplyCount, removeComment, removeReply } from '@/service/queries/comment-cache';
 import { dedupBy, keys } from '@/service/queries/common';
 import { relativeTime } from '@/utils/relative-time';
+import { isImeComposing } from '@/utils/ime';
 import { EmojiText } from '@/components/common/emoji/emoji-text';
 import { ReplyThread } from '@/components/common/reply-thread';
 import { EmojiSendBox } from '@/components/common/emoji/emoji-send-box';
-import type { CommentItem, CommentPage, ReplyItem, ReplyPage } from '@/service/schema';
+import type { CommentItem, ReplyItem } from '@/service/schema';
 
 interface Props {
-  seriesId: string;
   vid: string;
   onClose: () => void;
 }
@@ -99,7 +99,7 @@ export function CommentPanel({ vid, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // 输入法组合中的 Esc 是取消拼音，不是关面板
-      if (e.isComposing || e.keyCode === 229) return;
+      if (isImeComposing(e)) return;
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
@@ -153,47 +153,11 @@ export function CommentPanel({ vid, onClose }: Props) {
       .then(() => {
         if (target.parentId) {
           // 回复：回复缓存摘除 + total-1，父评论 replyCount-1——与发送
-          // 成功的 +1 对称；此前漏了计数，「展开 N 条」与实际条数对不上
-          queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
-            keys.commentReplies(vid, target.parentId),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p, i) => ({
-                  ...p,
-                  total: i === 0 ? Math.max(0, p.total - 1) : p.total,
-                  items: p.items.filter((r) => r.replyId !== target.id),
-                })),
-              },
-          );
-          queryClient.setQueryData<InfiniteData<CommentPage, string>>(
-            keys.comments(vid),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p) => ({
-                  ...p,
-                  items: p.items.map((c) =>
-                    c.commentId === target.parentId
-                      ? { ...c, replyCount: Math.max(0, c.replyCount - 1) }
-                      : c,
-                  ),
-                })),
-              },
-          );
+          // 成功的 +1 对称
+          removeReply(queryClient, keys.commentReplies(vid, target.parentId), target.id);
+          bumpReplyCount(queryClient, keys.comments(vid), target.parentId, -1);
         } else {
-          queryClient.setQueryData<InfiniteData<CommentPage, string>>(
-            keys.comments(vid),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p, i) => ({
-                  ...p,
-                  total: i === 0 ? Math.max(0, p.total - 1) : p.total,
-                  items: p.items.filter((c) => c.commentId !== target.id),
-                })),
-              },
-          );
+          removeComment(queryClient, keys.comments(vid), target.id);
           if (replyTarget === target.id) setReplyTarget(null);
         }
         toast.success(t('common.deleted'));
@@ -238,45 +202,8 @@ export function CommentPanel({ vid, onClose }: Props) {
           // 服务端回显的完整回复对象直接进缓存（头像/昵称/uid/时间齐全，
           // hgplayer 同款：新回复以普通条目出现，replyToName 驱动
           // 「回复 @xxx：」前缀）；同时父评论 replyCount +1
-          queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
-            keys.commentReplies(vid, parent.commentId),
-            (prev) => {
-              if (!prev) {
-                return {
-                  pages: [{ items: [reply], total: 1, hasMore: false, nextCursor: '' }],
-                  pageParams: [''],
-                };
-              }
-              const [first, ...rest] = prev.pages;
-              if (!first) return prev;
-              return {
-                ...prev,
-                pages: [
-                  {
-                    ...first,
-                    items: first.items.some((r) => r.replyId === reply.replyId)
-                      ? first.items
-                      : [...first.items, reply],
-                    total: first.total + 1,
-                  },
-                  ...rest,
-                ],
-              };
-            },
-          );
-          queryClient.setQueryData<InfiniteData<CommentPage, string>>(
-            keys.comments(vid),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p) => ({
-                  ...p,
-                  items: p.items.map((c) =>
-                    c.commentId === parent.commentId ? { ...c, replyCount: c.replyCount + 1 } : c,
-                  ),
-                })),
-              },
-          );
+          appendReply(queryClient, keys.commentReplies(vid, parent.commentId), reply);
+          bumpReplyCount(queryClient, keys.comments(vid), parent.commentId, 1);
           setReplyText('');
           setReplyTarget(null);
           setReplyToReply(null);

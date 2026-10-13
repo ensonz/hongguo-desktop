@@ -10,9 +10,11 @@
 
 use gpui_kit::Window;
 
-/// 480×270 + 边距（Tauri MINI_W/MINI_H/MINI_MARGIN 同参）。
+/// 480×270 + 边距（Tauri MINI_W/MINI_H/MINI_MARGIN 同参）。边距只在
+/// Windows 落位公式里用（macOS 暂只缩不挪），常量随使用点平台化。
 const MINI_W: f64 = 480.0;
 const MINI_H: f64 = 270.0;
+#[cfg(target_os = "windows")]
 const MINI_MARGIN: f64 = 16.0;
 
 /// 进入前的窗口几何快照（退出时原样还原）。
@@ -24,6 +26,8 @@ const MINI_MARGIN: f64 = 16.0;
 pub(crate) struct SavedGeometry {
     /// 外框矩形（物理像素，全局坐标）。
     rect: (i32, i32, i32, i32),
+    /// 最大化态只在 Windows 还原路径读（先 SW_RESTORE 再落位）。
+    #[cfg(target_os = "windows")]
     maximized: bool,
 }
 
@@ -33,6 +37,7 @@ pub(crate) struct SavedGeometry {
 pub(crate) fn enter(window: &mut Window, cx: &gpui_kit::App) -> Option<SavedGeometry> {
     let saved = SavedGeometry {
         rect: outer_rect(window)?,
+        #[cfg(target_os = "windows")]
         maximized: window.is_maximized(),
     };
     place_mini(window, cx)?;

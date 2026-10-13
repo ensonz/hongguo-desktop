@@ -56,6 +56,7 @@ use hongguo_common::{AppError, AppResult};
 use hongguo_mp4::sample_table::TrackInfo;
 
 use super::PlatformRequest;
+use super::video::bitrate_for;
 
 /// mfapi.h：`MF_SDK_VERSION << 16 | MF_API_VERSION`（0x2 << 16 | 0x70）。
 const MF_VERSION: u32 = 0x20070;
@@ -1386,15 +1387,7 @@ fn split_avcc(b: &[u8]) -> Vec<&[u8]> {
 // 码率
 // ————————————————————————————————————————————————————————————
 
-/// 码率标定：与 vt 侧同一公式。「0.12 bit/像素/帧」≈ libx264 `-crf 23` 档
-/// （1080p25 ≈ 6.2 Mbps）——2026-10-07 用 NVENC MFT + libvmaf 双源复核：
-/// 中低复杂度（近真人剧）VMAF 98.0 略优于 crf23 的 97.1；高运动内容 CBR
-/// 固定码率天然吃亏（0.1 系数时 86.5 vs 92.4），提到 0.12 收窄到 ~3 分。
-/// 再偏差大时只调这里的系数。
-fn bitrate_for(width: usize, height: usize, fps: f64) -> i32 {
-    let bps = width as f64 * height as f64 * fps.max(1.0) * 0.12;
-    bps.clamp(800_000.0, 12_000_000.0) as i32
-}
+// 码率标定 bitrate_for 收敛到 super::video（mf/vt 两侧原本逐字节相同）。
 
 // ————————————————————————————————————————————————————————————
 // 编排（与 vt 侧逐段对应）

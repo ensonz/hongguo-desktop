@@ -5,3 +5,4 @@ pub mod compat_prefetch;
 pub mod local;
 pub mod online;
 pub mod position;
+pub mod resume;

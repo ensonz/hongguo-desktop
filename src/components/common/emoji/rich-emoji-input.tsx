@@ -1,5 +1,6 @@
 import { useEffect, useImperativeHandle, useRef } from 'react';
 import { parseEmojiSegments } from '@/utils/danmaku-emoji';
+import { isImeComposing } from '@/utils/ime';
 import { cn } from '@/lib/utils';
 import { renderValue, serialize } from './rich-emoji-dom';
 
@@ -192,7 +193,7 @@ export function RichEmojiInput({
         // 输入法组合中：Enter 是「字母上屏」不是提交，退格是删拼音——
         // 全部交还输入法/默认行为，不做任何接管（isComposing 标准位 +
         // keyCode 229 老式双保险，WebKit 两者都会给）
-        if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+        if (isImeComposing(e.nativeEvent)) return;
 
         const el = elRef.current;
         const sel = window.getSelection();

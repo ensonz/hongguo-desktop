@@ -63,6 +63,17 @@ use crate::bridge;
 
 // ---------------------------------------------------------------- 数据面
 
+/// 控制条强制常显时长（秒）：交互后多 linger 一段时间再交回闲置淡出。
+/// 只被 screenshot 门控的取证辅助使用，随消费点一起进 feature。
+#[cfg(feature = "screenshot")]
+const CONTROLS_HOLD_SECS: u64 = 600;
+/// 播放进度落盘最小间隔（秒）（Tauri 侧同为 5 秒一写）。
+const PROGRESS_SAVE_EVERY_SECS: u64 = 5;
+/// 舞台周期状态日志（HONGGUO_DIAG 取证）的最小间隔（秒）。
+const STAGE_DIAG_EVERY_SECS: u64 = 5;
+/// 滚轮切剧去抖（毫秒）：滚轮一格连发多事件的吸收窗口。
+const WHEEL_SWITCH_DEBOUNCE_MS: u64 = 400;
+
 /// 进度拖动的拖拽载荷（`on_drag`/`on_drag_move` 按类型配对）。
 struct ScrubDrag;
 
@@ -954,7 +965,7 @@ impl HomeView {
         let now = Instant::now();
         if self
             .wheel_at
-            .is_some_and(|t| now.duration_since(t) < Duration::from_millis(400))
+            .is_some_and(|t| now.duration_since(t) < Duration::from_millis(WHEEL_SWITCH_DEBOUNCE_MS))
         {
             return;
         }
@@ -1131,23 +1142,11 @@ impl HomeView {
         let (vid_index, start_secs) = match (start_override, forced_next_ep) {
             (Some(pos), forced) => (forced.unwrap_or(1), pos),
             (None, Some(idx)) => (idx, 0.0),
-            (None, None) => {
-                let local = state
-                    .store
-                    .series_last_position(&item.series_id)?
-                    .filter(|(_, p)| p.current_time > 3.0);
-                if let Some((idx, p)) = local {
-                    (idx, p.current_time)
-                } else {
-                    match history
-                        .iter()
-                        .find(|h| h.series_id == item.series_id && h.position_ms > 3_000)
-                    {
-                        Some(h) => (h.vid_index.max(1) as u32, h.position_ms as f64 / 1000.0),
-                        None => (1, 0.0),
-                    }
-                }
-            }
+            (None, None) => hongguo_service::play_service::resume::resolve_entry(
+                &state.store,
+                &item.series_id,
+                &history,
+            )?,
         };
         // 找集号：连播是「上一集接着往下」——目标集不存在时必须报错，绝不能
         // 回落到第 1 集（那是「又从头播一遍」的来源，用户看到的正是重复）。
@@ -1586,7 +1585,7 @@ impl HomeView {
         {
             player.pause();
         }
-        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        self.controls_until = Some(Instant::now() + Duration::from_secs(CONTROLS_HOLD_SECS));
         cx.notify();
     }
 
@@ -1612,7 +1611,7 @@ impl HomeView {
     pub(crate) fn debug_open_picker(&mut self, cx: &mut Context<Self>) {
         self.picker_open = true;
         self.picker_tab_series = true;
-        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        self.controls_until = Some(Instant::now() + Duration::from_secs(CONTROLS_HOLD_SECS));
         if let Some(now) = self.now.clone() {
             self.load_related_seasons(now.series_id.clone(), cx);
             self.load_reservations(cx);
@@ -1626,7 +1625,7 @@ impl HomeView {
     pub(crate) fn debug_open_comments(&mut self, cx: &mut Context<Self>) {
         self.comments_panel_open = true;
         self.emoji_picker_open = true;
-        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        self.controls_until = Some(Instant::now() + Duration::from_secs(CONTROLS_HOLD_SECS));
         self.load_comments_first_page(cx);
         cx.notify();
     }
@@ -1636,7 +1635,7 @@ impl HomeView {
     #[cfg(feature = "screenshot")]
     pub(crate) fn debug_open_login(&mut self, cx: &mut Context<Self>) {
         self.login_panel_open = true;
-        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        self.controls_until = Some(Instant::now() + Duration::from_secs(CONTROLS_HOLD_SECS));
         cx.notify();
     }
 
@@ -2733,7 +2732,7 @@ impl HomeView {
 
     /// 5 秒节流落盘（播放档案是真值：续播、详情页「继续看」都吃它）。
     fn save_progress_maybe(&mut self) {
-        if self.last_save.elapsed() < Duration::from_secs(5) {
+        if self.last_save.elapsed() < Duration::from_secs(PROGRESS_SAVE_EVERY_SECS) {
             return;
         }
         self.last_save = Instant::now();
@@ -3233,16 +3232,11 @@ impl HomeView {
                 s
             }
         };
-        let vid_index = match state.store.series_last_position(&series_id)? {
-            Some((idx, p)) if p.current_time > 3.0 => idx,
-            _ => match history
-                .iter()
-                .find(|h| h.series_id == series_id && h.position_ms > 3_000)
-            {
-                Some(h) => h.vid_index.max(1) as u32,
-                None => 1,
-            },
-        };
+        let (vid_index, _) = hongguo_service::play_service::resume::resolve_entry(
+            &state.store,
+            &series_id,
+            &history,
+        )?;
         let ep = series
             .episodes
             .iter()
@@ -3627,7 +3621,7 @@ impl HomeView {
         // 周期状态取证（5s 一跳）：封面收不收、帧/图/切换位各在哪一档，
         // 一行钉死——排障不用再猜是事件没到还是渲染没跟上。带舞台尺寸
         //（FFI 缩放后布局是否跟随重排，小屏排障靠它）。
-        if self.stage_diag_at.get().elapsed() >= Duration::from_secs(5) {
+        if self.stage_diag_at.get().elapsed() >= Duration::from_secs(STAGE_DIAG_EVERY_SECS) {
             self.stage_diag_at.set(Instant::now());
             #[cfg(target_os = "windows")]
             let image_state = format!(
@@ -4193,10 +4187,10 @@ impl HomeView {
             .into_any_element()
     }
 
-    /// 播放控制条（底部悬浮）：暂停/继续、进度（拖动 seek）、倍速菜单、
-    /// 音量/静音。布局与操作面对齐 Tauri 版控制栏；倍速档位、静音独立于
-    /// 音量的语义与 `playback-prefs` 一致。
-    /// 相对时间（评论时间戳 → 「N 分钟前」等；Tauri relative-time 同口径）。
+    /// 相对时间（评论时间戳）。分层与 Tauri `utils/relative-time.ts` 同口径
+    /// （hgplayer：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 30 天内 /
+    /// M月D日）——此前自创「N 个月前/N 年前」与前端漂移。技术栈不同不共享
+    /// 实现，改分层两边同步。
     fn relative_time(ts_ms: i64) -> String {
         if ts_ms <= 0 {
             return String::new();
@@ -4209,23 +4203,30 @@ impl HomeView {
             .max(0);
         match secs {
             0..=59 => "刚刚".to_string(),
-            60..=3599 => format!("{}分钟前", secs / 60),
-            3600..=86_399 => format!("{}小时前", secs / 3600),
-            86_400..=2_591_999 => format!("{}天前", secs / 86_400),
-            2_592_000..=31_535_999 => format!("{}个月前", secs / 2_592_000),
-            _ => format!("{}年前", secs / 31_536_000),
+            60..=3_599 => format!("{}分钟前", secs / 60),
+            3_600..=86_399 => format!("{}小时前", secs / 3_600),
+            86_400..=172_799 => "昨天".to_string(),
+            172_800..=2_591_999 => format!("{}天前", secs / 86_400),
+            _ => {
+                use chrono::{Datelike, TimeZone};
+                let dt = chrono::Local
+                    .timestamp_millis_opt(ts_ms)
+                    .single()
+                    .unwrap_or_else(chrono::Local::now);
+                format!("{}月{}日", dt.month(), dt.day())
+            }
         }
     }
 
-    /// 计数格式化（抖音系「1.4万」样式，Tauri fmtCount 同口径）。
+    /// 计数格式化：万/亿一位小数、整数省略小数点——与 Tauri
+    /// `utils/format.ts` 的 formatCountPrecise 同口径（hgplayer 详情页头部
+    /// 实测「27.1万人追剧 / 3786万」）。此前自创「百万」档，已对齐。
     fn fmt_count(n: i64) -> String {
-        if n >= 1_000_000 {
-            return format!("{:.1}百万", n as f64 / 1_000_000.0).replace(".0", "");
+        if n >= 100_000_000 {
+            return format!("{:.1}亿", n as f64 / 100_000_000.0).replace(".0", "");
         }
         if n >= 10_000 {
-            let v = n as f64 / 10_000.0;
-            let digits = if n % 10_000 >= 1000 { 1 } else { 0 };
-            return format!("{:.*}万", digits, v).replace(".0万", "万");
+            return format!("{:.1}万", n as f64 / 10_000.0).replace(".0", "");
         }
         format!("{n}")
     }
