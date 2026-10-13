@@ -12,7 +12,7 @@
 
     iconutil -c iconset -o /tmp/hg.iconset \
       "/Applications/红果短剧.app/Contents/Resources/iconfile.icns"
-    cp /tmp/hg.iconset/icon_512x512@2x.png src-tauri/icons/source.png
+    cp /tmp/hg.iconset/icon_512x512@2x.png crates/hongguo-tauri-app/icons/source.png
 
 source.png 不存在时脚本会自己跑一遍上面的提取（见 extract_reference）。
 

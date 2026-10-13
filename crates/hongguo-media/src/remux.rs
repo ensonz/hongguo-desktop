@@ -267,7 +267,7 @@ fn read_header_boxes(path: &Path) -> AppResult<(Vec<u8>, Vec<u8>)> {
 
 // 真实短剧文件的端到端验证曾挂在 `remux/` 下，但它同时要平台硬编、ffmpeg 与
 // 服务层（compat_play），三边都不属于本 crate——已随 3b 迁到壳里的
-// `src-tauri/src/testing/media_pipeline_e2e.rs`。
+// `crates/hongguo-tauri/src/testing/media_pipeline_e2e.rs`。
 
 #[cfg(test)]
 mod tests {

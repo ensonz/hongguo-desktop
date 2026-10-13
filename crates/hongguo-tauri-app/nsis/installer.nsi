@@ -1,7 +1,7 @@
 ; ⚠️ 本文件由 scripts/sync-nsis-template.py 生成，勿手改。
 ; 上游：tauri-apps/tauri @ tauri-v2.12.1 : crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi
 ; 补丁：快捷方式显示名改用 $AppShortcutName（安装时按 $LANGUAGE 定，
-;       名字表与钩子在 src-tauri/nsis/installer-hooks.nsh，由 make-nsis-hooks.py 生成）
+;       名字表与钩子在 crates/hongguo-tauri-app/nsis/installer-hooks.nsh，由 make-nsis-hooks.py 生成）
 ; 升级 Tauri 后重跑：python3 scripts/sync-nsis-template.py
 ; 校验是否与上游+补丁一致：python3 scripts/sync-nsis-template.py --check
 
