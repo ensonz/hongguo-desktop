@@ -2,6 +2,8 @@
 
 前后端的所有交互形态与新增流程。核心原则：**类型契约两端同步演进**——Rust serde 模型 ↔ 前端 zod schema 是同一契约的两份手写副本，改一头必须改另一头。
 
+壳归属：IPC 命令、事件推送（前端 `EVENTS` 映射）、自定义协议是 **Tauri 壳专属**通道；GPUI 壳无 IPC，进程内直调 service、经壳内事件泵消费同一批 `ServiceEvent`（见 `references/gpui.md`）。第四节「外部 API 端点」两壳共用。
+
 ## 一、新增 IPC 命令（全链路 checklist）
 
 以「storage 用量」为完整示例，五步缺一不可：
@@ -10,19 +12,26 @@
 
 ```rust
 #[tauri::command]
-pub fn get_storage_usage(state: State<'_, AppState>) -> AppResult<StorageUsage> {
-    crate::service::storage_service::usage::collect(&state)
+pub fn get_storage_usage(state: State<'_, AppState>) -> StorageUsage {
+    usage::usage(&state)
+}
+
+#[tauri::command]
+pub fn delete_series_files(state: State<'_, AppState>, series_id: String) -> AppResult<usize> {
+    let n = cleanup::delete_series(&state, &series_id)?;
+    after_cleanup(&state)?;
+    Ok(n)
 }
 ```
 
-- 返回一律 `AppResult<T>`（`error.rs` 的别名）。
+- 可能失败的命令返回 `AppResult<T>`（`hongguo-common` 的别名）；纯读本地、不会失败的命令直接返回值（如 `get_storage_usage`）。
 - 参数名与前端传参的键**严格一致**（Tauri 直接把 JS 对象键映射为 command 参数名，前端 camelCase ↔ Rust snake_case 自动转）。
-- 直连外部接口的命令必须 `pub async fn`（有测试钉死此签名），开头 `let env = state.api_env();` 拿环境快照；纯本地命令同步 `fn` 即可。
-- 需要 `State` 就写 `State<'_, AppState>`；要发事件加 `app: AppHandle` 参数（样板见 `commands/download/actions.rs::download_batch`）。
+- 直连外部接口的命令必须 `pub async fn`（rank_cmd 有扫源码的守卫测试钉死此签名），开头 `let env = state.api_env();` 拿环境快照；纯本地命令同步 `fn` 即可。
+- 需要 `State` 就写 `State<'_, AppState>`；**业务事件不经命令发**——service 发 `ServiceEvent`，壳统一转发（见「三、事件推送」）；`AppHandle` 只用于窗口操作（window_cmd）。
 
-**② service 层** `service/storage_service/usage.rs`——业务编排在这层，一个服务一个目录。
+**② service 层** `crates/hongguo-service/src/storage_service/usage.rs`——业务编排在这层，一个服务一个目录。
 
-**③ 注册** `crates/hongguo-tauri-app/src/lib.rs` 的 `generate_handler![...]` 按注释分组追加。
+**③ 注册** `crates/hongguo-tauri/src/lib.rs` 的 `generate_handler![...]` 按注释分组追加。
 
 **④ 前端 schema + 命令封装**：
 
@@ -30,14 +39,20 @@ pub fn get_storage_usage(state: State<'_, AppState>) -> AppResult<StorageUsage> 
 // service/schema/<域>.ts：与 Rust serde 模型对齐（Rust 侧 #[serde(rename_all = "camelCase")]），统一出口 service/schema/index.ts
 export const storageUsageSchema = z.object({ total: z.number(), series: z.array(...) });
 
+// service/tauri/registry.ts：IPC 命令注册表（命令名 → 入参 schema + 响应 schema）。
+// 与 Rust 侧同 commit 演进：漏改的表现在编译期——命令名拼错、参数键名不对、
+// 响应形状漂移都被 tsc/zod 当场拦下。响应 schema 必填（z.literal(null) 也算，
+// 禁 z.any()）；入参 schema 只做编译期约束不运行时 parse。
+getStorageUsage: { ...  response: storageUsageSchema },
+
 // service/commands/<域>.ts：全部 IPC 调用按域集中于此，组件不许直接 invoke
 export const storage = {
-  usage: () => call<StorageUsage>('get_storage_usage', undefined, storageUsageSchema),
+  usage: () => call('get_storage_usage'),
 };
 ```
 
 - 传参键名用 camelCase（`{ seriesId }` ↔ Rust `series_id`）；可空参数显式传 `?? null`，别留 `undefined` 漏键。
-- 响应一律带 zod schema（`call` 的第三参），让「后端改了签名」在类型检查时立刻暴露。
+- 响应校验在注册表里统一做（`call` 内部 `COMMANDS[command].response.parse`），校验失败报 `error.badPayload`——「后端改了签名」在调用瞬间立刻暴露。
 
 **⑤ 查询 hook**（可选，读数据时）见 `references/frontend.md` 的 react-query 节。
 
@@ -45,25 +60,26 @@ export const storage = {
 
 后端单一 `AppError` enum，序列化成 `{ kind, message }`：
 
-- `kind` 是前端 i18n key（`error.network`、`error.storeCorrupt`…共 13 个变体），**Rust 侧不硬编码面向用户的文案**；`message` 是后端中文原文，前端 `invoke.ts` 展示译文、原文挂 `error.cause`。**每个 kind 都必须有 zh-CN/en-US 译文**（新增变体同一 commit 两份 locale 同步补），后端原文只进 `error.cause` 供排查，不作为用户可见文案依赖。
-- 变体语义是设计过的，别合并：`StoreLocked`（另一实例在跑）≠ `StoreCorrupt`（真损坏，报错了会让人删库）；`Busy`（现在不行等一下）≠ `InvalidArgs`（参数写错）；`EmptyResponse` 独立存在因为签名失效返回 HTTP 200 + 0 字节；`Cancelled` 供调度器区分取消与磁盘错误；`Auth` 是 transparent（消息已含完整语义如「登录失败 1202: 验证码错误」，原文挂 `error.cause`，展示走 `error.auth` 词条）。
+- `kind` 是前端 i18n key（`error.network`、`error.storeCorrupt`…共 14 个变体），**Rust 侧不硬编码面向用户的文案**；`message` 是后端中文原文，前端 `invoke.ts` 展示译文、原文挂 `error.cause`。**每个 kind 都必须有 zh-CN/en-US 译文**（新增变体同一 commit 两份 locale 同步补）——唯一例外见下条 `Auth`。
+- 变体语义是设计过的，别合并：`StoreLocked`（另一实例在跑）≠ `StoreCorrupt`（真损坏，报错了会让人删库）；`Busy`（现在不行等一下）≠ `InvalidArgs`（参数写错）；`EmptyResponse` 独立存在因为签名失效返回 HTTP 200 + 0 字节；`Cancelled` 供调度器区分取消与磁盘错误；`Internal`（后台任务 join 失败等不应发生的状态）≠ `Network`；`Auth` 是 transparent——消息本身已含完整语义（如「登录失败 1202: 验证码错误」），i18n **刻意不提供** `error.auth` 词条，前端直接展示后端原文（回落逻辑在 `invoke.ts` 的 `localizedMessage`：kind 有词条用译文，没有回落 message 原文）。
 - 抛错惯用形态：`AppError::InvalidArgs("并发数必须在 1–10 之间".into())`；`AppError::NotFound(format!("剧集 {series_id}"))` 配 `.ok_or_else`；IO 用 `?`（有 From）。
 - **存进任务/队列的错误只存 i18n key 不存人话**（`queue.mark_failed(&id, e.i18n_key())`）——`DownloadTask.error` 会被前端直接渲染，底层细节只该进日志。
 
 ## 三、事件推送
 
-**Rust 侧**：直接 `app.emit(name, payload)`（`tauri::Emitter`），`let _ =` 忽略失败（前端不在场发不出去无害）。
+**service 侧（唯一发布点，无任何 UI/事件机制）**：业务事件是闭集强类型枚举 `hongguo_service::events::ServiceEvent`（13 个变体：下载 6 / 合并 4 / 在线取流 / 兼容转码 / 登录 MFA），经 `AppState` 的 broadcast 总线发布（容量 1024，订阅者滞后丢旧记日志）。**service 不持有 `AppHandle`，命令层也不发业务事件**。
 
-**payload 必须是强类型 struct**（`#[derive(Serialize)]` + `#[serde(rename_all = "camelCase")]`），**禁用 `serde_json::json!` 裸拼**——裸拼的字段名拼错、结构增删编译器抓不到，两端契约静默失效。事件 payload struct 与前端 zod schema 是同一契约的两份副本，改一端同一 commit 改另一端（同 IPC 命令纪律）。
+**壳侧转发**（`crates/hongguo-tauri/src/events.rs`）：bootstrap 阶段订阅一次，`forward` 把每个变体映射成**原名原载荷**的 `app.emit`（`let _ =` 忽略失败，前端不在场发不出去无害）。
 
 ```rust
-// 事件名常量集中在 service/download_service/events.rs 的 names 模块
+// 事件名常量在各域 events 模块：下载/合并/在线/兼容集中在
+// download_service::events::names，登录在 login_service::events::LOGIN_MFA_STATE
 pub mod names {
     pub const DOWNLOAD_PROGRESS: &str = "download-progress";
     // ...
 }
 
-// 事件 payload：强类型，与前端 useEvent 泛型/zod schema 对齐
+// 事件 payload：强类型，与前端 zod schema 是同一契约的两份副本
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginMfaStateEvent {
@@ -71,23 +87,27 @@ pub struct LoginMfaStateEvent {
 }
 ```
 
+**新增事件四处登记，缺一即静默失效**：
+
+1. `ServiceEvent` 加变体——**payload 必须强类型 struct**（`#[serde(rename_all = "camelCase")]`），禁 `serde_json::json!` 裸拼（字段拼错、结构增删编译器抓不到）；事件名常量进对应域的 events 模块；
+2. `crates/hongguo-tauri/src/events.rs` 的 `forward` 映射表登记（match 穷举，漏了编译不过）；
+3. 前端 `service/tauri/types.ts` 的 `EVENTS` 加名字；
+4. 前端 `service/tauri/events.ts` 的 `EVENT_PAYLOADS` 注册载荷 schema——事件载荷**一律过校验**，不匹配 `console.error` 并丢弃，绝不把形状不对的数据放进订阅方。
+
+序列化形状另有 `crates/hongguo-service/tests/wire_contract.rs` 快照守护，重构期间不得漂移。
+
+**消费端**：`useEvent<LoginMfaStateEvent>(EVENTS.loginMfaState, handler)`（自动退订，handler 要 `useCallback`）；GPUI 壳消费同一批 `ServiceEvent`（事件泵，见 `references/gpui.md`）——一份业务实现，两种 UI 适配。
+
 - **用户可见文案不进 payload**：只传状态/错误 kind（i18n key），文字由前端渲染；Rust 侧不硬编码面向用户的文案。
-- 消费端：`useEvent<LoginMfaStateEvent>(EVENTS.loginMfaState, handler)`。
 
-**前端**：`service/tauri/types.ts` 的 `EVENTS` 常量逐条对齐（两端必须同步改），消费用 `useEvent`（自动退订，handler 要 `useCallback`）：
-
-```ts
-useEvent<DownloadProgress>(EVENTS.downloadProgress, applyProgress);
-```
-
-**高频进度必须节流**（`events.rs::ProgressThrottle`）：变化 <0.5% 或间隔 <500ms 不发，节流状态按任务 id 保存，任务结束 `throttle.forget(&id)` 防 HashMap 无限增长。
+**高频进度必须节流**（service 侧 `download_service::events::ProgressThrottle`）：变化 <0.5% 或间隔 <500ms 不发，节流状态按任务 id 保存，任务结束 `throttle.forget(&id)` 防 HashMap 无限增长。
 
 ## 四、新增外部 API 端点（对接官方 App 接口）
 
 **动手前必读 `docs/hongguo-api-endpoints.md`**（端点抓包台账：路径/参数/响应结构/已踩的坑，每节标注抓包锁定日期）。流程：
 
 1. **`domain/api/<族>.rs`**：路径常量 + `pub async fn fetch_xxx(args..., env: &ApiEnv) -> AppResult<Xxx>`：
-   - 选对调用族（`domain/api/client.rs`）：`api_call`（默认 lq 域）/ `api_call_at`（指定 origin）/ `api_call_full`（混合 query+body）/ `api_call_full_with_headers`（如 commentapi 的 `x-reading-request`）/ `api_call_full_response`（登录捕获 Set-Cookie）/ `api_call_reading`（reading 系统一入口：轻签名 + gzip body）。
+   - 选对调用族（`crates/hongguo-api/src/client.rs`）：`api_call`（默认 lq 域）/ `api_call_at`（指定 origin）/ `api_call_full`（混合 query+body）/ `api_call_full_with_headers`（如 commentapi 的 `x-reading-request`）/ `api_call_full_response`（登录捕获 Set-Cookie）/ `api_call_reading`（reading 系统一入口：轻签名 + gzip body）。
    - client 三条铁律：签名失效是 200+0 字节要显式检查；HTTP 方法必须与签名时一致；每次重试都重新签名。重试 3 次递增退避，耗尽报 `EmptyResponse`。
    - **签名在 client 内部接入，业务代码永远不碰 signer**；Cookie/x-tt-token 在签名之后作为 extra_headers 注入。
    - 响应：`serde_json::from_slice` → `check_code(&value)?`（业务码非 0 报 `AppError::Media(format!("接口返回 {code}: {msg}"))`）→ 手写 `parse_xxx` 到 camelCase 模型。
@@ -98,4 +118,4 @@ useEvent<DownloadProgress>(EVENTS.downloadProgress, applyProgress);
 
 ## 五、自定义协议（音视频数据面）
 
-`hongguo-local://`（本地文件+Range）、`hongguo-stream://`（在线内存渐进流）、`hongguo-cover://`（HEIC 封面转 JPEG）。注册在 `protocol/register.rs`，Windows 用 `http://{scheme}.localhost` 形态。新增媒体能力优先复用这三个协议而非把数据塞进 IPC。CSP（tauri.conf.json）的 `img-src/media-src` 已放行对应 scheme，新增 scheme 要同步 CSP。
+`hongguo-local://`（本地文件+Range）、`hongguo-stream://`（在线内存渐进流）、`hongguo-cover://`（HEIC 封面转 JPEG）。注册在 `crates/hongguo-tauri/src/protocol.rs` 的 `register(builder)`（供数逻辑在 `crates/hongguo-protocol`），Windows 用 `http://{scheme}.localhost` 形态。新增媒体能力优先复用这三个协议而非把数据塞进 IPC。CSP（tauri.conf.json）的 `img-src/media-src` 已放行对应 scheme，新增 scheme 要同步 CSP。
