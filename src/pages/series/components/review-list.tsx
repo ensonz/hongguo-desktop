@@ -47,9 +47,9 @@ function ScoreStars({ score }: { score: string }) {
           className={cn(
             'size-3',
             s <= filled
-              ? 'fill-amber-400 text-amber-400'
+              ? 'fill-star text-star'
               : s === filled + 1 && half
-                ? 'fill-amber-400/50 text-amber-400'
+                ? 'fill-star/50 text-star'
                 : 'text-muted-foreground/40',
           )}
         />
@@ -365,11 +365,11 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
                       onClick={() => onDigg(c.commentId, !isLiked)}
                       className={cn(
                         'hover:text-foreground flex cursor-pointer items-center gap-1',
-                        isLiked && 'text-red-500',
+                        isLiked && 'text-hot',
                       )}
                       title={t('detail.like')}
                     >
-                      <Heart className={cn('size-3.5', isLiked && 'fill-red-500 text-red-500')} />
+                      <Heart className={cn('size-3.5', isLiked && 'fill-hot text-hot')} />
                       {c.diggCount > 0 && <span className="tabular-nums">{c.diggCount}</span>}
                     </button>
                     <button
@@ -387,7 +387,7 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
                       <button
                         type="button"
                         onClick={() => setDeleteTarget({ id: c.commentId, serviceId: 2 })}
-                        className="cursor-pointer hover:text-red-500"
+                        className="cursor-pointer hover:text-destructive"
                       >
                         {t('common.delete')}
                       </button>

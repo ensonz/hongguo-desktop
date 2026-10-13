@@ -60,7 +60,7 @@ export function ReviewComposer({ seriesId }: { seriesId: string }) {
               <Star
                 className={cn(
                   'size-5 transition-colors',
-                  s <= shown ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40',
+                  s <= shown ? 'fill-star text-star' : 'text-muted-foreground/40',
                 )}
               />
             </button>

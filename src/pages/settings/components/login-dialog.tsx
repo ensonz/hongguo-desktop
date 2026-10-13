@@ -127,6 +127,7 @@ export function LoginDialog({
   };
 
   const cancelMfa = async () => {
+    // 取消失败不拦收尾：MFA 等待有超时兜底，用户已明确要退出流程
     await loginApi.mfaCancel().catch(() => {});
     setMfaTips(null);
   };

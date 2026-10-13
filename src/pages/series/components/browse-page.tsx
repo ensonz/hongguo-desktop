@@ -48,22 +48,23 @@ function formatPlayCount(n: number): string {
 }
 
 /** 服务端面板缺「长度」行时的合成兜底（选项 id 来自 2026-10-07 抓包，
- * 实测 select_items.duration 服务端必认）。 */
-const DURATION_FALLBACK = {
+ * 实测 select_items.duration 服务端必认）。名称走 i18n，与 creationStatus
+ * 合成行同口径。 */
+const durationFallbackRow = () => ({
   rowType: 'duration',
   rowName: '全部长度',
   items: [
-    { id: 'duration_0_60', name: '0-60分钟' },
-    { id: 'duration_60_120', name: '60-120分钟' },
-    { id: 'duration_120_plus', name: '120分钟以上' },
+    { id: 'duration_0_60', name: t('browse.duration060') },
+    { id: 'duration_60_120', name: t('browse.duration60120') },
+    { id: 'duration_120_plus', name: t('browse.duration120Plus') },
   ],
-};
+});
 
 function withDurationFallback(
   rows: { rowType: string; rowName: string; items: { id: string; name: string }[] }[],
 ) {
   if (rows.some((r) => r.rowType === 'duration')) return rows;
-  return [...rows, DURATION_FALLBACK];
+  return [...rows, durationFallbackRow()];
 }
 
 /**

@@ -64,12 +64,12 @@ const SKIN = {
     mention: '',
     meta: 'text-muted-foreground mt-0.5 flex items-center gap-3 text-[10px]',
     actionBtn: 'hover:text-foreground cursor-pointer',
-    deleteBtn: 'cursor-pointer hover:text-red-500',
+    deleteBtn: 'cursor-pointer hover:text-destructive',
     diggBtn:
       'text-muted-foreground hover:text-foreground flex shrink-0 cursor-pointer flex-col items-center gap-0.5 self-start',
-    diggLiked: 'text-red-500',
+    diggLiked: 'text-hot',
     heart: 'size-3',
-    heartLiked: 'fill-red-500 text-red-500',
+    heartLiked: 'fill-hot text-hot',
     keys: {
       replyToPrefix: 'detail.replyToPrefix',
       reply: 'detail.reply',
