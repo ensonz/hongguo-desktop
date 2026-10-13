@@ -37,10 +37,15 @@ use gpui_kit::surface;
 use gpui_kit::{
     ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
 };
-use hongguo_api::danmaku::{Danmaku, fetch_danmaku_all};
+use hongguo_api::danmaku::{
+    CommentItem, Danmaku, ReplyItem, fetch_comment_replies, fetch_comments_page, fetch_danmaku_all,
+};
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
-use hongguo_api::interact::{fetch_bookshelf, send_danmaku};
+use hongguo_api::interact::{
+    InteractionItem, collect_series, digg_comment, digg_video, fetch_bookshelf,
+    fetch_interaction_state, send_comment, send_danmaku, send_reply,
+};
 use hongguo_api::recommend::fetch_recommend_feed;
 use hongguo_common::AppResult;
 use hongguo_common::model::VideoDefinition;
@@ -276,6 +281,40 @@ pub struct HomeView {
     dm_font_slider: Entity<SliderState>,
     dm_density_slider: Entity<SliderState>,
     dm_area_slider: Entity<SliderState>,
+    // —— 互动（点赞/收藏/评论，Tauri interaction-rail + comment-panel） ——
+    /// mget 最近互动列表（当前集/剧命中才有「已赞/已追」红标）。
+    interact_items: Arc<Vec<InteractionItem>>,
+    interact_loaded: bool,
+    /// 集级公开计数（剧集档案 detail 下发，匿名可见；起播后从档案读）。
+    ep_comment_count: i64,
+    ep_digg_count: i64,
+    /// 全剧收藏数（video_detail followed_cnt，load_series_meta 顺带）。
+    follow_count: i64,
+    digg_pending: bool,
+    collect_pending: bool,
+    /// 评论面板开着。
+    comments_panel_open: bool,
+    /// 当前集评论（已拍平去重；每次进集重拉——社交态不缓存复用）。
+    comments: Arc<Vec<CommentItem>>,
+    comments_total: i64,
+    comments_cursor: String,
+    comments_has_more: bool,
+    comments_loading: bool,
+    /// 已加载评论的集（vid）。
+    comments_vid: String,
+    /// 评论点赞的本地覆盖（乐观 ±1 与红心；key=comment_id）。
+    comment_digg_override: HashMap<String, bool>,
+    /// 展开回复的评论 id → 已拉回复（首页）与翻页游标。
+    replies_open: HashSet<String>,
+    replies: HashMap<String, Arc<Vec<ReplyItem>>>,
+    replies_cursor: HashMap<String, String>,
+    replies_loading: HashSet<String>,
+    /// 回复目标：Some((comment_id, reply_to_reply_id, 被回复人昵称))。
+    reply_to: Option<(String, Option<String>, String)>,
+    /// 评论输入框（与弹幕发送框同款 InputState）。
+    comment_input: Option<Entity<InputState>>,
+    comment_sending: bool,
+    comment_clear_input: bool,
     /// 音量悬停弹层开着（Tauri VolumePopup 同款，随 wrapper hover 开合）。
     volume_popup_open: bool,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
@@ -459,6 +498,29 @@ impl HomeView {
                     .max(1.0)
                     .default_value(prefs.dm_area)
             }),
+            interact_items: Arc::new(Vec::new()),
+            interact_loaded: false,
+            ep_comment_count: 0,
+            ep_digg_count: 0,
+            follow_count: 0,
+            digg_pending: false,
+            collect_pending: false,
+            comments_panel_open: false,
+            comments: Arc::new(Vec::new()),
+            comments_total: 0,
+            comments_cursor: String::new(),
+            comments_has_more: false,
+            comments_loading: false,
+            comments_vid: String::new(),
+            comment_digg_override: HashMap::new(),
+            replies_open: HashSet::new(),
+            replies: HashMap::new(),
+            replies_cursor: HashMap::new(),
+            replies_loading: HashSet::new(),
+            reply_to: None,
+            comment_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("说点什么…"))),
+            comment_sending: false,
+            comment_clear_input: false,
             volume_popup_open: false,
             buffering: false,
             controls_until: None,
@@ -939,6 +1001,9 @@ impl HomeView {
                         view.load_intro(now.series_id.clone(), cx);
                         // 弹幕按集重拉（vid 变了才拉；社交态不缓存复用）
                         view.load_danmaku(now.vid.clone(), cx);
+                        // 互动数据：集级公开计数（档案）+ mget 最近互动
+                        view.load_episode_counts(&now, cx);
+                        view.load_interact_state(cx);
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
@@ -1265,6 +1330,486 @@ impl HomeView {
         lanes.max(DM_MIN_LANES)
     }
 
+    /// 集级公开计数（剧集档案 detail 下发）：从本地档案读当前集的
+    /// 评论数/点赞数（匿名可见的装饰性计数，阻塞池读 store）。
+    fn load_episode_counts(&mut self, now: &NowPlaying, cx: &mut Context<Self>) {
+        let state = Arc::clone(&self.state);
+        let (sid, vid_index) = (now.series_id.clone(), now.vid_index);
+        self.ep_comment_count = 0;
+        self.ep_digg_count = 0;
+        let rx = bridge::spawn(async move {
+            tokio::task::spawn_blocking(move || {
+                state
+                    .store
+                    .series_by_id(&sid)
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.episodes.into_iter().find(|e| e.vid_index == vid_index))
+                    .map(|e| (e.comment_count, e.digg_count))
+            })
+            .await
+            .expect("阻塞池 join")
+        });
+        cx.spawn(async move |this, cx| {
+            let counts = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                if let Some((comment_count, digg_count)) = counts {
+                    view.ep_comment_count = comment_count;
+                    view.ep_digg_count = digg_count;
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// mget 最近互动（登录后才有「已赞/已追」红标；匿名/失败静默空表）。
+    fn load_interact_state(&mut self, cx: &mut Context<Self>) {
+        if self.interact_loaded {
+            return;
+        }
+        self.interact_loaded = true;
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_interaction_state(&env)
+                .await
+                .map(|s| s.items)
+                .unwrap_or_default()
+        });
+        cx.spawn(async move |this, cx| {
+            let items = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                view.interact_items = Arc::new(items);
+            });
+        })
+        .detach();
+    }
+
+    /// 登录态（settings 账号卡片的 user_id 非空）。
+    fn logged_in(&self) -> bool {
+        self.state
+            .settings()
+            .account
+            .as_ref()
+            .is_some_and(|a| !a.user_id.is_empty())
+    }
+
+    /// 点赞当前集（裸 vid 为点赞对象）：乐观翻转 + 计数 ±1，失败回滚。
+    fn toggle_digg(&mut self, cx: &mut Context<Self>) {
+        if !self.logged_in() {
+            log::info!("[Home] 点赞需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        let bare_vid = now.vid.clone();
+        if bare_vid.is_empty() || self.digg_pending {
+            return;
+        }
+        // 当前态：mget 命中优先，否则按未赞
+        let digged = self
+            .interact_items
+            .iter()
+            .find(|i| i.vid == bare_vid)
+            .map(|i| i.user_digg)
+            .unwrap_or(false);
+        let next = !digged;
+        self.digg_pending = true;
+        // 乐观：互动列表覆盖 + 计数 ±1
+        let mut items = (*self.interact_items).clone();
+        if let Some(hit) = items.iter_mut().find(|i| i.vid == bare_vid) {
+            hit.user_digg = next;
+            hit.digged_count += if next { 1 } else { -1 };
+        } else {
+            items.push(InteractionItem {
+                vid: bare_vid.clone(),
+                series_id: now.series_id.clone(),
+                user_digg: next,
+                digged_count: if next { 1 } else { 0 },
+                followed: false,
+                followed_cnt: 0,
+                ..Default::default()
+            });
+        }
+        self.interact_items = Arc::new(items);
+        self.ep_digg_count += if next { 1 } else { -1 };
+        let sid = now.series_id.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            digg_video(&bare_vid, &sid, next, &env).await.map(|_| next)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.digg_pending = false;
+                if let Err(e) = result {
+                    // 失败回滚（下次重试）
+                    log::warn!("[Home] 点赞失败: {e}");
+                    view.load_interact_state(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 收藏/取消收藏当前剧（乐观翻转 + 收藏计数 ±1，失败回滚）。
+    fn toggle_collect(&mut self, cx: &mut Context<Self>) {
+        if !self.logged_in() {
+            log::info!("[Home] 收藏需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        if self.collect_pending {
+            return;
+        }
+        let collected = self
+            .interact_items
+            .iter()
+            .find(|i| i.series_id == now.series_id)
+            .map(|i| i.followed)
+            .unwrap_or(false);
+        let next = !collected;
+        self.collect_pending = true;
+        let mut items = (*self.interact_items).clone();
+        if let Some(hit) = items.iter_mut().find(|i| i.series_id == now.series_id) {
+            hit.followed = next;
+            hit.followed_cnt += if next { 1 } else { -1 };
+        } else {
+            items.push(InteractionItem {
+                series_id: now.series_id.clone(),
+                followed: next,
+                followed_cnt: if next { 1 } else { 0 },
+                ..Default::default()
+            });
+        }
+        self.interact_items = Arc::new(items);
+        self.follow_count += if next { 1 } else { -1 };
+        let sid = now.series_id.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            collect_series(&sid, next, &env).await.map(|_| next)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.collect_pending = false;
+                if let Err(e) = result {
+                    log::warn!("[Home] 收藏失败: {e}");
+                    view.load_interact_state(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 分享：剧名 + 详情链接复制进剪贴板。
+    fn share_series(&mut self, cx: &mut Context<Self>) {
+        let Some(now) = &self.now else {
+            return;
+        };
+        let text = format!(
+            "{} https://hongguoduanju.com/detail?series_id={}",
+            now.title, now.series_id
+        );
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
+    }
+
+    /// 当前集的评论键就绪（vid 非空才可拉）。
+    fn comments_ready(&self) -> bool {
+        self.now.as_ref().is_some_and(|n| !n.vid.is_empty())
+    }
+
+    /// 评论面板数据：拉首页（社交态不缓存复用；换集重置）。
+    fn load_comments_first_page(&mut self, cx: &mut Context<Self>) {
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        if self.comments_loading || !self.comments_ready() {
+            return;
+        }
+        // 同集且已有数据：本会话内保留（面板重开不重拉）
+        if self.comments_vid == now.vid && !self.comments.is_empty() {
+            return;
+        }
+        self.comments_loading = true;
+        self.comments_vid = now.vid.clone();
+        self.comments_cursor.clear();
+        self.comments_has_more = false;
+        let sid = now.series_id.clone();
+        let vid = now.vid.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_comments_page(&vid, &sid, "", &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.comments_loading = false;
+                match result {
+                    Ok(page) => {
+                        view.comments_total = page.total;
+                        view.comments_has_more = page.has_more;
+                        view.comments_cursor = page.next_cursor;
+                        view.comments = Arc::new(page.items);
+                    }
+                    Err(e) => log::warn!("[Home] 评论拉取失败: {e}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 评论翻页（滚到尾部加载下一页；相邻页重叠条目按 comment_id 去重）。
+    fn load_comments_next(&mut self, cx: &mut Context<Self>) {
+        if self.comments_loading || !self.comments_has_more || !self.comments_ready() {
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        self.comments_loading = true;
+        let sid = now.series_id.clone();
+        let vid = now.vid.clone();
+        let cursor = self.comments_cursor.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_comments_page(&vid, &sid, &cursor, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.comments_loading = false;
+                if let Ok(page) = result {
+                    view.comments_has_more = page.has_more;
+                    view.comments_cursor = page.next_cursor;
+                    let mut items = (*view.comments).clone();
+                    for c in page.items {
+                        if !items.iter().any(|x| x.comment_id == c.comment_id) {
+                            items.push(c);
+                        }
+                    }
+                    view.comments = Arc::new(items);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 发评论（reply/add 与 comment/add 不同端点；**服务端完整回显对象**
+    /// 直接插列表顶部——抓包三点一线：头像/昵称/uid/时间齐全，不自拼）。
+    fn submit_comment(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = &self.comment_input else {
+            return;
+        };
+        let text = input.read(cx).value().trim().to_string();
+        if text.is_empty() || self.comment_sending || !self.comments_ready() {
+            return;
+        }
+        if !self.logged_in() {
+            log::info!("[Home] 发评论需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        self.comment_sending = true;
+        let state = Arc::clone(&self.state);
+        let (vid, sid) = (now.vid.clone(), now.series_id.clone());
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            send_comment(&vid, &sid, &text, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.comment_sending = false;
+                match result {
+                    Ok(item) => {
+                        let mut items = (*view.comments).clone();
+                        items.insert(0, item);
+                        view.comments = Arc::new(items);
+                        view.comments_total += 1;
+                        view.ep_comment_count += 1;
+                        view.comment_clear_input = true;
+                    }
+                    Err(e) => log::warn!("[Home] 评论发送失败: {e}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 评论点赞（乐观 ±1 + 红心翻转，失败回滚到服务端态）。
+    fn toggle_comment_digg(&mut self, comment_id: String, cx: &mut Context<Self>) {
+        if !self.logged_in() {
+            log::info!("[Home] 评论点赞需要登录，已忽略");
+            return;
+        }
+        let Some(item) = self
+            .comments
+            .iter()
+            .find(|c| c.comment_id == comment_id)
+            .cloned()
+        else {
+            return;
+        };
+        let current = self
+            .comment_digg_override
+            .get(&comment_id)
+            .copied()
+            .unwrap_or(item.user_digg);
+        let next = !current;
+        let delta = if next { 1 } else { -1 };
+        self.comment_digg_override.insert(comment_id.clone(), next);
+        let mut items = (*self.comments).clone();
+        if let Some(hit) = items.iter_mut().find(|c| c.comment_id == comment_id) {
+            hit.digg_count += delta;
+        }
+        self.comments = Arc::new(items);
+        let state = Arc::clone(&self.state);
+        let cid = comment_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            digg_comment(&cid, next, &env).await.map(|_| next)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                if let Err(e) = result {
+                    log::warn!("[Home] 评论点赞失败: {e}");
+                    view.comment_digg_override.remove(&comment_id);
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 展开/收起回复（展开才拉首页；发送回复成功后强制展开让本地追加
+    /// 的那条立刻可见——Tauri 同款）。
+    fn toggle_replies(&mut self, comment_id: String, reply_count: i64, cx: &mut Context<Self>) {
+        if self.replies_open.remove(&comment_id) {
+            cx.notify();
+            return;
+        }
+        self.replies_open.insert(comment_id.clone());
+        cx.notify();
+        if reply_count <= 0 || self.replies.contains_key(&comment_id) {
+            return;
+        }
+        self.fetch_replies(comment_id, String::new(), cx);
+    }
+
+    /// 拉一页回复（首页或翻页）。
+    fn fetch_replies(&mut self, comment_id: String, cursor: String, cx: &mut Context<Self>) {
+        if self.replies_loading.contains(&comment_id) {
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        self.replies_loading.insert(comment_id.clone());
+        let sid = now.series_id.clone();
+        let vid = now.vid.clone();
+        let cid = comment_id.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_comment_replies(&vid, &sid, &cid, &cursor, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                view.replies_loading.remove(&comment_id);
+                match result {
+                    Ok(page) => {
+                        view.replies_cursor
+                            .insert(comment_id.clone(), page.next_cursor);
+                        let mut items = view
+                            .replies
+                            .get(&comment_id)
+                            .map(|v| (**v).clone())
+                            .unwrap_or_default();
+                        for r in page.items {
+                            if !items.iter().any(|x| x.reply_id == r.reply_id) {
+                                items.push(r);
+                            }
+                        }
+                        view.replies.insert(comment_id, Arc::new(items));
+                    }
+                    Err(e) => log::warn!("[Home] 回复拉取失败: {e}"),
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 发回复（本地追加一份——服务端列表有延迟；追加后强制展开）。
+    fn submit_reply(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = &self.comment_input else {
+            return;
+        };
+        let text = input.read(cx).value().trim().to_string();
+        let Some((comment_id, reply_to_reply_id, _name)) = self.reply_to.clone() else {
+            return;
+        };
+        if text.is_empty() || self.comment_sending {
+            return;
+        }
+        if !self.logged_in() {
+            log::info!("[Home] 回复需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        self.comment_sending = true;
+        let state = Arc::clone(&self.state);
+        let (vid, sid) = (now.vid.clone(), now.series_id.clone());
+        let cid = comment_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            send_reply(&vid, &sid, &cid, reply_to_reply_id.as_deref(), &text, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.comment_sending = false;
+                match result {
+                    Ok(reply) => {
+                        let mut items = view
+                            .replies
+                            .get(&comment_id)
+                            .map(|v| (**v).clone())
+                            .unwrap_or_default();
+                        items.push(reply);
+                        view.replies.insert(comment_id.clone(), Arc::new(items));
+                        view.replies_open.insert(comment_id);
+                        view.reply_to = None;
+                        view.comment_clear_input = true;
+                    }
+                    Err(e) => log::warn!("[Home] 回复发送失败: {e}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// 引擎事件循环（每个引擎一个，epoch 封口：换剧后陈旧事件自然断流）。
     fn spawn_event_loop(
         &mut self,
@@ -1514,6 +2059,18 @@ impl HomeView {
             )
             .detach();
         }
+        // 评论输入框：Enter 提交
+        if let Some(input) = &self.comment_input {
+            cx.subscribe(
+                input,
+                |this: &mut Self, _: Entity<InputState>, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::PressEnter { .. }) {
+                        this.submit_comment(cx);
+                    }
+                },
+            )
+            .detach();
+        }
     }
 
     /// 弹幕设置滑杆：更新对应显示参数；Release 落盘。
@@ -1701,6 +2258,16 @@ impl HomeView {
             || self.picker_open
             || self.player.as_ref().is_some_and(|p| p.is_paused())
             || self.controls_until.is_some_and(|t| Instant::now() < t)
+    }
+
+    /// 开关评论面板：打开时拉当前集评论首页。
+    fn toggle_comments_panel(&mut self, cx: &mut Context<Self>) {
+        self.comments_panel_open = !self.comments_panel_open;
+        self.wake_controls(cx);
+        if self.comments_panel_open {
+            self.load_comments_first_page(cx);
+        }
+        cx.notify();
     }
 
     /// 开关选集浮层（连选连跳：选中不关，关闭走 Esc/收起/点外部）。
@@ -2302,6 +2869,13 @@ impl HomeView {
         // 信息叠加层（左下）：剧名/集数/热度/简介——闲置淡出与控制条
         // 同时机（Tauri chromeShown 同款，静默期不亮）
         let overlay = self.controls_visible().then(|| self.render_overlay(cx));
+        // 互动栏（右缘竖排：收藏/评论/点赞/分享）与评论面板（右侧滑出）
+        let rail = self
+            .controls_visible()
+            .then(|| self.render_interaction_rail(cx));
+        let comment_panel = self
+            .comments_panel_open
+            .then(|| self.render_comment_panel(cx));
         let rects = Rc::clone(&self.stage_rects);
         v_flex()
             .flex_1()
@@ -2347,6 +2921,8 @@ impl HomeView {
             })
             .children(danmaku_layer)
             .children(overlay)
+            .children(rail)
+            .children(comment_panel)
             .children(buffering_badge)
             // 连播锁定指示 + 返回（Tauri immersive-info-overlay 同款：左上
             // 「< 第N集」，点它解除锁定；显隐跟随控制条）
@@ -2579,6 +3155,638 @@ impl HomeView {
     /// 播放控制条（底部悬浮）：暂停/继续、进度（拖动 seek）、倍速菜单、
     /// 音量/静音。布局与操作面对齐 Tauri 版控制栏；倍速档位、静音独立于
     /// 音量的语义与 `playback-prefs` 一致。
+    /// 相对时间（评论时间戳 → 「N 分钟前」等；Tauri relative-time 同口径）。
+    fn relative_time(ts_ms: i64) -> String {
+        if ts_ms <= 0 {
+            return String::new();
+        }
+        let secs = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+            - ts_ms / 1000)
+            .max(0);
+        match secs {
+            0..=59 => "刚刚".to_string(),
+            60..=3599 => format!("{}分钟前", secs / 60),
+            3600..=86_399 => format!("{}小时前", secs / 3600),
+            86_400..=2_591_999 => format!("{}天前", secs / 86_400),
+            2_592_000..=31_535_999 => format!("{}个月前", secs / 2_592_000),
+            _ => format!("{}年前", secs / 31_536_000),
+        }
+    }
+
+    /// 计数格式化（抖音系「1.4万」样式，Tauri fmtCount 同口径）。
+    fn fmt_count(n: i64) -> String {
+        if n >= 1_000_000 {
+            return format!("{:.1}百万", n as f64 / 1_000_000.0).replace(".0", "");
+        }
+        if n >= 10_000 {
+            let v = n as f64 / 10_000.0;
+            let digits = if n % 10_000 >= 1000 { 1 } else { 0 };
+            return format!("{:.*}万", digits, v).replace(".0万", "万");
+        }
+        format!("{n}")
+    }
+
+    /// 互动栏当前集/剧的命中（mget 列表里才有「已互动」态）。
+    fn interact_hit(&self) -> (bool, bool) {
+        let Some(now) = &self.now else {
+            return (false, false);
+        };
+        let bare_vid = now.vid.split(':').next().unwrap_or("");
+        let digged = self
+            .interact_items
+            .iter()
+            .find(|i| i.vid == bare_vid)
+            .map(|i| i.user_digg)
+            .unwrap_or(false);
+        let collected = self
+            .interact_items
+            .iter()
+            .find(|i| i.series_id == now.series_id)
+            .map(|i| i.followed)
+            .unwrap_or(false);
+        (digged, collected)
+    }
+
+    /// 互动栏右缘竖排（Tauri interaction-rail 对齐：收藏→评论→点赞→分享，
+    /// icon 上计数下，激活态红心/黄星，显隐跟随控制条）。
+    fn render_interaction_rail(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let (digged, collected) = self.interact_hit();
+        // 计数优先档案公开计数（匿名可见）；mget 命中值兜底
+        let digg_count = if self.ep_digg_count > 0 {
+            self.ep_digg_count
+        } else {
+            self.interact_items
+                .iter()
+                .find(|i| i.vid == self.now.as_ref().map(|n| n.vid.clone()).unwrap_or_default())
+                .map(|i| i.digged_count)
+                .unwrap_or(0)
+        };
+        let collect_count = if self.follow_count > 0 {
+            self.follow_count
+        } else {
+            self.interact_items
+                .iter()
+                .find(|i| {
+                    Some(i.series_id.as_str()) == self.now.as_ref().map(|n| n.series_id.as_str())
+                })
+                .map(|i| i.followed_cnt)
+                .unwrap_or(0)
+        };
+        let comment_count = self.ep_comment_count;
+
+        // 单个互动项：icon 上、计数下，激活态换色（抖音系右栏单元）。
+        // helper 收 cx.listener 的产物即可，避免闭包里再借 cx。
+        // 红色是 hgplayer 皮肤（硬红线 11 的播放器豁免）。
+        v_flex()
+            .absolute()
+            .right_2()
+            .bottom_24()
+            .items_center()
+            .gap_4()
+            .child(self.rail_item(
+                "collect",
+                gpui_kit::assets::IconName::Star,
+                collect_count,
+                collected,
+                gpui_kit::rgba(0xfacc15ff),
+                cx.listener(|this, _, _, cx| this.toggle_collect(cx)),
+            ))
+            .child(self.rail_item(
+                "comments",
+                gpui_kit::assets::IconName::MessageSquare,
+                comment_count,
+                false,
+                gpui_kit::rgba(0xffffffff),
+                cx.listener(|this, _, _, cx| this.toggle_comments_panel(cx)),
+            ))
+            .child(self.rail_item(
+                "digg",
+                gpui_kit::assets::IconName::Heart,
+                digg_count,
+                digged,
+                gpui_kit::rgba(0xef4444ff),
+                cx.listener(|this, _, _, cx| this.toggle_digg(cx)),
+            ))
+            .child(self.rail_item(
+                "share",
+                gpui_kit::assets::IconName::Share,
+                0,
+                false,
+                gpui_kit::rgba(0xffffffff),
+                cx.listener(|this, _, _, cx| this.share_series(cx)),
+            ))
+            .into_any_element()
+    }
+
+    /// 回复点赞（乐观 ±1 + 红心翻转，失败回滚；与评论点赞同一 do_action）。
+    fn toggle_reply_digg(&mut self, reply_id: String, cx: &mut Context<Self>) {
+        if !self.logged_in() {
+            log::info!("[Home] 回复点赞需要登录，已忽略");
+            return;
+        }
+        let Some(reply) = self
+            .replies
+            .values()
+            .flat_map(|v| v.iter())
+            .find(|r| r.reply_id == reply_id)
+            .cloned()
+        else {
+            return;
+        };
+        let current = self
+            .comment_digg_override
+            .get(&reply_id)
+            .copied()
+            .unwrap_or(reply.user_digg);
+        let next = !current;
+        let delta = if next { 1 } else { -1 };
+        self.comment_digg_override.insert(reply_id.clone(), next);
+        for list in self.replies.values_mut() {
+            if let Some(items) = Arc::get_mut(list)
+                && let Some(hit) = items.iter_mut().find(|r| r.reply_id == reply_id)
+            {
+                hit.digg_count += delta;
+            }
+        }
+        let state = Arc::clone(&self.state);
+        let rid = reply_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            digg_comment(&rid, next, &env).await.map(|_| next)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                if let Err(e) = result {
+                    log::warn!("[Home] 回复点赞失败: {e}");
+                    view.comment_digg_override.remove(&reply_id);
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 互动栏单个 item（icon 上、计数下）。
+    fn rail_item(
+        &self,
+        id: &'static str,
+        icon: gpui_kit::assets::IconName,
+        count: i64,
+        active: bool,
+        active_color: gpui_kit::Rgba,
+        on_click: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+    ) -> gpui_kit::AnyElement {
+        div()
+            .id(ElementId::from(format!("rail-{id}")))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_0p5()
+            .cursor_pointer()
+            .text_color(if active {
+                active_color
+            } else {
+                gpui_kit::rgb(0xffffff)
+            })
+            .on_click(on_click)
+            .child(Icon::new(icon).size_7().text_color(if active {
+                active_color
+            } else {
+                gpui_kit::rgb(0xffffff)
+            }))
+            .children((count > 0).then(|| {
+                div()
+                    .text_xs()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .text_color(gpui_kit::rgb(0xffffff))
+                    .child(Self::fmt_count(count))
+            }))
+            .into_any_element()
+    }
+
+    /// 评论面板（Tauri comment-panel 对齐：右侧滑出，列表 + 发送框；
+    /// 回复内联展开；点赞乐观 ±1；表情代码随表情基建对齐补）。
+    fn render_comment_panel(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let loading = self.comments_loading && self.comments.is_empty();
+        let comment_input = self.comment_input.clone();
+        let reply_target = self
+            .reply_to
+            .as_ref()
+            .map(|(_, _, name)| name.clone())
+            .unwrap_or_default();
+
+        v_flex()
+            .id("comment-panel")
+            .absolute()
+            .top_0()
+            .right_0()
+            .bottom_0()
+            .w(gpui_kit::px(380.0))
+            .bg(gpui_kit::rgba(0x171717f2))
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+            .child(
+                // 头部：评论 · N + 关闭
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .px_4()
+                    .py_3()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child(format!("评论 · {}", self.comments_total)),
+                    )
+                    .child(
+                        Button::new("comment-close")
+                            .icon(gpui_kit::assets::IconName::X)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.comments_panel_open = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .id("comments-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_4()
+                    .child(if loading {
+                        div()
+                            .py_8()
+                            .text_center()
+                            .text_sm()
+                            .text_color(gpui_kit::rgba(0xffffff99))
+                            .child("加载中…")
+                            .into_any_element()
+                    } else if self.comments.is_empty() {
+                        div()
+                            .py_8()
+                            .text_center()
+                            .text_sm()
+                            .text_color(gpui_kit::rgba(0xffffff99))
+                            .child("还没有评论，抢首条")
+                            .into_any_element()
+                    } else {
+                        v_flex()
+                            .gap_4()
+                            .children(self.comments.iter().map(|c| self.render_comment_row(c, cx)))
+                            .children(self.comments_has_more.then(|| {
+                                div()
+                                    .id("comments-more")
+                                    .py_2()
+                                    .text_center()
+                                    .text_xs()
+                                    .cursor_pointer()
+                                    .text_color(gpui_kit::rgba(0x60a5faff))
+                                    .hover(|s| s.text_color(gpui_kit::rgb(0x93c5fd)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.load_comments_next(cx);
+                                    }))
+                                    .child(if self.comments_loading {
+                                        "加载中…"
+                                    } else {
+                                        "加载更多"
+                                    })
+                            }))
+                            .into_any_element()
+                    }),
+            )
+            .child(
+                // 底部发送框：回复目标指示 + 输入 + 发送
+                v_flex()
+                    .px_4()
+                    .py_3()
+                    .gap_2()
+                    .border_t_1()
+                    .border_color(gpui_kit::rgba(0x262626ff))
+                    .children((!reply_target.is_empty()).then(|| {
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0x93c5fdff))
+                                    .child(format!("回复 @{reply_target}：")),
+                            )
+                            .child(
+                                div()
+                                    .id("reply-cancel")
+                                    .cursor_pointer()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff99))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.reply_to = None;
+                                        cx.notify();
+                                    }))
+                                    .child("取消"),
+                            )
+                    }))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_2()
+                            .children(comment_input.as_ref().map(|input| {
+                                Input::new(input).flex_1().h(gpui_kit::px(32.0)).text_xs()
+                            }))
+                            .child(
+                                Button::new("comment-send")
+                                    .label(if self.reply_to.is_some() {
+                                        "回复"
+                                    } else {
+                                        "发送"
+                                    })
+                                    .small()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        if this.reply_to.is_some() {
+                                            this.submit_reply(cx);
+                                        } else {
+                                            this.submit_comment(cx);
+                                        }
+                                    })),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 评论列表一行：头像占位（昵称首字圆形）/昵称/文本/相对时间/♡。
+    fn render_comment_row(&self, c: &CommentItem, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let cid = c.comment_id.clone();
+        let digged = self
+            .comment_digg_override
+            .get(&cid)
+            .copied()
+            .unwrap_or(c.user_digg);
+        let digg_count = c.digg_count;
+        let replies = self.replies.get(&cid).cloned();
+        let replies_open = self.replies_open.contains(&cid);
+        let reply_count = c.reply_count;
+        let loading = self.replies_loading.contains(&cid);
+        let my_reply_target = self.reply_to.as_ref().is_some_and(|(rc, _, _)| rc == &cid);
+        let _ = my_reply_target;
+
+        v_flex()
+            .gap_1p5()
+            .child(
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .child(
+                        // 头像占位：昵称首字圆形（远程头像图随 img 远程源对齐补）
+                        div()
+                            .size_8()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .items_center()
+                            .justify_center()
+                            .bg(gpui_kit::rgba(0x404040ff))
+                            .text_xs()
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child({
+                                let ch = c.user_name.chars().next().unwrap_or('游');
+                                SharedString::from(ch.to_string())
+                            }),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff99))
+                                    .child(SharedString::from(if c.user_name.is_empty() {
+                                        "匿名用户".to_string()
+                                    } else {
+                                        c.user_name.clone()
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(gpui_kit::rgba(0xffffffe6))
+                                    .child(SharedString::from(c.text.clone())),
+                            )
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .text_size(gpui_kit::px(11.0))
+                                            .text_color(gpui_kit::rgba(0xffffff73))
+                                            .child(Self::relative_time(c.create_time)),
+                                    )
+                                    .children((reply_count > 0).then({
+                                        let cid = cid.clone();
+                                        move || {
+                                            div()
+                                                .id(ElementId::from(format!("reply-toggle-{cid}")))
+                                                .text_size(gpui_kit::px(11.0))
+                                                .cursor_pointer()
+                                                .text_color(gpui_kit::rgba(0x60a5faff))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.toggle_replies(
+                                                        cid.clone(),
+                                                        reply_count,
+                                                        cx,
+                                                    );
+                                                }))
+                                                .child(if replies_open {
+                                                    "收起回复".to_string()
+                                                } else {
+                                                    format!("展开 {reply_count} 条回复")
+                                                })
+                                        }
+                                    })),
+                            ),
+                    )
+                    .child(
+                        // ♡ 点赞（乐观 ±1）
+                        div()
+                            .id(ElementId::from(format!("comment-digg-{cid}")))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_0p5()
+                            .cursor_pointer()
+                            .text_color(if digged {
+                                gpui_kit::rgb(0xef4444)
+                            } else {
+                                gpui_kit::rgba(0xffffff99)
+                            })
+                            .on_click({
+                                let cid = cid.clone();
+                                cx.listener(move |this, _, _, cx| {
+                                    this.toggle_comment_digg(cid.clone(), cx);
+                                })
+                            })
+                            .child(Icon::new(gpui_kit::assets::IconName::Heart).size_4())
+                            .children((digg_count > 0).then(|| {
+                                div()
+                                    .text_size(gpui_kit::px(10.0))
+                                    .child(format!("{digg_count}"))
+                            })),
+                    ),
+            )
+            .children(replies_open.then(|| {
+                let items = replies.map(|v| (*v).clone()).unwrap_or_default();
+                v_flex()
+                    .pl_10()
+                    .gap_2()
+                    .children((loading && items.is_empty()).then(|| {
+                        div()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0xffffff73))
+                            .child("加载中…")
+                    }))
+                    .children(items.iter().map(|r| {
+                        let digged = self
+                            .comment_digg_override
+                            .get(&r.reply_id)
+                            .copied()
+                            .unwrap_or(r.user_digg);
+                        let digg_count = r.digg_count;
+                        let rid = r.reply_id.clone();
+                        let rcid = cid.clone();
+                        let rname = r.user_name.clone();
+                        h_flex()
+                            .items_start()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .size_6()
+                                    .flex_shrink_0()
+                                    .rounded_full()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(gpui_kit::rgba(0x404040ff))
+                                    .text_size(gpui_kit::px(10.0))
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .child({
+                                        let ch = r.user_name.chars().next().unwrap_or('游');
+                                        SharedString::from(ch.to_string())
+                                    }),
+                            )
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_0p5()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(gpui_kit::rgba(0xffffff99))
+                                            .child(SharedString::from(if r.user_name.is_empty() {
+                                                "匿名用户".to_string()
+                                            } else {
+                                                r.user_name.clone()
+                                            })),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(gpui_kit::rgba(0xffffffd9))
+                                            .child(SharedString::from(format!(
+                                                "回复 @{}：{}",
+                                                if r.reply_to_name.is_empty() {
+                                                    "原评论".to_string()
+                                                } else {
+                                                    r.reply_to_name.clone()
+                                                },
+                                                r.text
+                                            ))),
+                                    )
+                                    .child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .child(
+                                                div()
+                                                    .text_size(gpui_kit::px(10.0))
+                                                    .text_color(gpui_kit::rgba(0xffffff73))
+                                                    .child(Self::relative_time(r.create_time)),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id(ElementId::from(format!("reply-btn-{rid}")))
+                                                    .text_size(gpui_kit::px(10.0))
+                                                    .cursor_pointer()
+                                                    .text_color(gpui_kit::rgba(0xffffff99))
+                                                    .hover(|s| {
+                                                        s.text_color(gpui_kit::rgb(0xffffff))
+                                                    })
+                                                    .on_click({
+                                                        let rcid = rcid.clone();
+                                                        let rid = rid.clone();
+                                                        let rname = rname.clone();
+                                                        cx.listener(move |this, _, _, cx| {
+                                                            this.reply_to = Some((
+                                                                rcid.clone(),
+                                                                Some(rid.clone()),
+                                                                rname.clone(),
+                                                            ));
+                                                            cx.notify();
+                                                        })
+                                                    })
+                                                    .child("回复"),
+                                            )
+                                            .child(
+                                                // ♡ 回复点赞（乐观 ±1）
+                                                div()
+                                                    .id(ElementId::from(format!(
+                                                        "reply-digg-{rid}"
+                                                    )))
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap_0p5()
+                                                    .cursor_pointer()
+                                                    .text_color(if digged {
+                                                        gpui_kit::rgb(0xef4444)
+                                                    } else {
+                                                        gpui_kit::rgba(0xffffff99)
+                                                    })
+                                                    .on_click({
+                                                        let rid = rid.clone();
+                                                        cx.listener(move |this, _, _, cx| {
+                                                            this.toggle_reply_digg(rid.clone(), cx);
+                                                        })
+                                                    })
+                                                    .child(
+                                                        Icon::new(
+                                                            gpui_kit::assets::IconName::Heart,
+                                                        )
+                                                        .size_3(),
+                                                    )
+                                                    .children((digg_count > 0).then(|| {
+                                                        div().child(format!("{digg_count}"))
+                                                    })),
+                                            ),
+                                    ),
+                            )
+                    }))
+            }))
+            .into_any_element()
+    }
+
+    /// 播放控制条（底部悬浮）：暂停/继续、进度（拖动 seek）、倍速菜单、
+    /// 弹幕发送框与开关、清晰度、选集、音量。
     fn render_controls(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let paused = self.player.as_ref().is_some_and(|p| p.is_paused());
         let duration = self
