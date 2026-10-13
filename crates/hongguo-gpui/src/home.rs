@@ -318,6 +318,11 @@ pub struct HomeView {
     // —— 下载 ——
     /// 下载面板开着。
     downloads_open: bool,
+    /// 隐身模式（Tauri incognito 简化对齐）：一键暂停 + 整窗近透明遮蔽，
+    /// 再点恢复显示（播放由用户自行续）。
+    incognito: bool,
+    /// 全屏中（Render 时从 window.is_fullscreen 读，切图标用）。
+    fullscreen: bool,
     /// 下载任务快照（每次渲染从队列读，进度靠 Frame 事件驱动的重渲染刷新）。
     downloads: Arc<Vec<DownloadTask>>,
     /// 选集浮层的下载完成集号（渲染时刷新）。
@@ -529,6 +534,8 @@ impl HomeView {
             comment_sending: false,
             comment_clear_input: false,
             downloads_open: false,
+            incognito: false,
+            fullscreen: false,
             downloads: Arc::new(Vec::new()),
             done_vids: Arc::new(Vec::new()),
             volume_popup_open: false,
@@ -2976,17 +2983,21 @@ impl HomeView {
             .key_context("HomeStage")
             .track_focus(&self.focus)
             .on_key_down(
-                cx.listener(|this, ev: &gpui_kit::KeyDownEvent, _window, cx| {
+                cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
                     match ev.keystroke.key.as_str() {
                         "space" => this.toggle_pause(cx),
                         "left" => this.seek_by(-5.0, cx),
                         "right" => this.seek_by(5.0, cx),
                         "down" => this.step(1, cx),
                         "up" => this.step(-1, cx),
-                        // Esc 固定管「退出选中」（Tauri 同款语义）：先关
-                        // 浮层面板，都没开才解除连播锁定
+                        "f" => this.toggle_fullscreen(window, cx),
+                        // Esc 固定管「退出选中」（Tauri 同款语义）：全屏 →
+                        // 浮层面板 → 连播锁定，逐层退出
                         "escape" => {
-                            if this.picker_open {
+                            if window.is_fullscreen() {
+                                window.toggle_fullscreen();
+                                this.fullscreen = false;
+                            } else if this.picker_open {
                                 this.picker_open = false;
                                 this.picker_group_override = None;
                             } else if this.in_binge() {
@@ -4174,7 +4185,50 @@ impl HomeView {
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_downloads(cx))),
             )
+            .child(
+                // 隐身模式（Tauri incognito 同款用途）：一键暂停 + 整窗近
+                // 透明遮蔽，再点恢复显示
+                Button::new("stage-incognito")
+                    .icon(if self.incognito {
+                        gpui_kit::assets::IconName::Eye
+                    } else {
+                        gpui_kit::assets::IconName::EyeOff
+                    })
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_incognito(cx))),
+            )
+            .child(
+                // 全屏切换（Tauri toggleFullscreen 同款；图标随状态换）
+                Button::new("stage-fullscreen")
+                    .icon(if self.fullscreen {
+                        gpui_kit::assets::IconName::Minimize2
+                    } else {
+                        gpui_kit::assets::IconName::Maximize2
+                    })
+                    .ghost()
+                    .small()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_fullscreen(window, cx);
+                    })),
+            )
             .into_any_element()
+    }
+
+    /// 全屏切换（Tauri toggleFullscreen 同款）。
+    fn toggle_fullscreen(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) {
+        window.toggle_fullscreen();
+        self.fullscreen = window.is_fullscreen();
+        cx.notify();
+    }
+
+    /// 隐身模式开关：一键暂停 + 整窗近透明（恢复显示但不自动续播）。
+    fn toggle_incognito(&mut self, cx: &mut Context<Self>) {
+        self.incognito = !self.incognito;
+        if self.incognito && !self.player.as_ref().is_some_and(|p| p.is_paused()) {
+            self.toggle_pause(cx);
+        }
+        cx.notify();
     }
 
     /// 下载面板（右侧滑出）：任务列表（集号/状态/进度）+ 全量入队。
@@ -4647,6 +4701,8 @@ impl gpui_kit::Render for HomeView {
             self.downloads = Arc::new(crate::downloads::tasks_of(&self.state, &sid));
             self.done_vids = Arc::new(crate::downloads::completed_vids(&self.state, &sid));
         }
+        // 全屏态图标跟随（Render::render 有 window 可查）
+        self.fullscreen = window.is_fullscreen();
         let theme = cx.theme();
         let feed = self.feeds.get(&self.active).expect("源已初始化");
         let notice: Option<String> = if let Some(err) = &feed.failed {
@@ -4662,6 +4718,9 @@ impl gpui_kit::Render for HomeView {
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
+            // 隐身模式：整窗近透明遮蔽（Tauri incognito 的窗口透明在 gpui
+            // 壳层用根 opacity 近似；再点隐身按钮恢复）
+            .when(self.incognito, |s| s.opacity(0.06))
             // 沉浸流锁死在视口内：任何 1px 超高都会冒出页面滚动条并吃掉滚轮
             .overflow_hidden()
             .child(tabs)
