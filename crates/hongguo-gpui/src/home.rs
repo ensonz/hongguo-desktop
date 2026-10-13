@@ -3300,13 +3300,43 @@ impl HomeView {
                             )
                     }))
                     .children((!now.title.is_empty()).then(|| {
-                        // Tauri 的剧名可点跳详情页；GPUI 壳尚无该路由，
-                        // 先按纯文本展示（交互随详情页对齐补）
+                        // Tauri 同款交互：点剧名离开播放器看档案。GPUI 壳
+                        // 无详情路由，先打开官方详情页（系统默认浏览器）；
+                        // stopPropagation：点标题不能同时触发「点画面暂停」。
                         div()
+                            .id("overlay-title")
                             .text_sm()
                             .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                             .text_color(gpui_kit::rgb(0xffffff))
                             .truncate()
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(gpui_kit::rgba(0xffd7d7ff)))
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Left,
+                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                            )
+                            .on_click({
+                                let sid = now.series_id.clone();
+                                cx.listener(move |_, _, _, cx| {
+                                    cx.stop_propagation();
+                                    let url =
+                                        format!("https://hongguoduanju.com/detail?series_id={sid}");
+                                    log::info!("[Home] 打开详情页: {url}");
+                                    #[cfg(target_os = "windows")]
+                                    {
+                                        use std::os::windows::process::CommandExt;
+                                        let _ = std::process::Command::new("cmd")
+                                            .args(["/C", "start", "", &url])
+                                            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+                                            .spawn();
+                                    }
+                                    #[cfg(not(target_os = "windows"))]
+                                    {
+                                        let _ =
+                                            std::process::Command::new("open").arg(&url).spawn();
+                                    }
+                                })
+                            })
                             .child(SharedString::from(format!("@{}", now.title)))
                     })),
             )
