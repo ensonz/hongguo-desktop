@@ -23,7 +23,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # 装配体：插件 / 状态 / 协议 / command 全在这里。
-hongguo-tauri = { path = "../crates/hongguo-tauri" }
+hongguo-tauri = { path = "../hongguo-tauri" }
 # `generate_context!` 宏的宿主（上下文与本 crate 的 tauri.conf.json 绑定）。
 # protocol-asset：tauri.conf.json 声明了 assetProtocol scope，tauri-build 校验
 # 该 feature 必须在本 crate 的 tauri 依赖上声明（与 hongguo-tauri 同款）。

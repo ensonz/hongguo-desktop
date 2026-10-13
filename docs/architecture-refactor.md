@@ -480,6 +480,7 @@ hongguo-media-platform（门面：按编译目标 re-export 实现 + ffmpeg + ca
 | GPUI 事件消费 | 事件泵（broadcast→mpsc→视图）；下载面板保留 1s 轮询兜底 | ✅ |
 | macOS 回归口径 | CI 双腿编译 + 单测；实机功能回归列发版前 checklist | ✅ |
 | 服务层 UI 能力适配 | 当前无（文件选择/打开目录在命令层）；有真实需求再加窄接口 | ✅ |
+| 入口 crate 归位 | `src-tauri` → `crates/hongguo-tauri-app`（消除根层遗留目录；CLI 经 package.json script `cd` 定位，tauri-action 用 `projectPath`，before 命令用 `cwd` 对象形式指回仓库根） | ✅ |
 
 ### 16.4 遗留
 

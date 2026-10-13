@@ -20,7 +20,7 @@ macOS 有**运行时**本地化：系统按当前语言去 bundle 里找对应�
 `Hongguo.app` 而 Dock 显示「红果播放器」并不矛盾——微信就是这么做的
 （目录 `WeChat.app`，Dock 显示「微信」）。
 
-- 源文件：`src-tauri/i18n/<lang>.lproj/InfoPlist.strings`
+- 源文件：`crates/hongguo-tauri-app/i18n/<lang>.lproj/InfoPlist.strings`
 - 生成：`python3 scripts/make-macos-lproj.py`（`make assets` 会带上）
 - 进包：`tauri.conf.json > bundle.macOS.files`（键 = `Contents` 下的目标路径，
   值 = 仓库内源路径）
@@ -38,9 +38,9 @@ macOS 有**运行时**本地化：系统按当前语言去 bundle 里找对应�
 Windows 没有运行时机制：快捷方式显示名就是 `.lnk` 文件名，「应用和功能」里的
 名字是安装时写进注册表的字符串——只能在安装那一刻定死。所以走 NSIS 安装器。
 
-- 名字表与钩子：`src-tauri/nsis/installer-hooks.nsh`
+- 名字表与钩子：`crates/hongguo-tauri-app/nsis/installer-hooks.nsh`
   生成：`python3 scripts/make-nsis-hooks.py`
-- 安装器模板：`src-tauri/nsis/installer.nsi`
+- 安装器模板：`crates/hongguo-tauri-app/nsis/installer.nsi`
   生成：`python3 scripts/sync-nsis-template.py`（从 GitHub 拉与
   `@tauri-apps/cli` 同版本的官方模板，套补丁；`--check` 判断是否过期）
 - 接入：`tauri.conf.json > bundle.windows.nsis.template` / `installerHooks`

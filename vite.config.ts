@@ -37,7 +37,7 @@ export default defineConfig({
     watch: {
       // target/ 在 workspace 化后位于仓库根，不排除的话 chokidar 会去盯
       // target/debug/deps 下的 exe/pdb——被运行中的进程锁住，Windows 上报 EBUSY。
-      ignored: ['**/src-tauri/**', '**/target/**', '**/vendor/**'],
+      ignored: ['**/crates/hongguo-tauri-app/**', '**/target/**', '**/vendor/**'],
     },
   },
   envPrefix: ['VITE_', 'TAURI_ENV_'],

@@ -88,7 +88,7 @@ jobs:
         run: |
           node -e "
             const fs = require('fs');
-            const p = 'src-tauri/tauri.conf.json';
+            const p = 'crates/hongguo-tauri-app/tauri.conf.json';
             const c = JSON.parse(fs.readFileSync(p, 'utf8'));
             c.version = process.env.VERSION.replace(/^v/, '');
             fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');
@@ -146,6 +146,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.key }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ steps.signing.outputs.password }}
         with:
+          projectPath: crates/hongguo-tauri-app
           args: ${{ matrix.args }}
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: 红果桌面版 ${{ github.event.inputs.tag || github.ref_name }}

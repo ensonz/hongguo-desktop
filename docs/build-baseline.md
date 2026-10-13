@@ -176,7 +176,7 @@ $env:PATH = $env:PATH + ';C:\Program Files\Git\usr\bin'
 - 形态变化：`hongguo-media-platform` 拆为「契约（`-api`）+ 双平台实现
   （`-macos`/`-windows`）+ 门面」；`hongguo-service` 摘除 tauri 依赖
   （自持共用任务运行时与事件总线，见 `architecture-refactor.md` §16）。
-- workspace 成员：13 → **16** 个 crate（含 `src-tauri` 共 17 个包）。新增的三个
+- workspace 成员：13 → **16** 个 crate（入口 crate 并入后 17 个成员全部位于 `crates/`）。新增的三个
   平台 crate 由 `--workspace` 自动覆盖，Makefile/CI 的排除清单未动。
 - 体量（`rg --files crates` 过滤 `.rs` + 逐文件行数实测）：**304 个 `.rs` /
   57,856 行**（含 gpui 壳与其测试）。

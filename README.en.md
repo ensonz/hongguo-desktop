@@ -232,8 +232,8 @@ hongguo-desktop/
 │   ├── hongguo-playback/               # Playback engine (sample-table fetch → platform decode → audio clock sync)
 │   ├── hongguo-service/                # App services: nine domains + AppState + shared runtime/event bus (no UI framework deps)
 │   ├── hongguo-tauri/                  # Tauri assembly: commands / bootstrap / protocol registration / event forwarding
+│   ├── hongguo-tauri-app/              # Tauri app entry (tauri.conf.json / capabilities / icons / generate_context!)
 │   └── hongguo-gpui/                   # GPUI shell (same service layer as Tauri)
-├── src-tauri/                          # Config + entry only (tauri.conf.json / capabilities / icons / generate_context!)
 └── src/
     ├── pages/           # TanStack file routes (thin shells) + page implementations nearby
     ├── features/        # Complex capability domains (player engine / auto update)

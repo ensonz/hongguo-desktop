@@ -6,7 +6,7 @@
 
 以「storage 用量」为完整示例，五步缺一不可：
 
-**① 后端 command 层** `src-tauri/src/commands/storage_cmd.rs`——薄，只做参数校验 + 转调：
+**① 后端 command 层** `crates/hongguo-tauri/src/commands/storage_cmd.rs`——薄，只做参数校验 + 转调：
 
 ```rust
 #[tauri::command]
@@ -22,7 +22,7 @@ pub fn get_storage_usage(state: State<'_, AppState>) -> AppResult<StorageUsage> 
 
 **② service 层** `service/storage_service/usage.rs`——业务编排在这层，一个服务一个目录。
 
-**③ 注册** `src-tauri/src/lib.rs` 的 `generate_handler![...]` 按注释分组追加。
+**③ 注册** `crates/hongguo-tauri-app/src/lib.rs` 的 `generate_handler![...]` 按注释分组追加。
 
 **④ 前端 schema + 命令封装**：
 

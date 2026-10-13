@@ -202,8 +202,8 @@ hongguo-desktop/
 │   ├── hongguo-playback/               # 播放引擎（样本表取流 → 平台解码 → 音频时钟同步）
 │   ├── hongguo-service/                # 应用服务：九域编排 + AppState + 共用运行时/事件总线（无 UI 框架依赖）
 │   ├── hongguo-tauri/                  # Tauri 装配：commands / bootstrap / 协议注册 / 事件转发
+│   ├── hongguo-tauri-app/              # Tauri 应用入口（tauri.conf.json / capabilities / icons / generate_context!）
 │   └── hongguo-gpui/                   # GPUI 壳（与 Tauri 同一套 service）
-├── src-tauri/                          # 纯配置 + 入口（tauri.conf.json / capabilities / icons / generate_context!）
 └── src/
     ├── pages/           # TanStack 文件路由（薄壳）+ 页面实现就近放置
     ├── features/        # 复杂能力域（player 播放引擎 / update 自动更新）

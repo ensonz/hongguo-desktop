@@ -16,7 +16,7 @@ export default tseslint.config(
     ignores: [
       'dist',
       'captures',
-      'src-tauri',
+      'crates/hongguo-tauri-app',
       'vendor',
       'target',
       'routeTree.gen.ts',

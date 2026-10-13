@@ -28,7 +28,7 @@ members = [
     "crates/hongguo-store",
     "crates/hongguo-stream",
     "crates/hongguo-tauri",
-    "src-tauri",
+    "crates/hongguo-tauri-app",
 ]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被
 # path/patch 引用的包会被 Cargo 自动收成 member；若不排除，门禁会去 lint

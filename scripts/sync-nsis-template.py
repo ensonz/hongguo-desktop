@@ -37,7 +37,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "src-tauri" / "nsis" / "installer.nsi"
+OUT = ROOT / "crates" / "hongguo-tauri-app" / "nsis" / "installer.nsi"
 CLI_PKG = ROOT / "node_modules" / "@tauri-apps" / "cli" / "package.json"
 
 # 上游文件位置：Tauri 2.x 的 nsis 模板（早期版本在 .../windows/templates/，

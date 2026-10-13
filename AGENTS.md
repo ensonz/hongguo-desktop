@@ -20,7 +20,7 @@
 ## 目录结构
 
 - `src/` 前端：React 19 + TS + Vite + TanStack Router/Query + Zustand + Tailwind v4 + shadcn/ui + zod。`pages/` + `features/` + `service/` + `stores/` + `components/`
-- `src-tauri/` Tauri 壳的**纯配置 + 入口**：只承载 `tauri.conf.json` / `capabilities` / `icons` / `gen` 与 `generate_context!`（必须与配置同 crate），`lib.rs` 仅数行；全部装配见 `crates/hongguo-tauri/`
+- `crates/hongguo-tauri-app/` Tauri 壳的**纯配置 + 入口**：只承载 `tauri.conf.json` / `capabilities` / `icons` / `gen` 与 `generate_context!`（必须与配置同 crate），`lib.rs` 仅数行；全部装配见 `crates/hongguo-tauri/`
 - `crates/hongguo-common/` 共用底座：领域模型（`model/`）、统一错误（`error.rs`，无 tauri 依赖）、纯工具（`utils/`）、跨端常量（`consts/`）。Tauri 壳与未来 GPUI 壳共用；常量归属规则见 `consts/mod.rs` 头注释
 - `crates/hongguo-signer/` 请求签名：字节系五头签名 + 设备注册原语；**JS 1:1 移植禁改写法**，`constants.rs` 的值与服务端一一对应不得改动（无 common / tauri 依赖）
 - `crates/hongguo-mp4/` MP4 解析与 CENC 解密：box/样本表/稀疏缓冲/流式计划 + CENC-AES-CTR + 密钥派生；`fixtures` 是 feature `test-support` 门控的测试辅助（下游测试造 MP4 样本用）
@@ -34,7 +34,7 @@
 - `crates/hongguo-media-platform/` 平台层门面：按编译目标 re-export 实现 crate + 分派无状态操作（转码 / 探测 / 清缓存 / HEIC 封面 `platform::cover`），`ffmpeg`（外部进程的探测与执行）与 `capability`（解码能力探测）聚合并留在此；转码三级分流编排仍在 service 的 `transcode_service::pipeline`。`platform::transcode_h264_for_tests` 由 feature `test-support` 门控（壳 e2e 用）。无 tauri/gpui 依赖
 - `crates/hongguo-protocol/` 自定义 URI 协议供数逻辑：`url`（按平台的 URL 形态与编解码）+ `local` + `cover`（HEIC 封面三级转码阶梯）+ `pool`（常驻工作池与 panic 加固）+ `serve`（三路供数入口，产出元组）。**无 tauri 依赖**——HTTP 组装与 Builder 注册是壳胶水（hongguo-tauri 的 `protocol.rs`）
 - `crates/hongguo-service/` 业务编排层：九域 service（download / play / merge / login / series / settings / storage / transcode / capability）+ 全局业务状态 `AppState`（壳经 Tauri `manage` 注入，GPUI 壳直接构造）+ 共用任务运行时 `runtime`（后台任务任意线程可派发）+ 业务事件总线 `events`（`ServiceEvent`，壳订阅适配）。**不依赖任何 UI 框架**（源码静态闸扫 tauri 引用）：进度与状态只发布事件，发送机制由壳决定
-- `crates/hongguo-tauri/` Tauri 装配层：`commands`（IPC 薄层）、`bootstrap`（启动装配）、`diagnostics`（panic 取证）、`protocol.rs`（协议注册胶水）、`events.rs`（service 事件 → 前端事件的原名原载荷转发）、`testing`（跨层 e2e 与守卫元测试）——`prepare()` 产出装好的 Builder，`build(generate_context!)` 留在 src-tauri
+- `crates/hongguo-tauri/` Tauri 装配层：`commands`（IPC 薄层）、`bootstrap`（启动装配）、`diagnostics`（panic 取证）、`protocol.rs`（协议注册胶水）、`events.rs`（service 事件 → 前端事件的原名原载荷转发）、`testing`（跨层 e2e 与守卫元测试）——`prepare()` 产出装好的 Builder，`build(generate_context!)` 留在 crates/hongguo-tauri-app
 - `crates/hongguo-gpui/` GPUI 壳（起步单壳）：直接构造 `AppStateInner` 并调用 service/api，**操作与 Tauri 客户端一致**（不复制业务；`make gpui` 运行）。播放引擎在 `hongguo-playback`；service 的 async 族由壳内常驻 tokio 运行时经 oneshot 桥接，业务事件经 `events.rs` 事件泵（broadcast→mpsc）接进视图
 - Rust 侧已 workspace 化：根 `Cargo.toml`（members / `resolver` / `[patch]` / `[profile]` 都在根），`Cargo.lock`、`target/`、`vendor/` 也都在仓库根；cargo 一律在**仓库根**跑（`--workspace`）。`vendor/` 被 `[workspace] exclude` 排除，不参与 lint/test/format
 - `captures/` 抓包工具与数据（`addon.py` 抓包 / `audit.py` 参数审计），`docs/` 仓库文档，`scripts/` 构建辅助脚本
@@ -63,7 +63,7 @@ make release    # tauri build 打包
 4. 签名（`signer/ticket.rs` 产出 x-gorgon 等五件套）之后不能再动 url/body/query——连 query 顺序、URL 编码方式都会失配；`signer/` 是 JS 1:1 移植，禁改写法。
 5. 锁永远不跨 await（parking_lot guard 非 Send）。
 6. Cargo release profile 绝不能加 `panic = "abort"`；clippy 带 `-D warnings -D clippy::allow_attributes`，确需豁免用 `#[expect(reason)]` 而非 `#[allow]`。
-7. `src-tauri/lib.rs` 只做入口（数行）；装配在 `hongguo-tauri`，各 crate 边界显式定义对外 API，禁止 `pub use *` 泄底。
+7. `crates/hongguo-tauri-app/src/lib.rs` 只做入口（数行）；装配在 `hongguo-tauri`，各 crate 边界显式定义对外 API，禁止 `pub use *` 泄底。
 8. 启动顺序：单实例插件必须第一个注册，数据库在 `.setup()` 里晚于它打开。
 9. 对接官方接口禁止猜参数——照 `docs/hongguo-api-endpoints.md` 抓包逐字段对齐。
 10. 抓包对齐必须「请求 + 响应 + UI 效果」三点一线，只对齐请求等于没对齐：响应 body 逐字段解剖（发送类接口的响应是完整对象回显，丢弃=UI 缺字段）；计数类字段第三方做本地乐观 ±1；对照第三方实操效果核对渲染。

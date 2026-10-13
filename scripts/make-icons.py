@@ -4,7 +4,7 @@
 只依赖 ImageMagick（`magick`）与 macOS 自带的 `iconutil`，不需要 Pillow——
 脚本会在缺工具时给出明确报错。
 
-## 图形来源（src-tauri/icons/source.png）
+## 图形来源（crates/hongguo-tauri-app/icons/source.png）
 
 参考端（hgplayer，`/Applications/红果短剧.app`）的 1024 原图——比官网
 `<link rel="icon">` 那张 40px 小图清晰得多（旧脚本把 40px 放大 25 倍，
@@ -35,7 +35,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ICON_DIR = ROOT / "src-tauri" / "icons"
+ICON_DIR = ROOT / "crates" / "hongguo-tauri-app" / "icons"
 SOURCE = ICON_DIR / "source.png"
 WEB_DIR = ROOT / "public"
 

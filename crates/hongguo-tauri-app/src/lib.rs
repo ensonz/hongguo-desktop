@@ -3,7 +3,7 @@
 //! 装配（插件、状态、协议、command 挂载）在 `crates/hongguo-tauri`；本文件
 //! 只提供 Tauri 运行上下文——`generate_context!` 必须与 tauri.conf.json /
 //! capabilities / icons 同 crate（tauri-build 按 CARGO_MANIFEST_DIR 找它们），
-//! 所以 `src-tauri` 退化为「纯配置 + 入口」（见 `docs/architecture-refactor.md`
+//! 所以入口 crate 现位于 `crates/hongguo-tauri-app`（二期收尾消除根层遗留，见 `docs/architecture-refactor.md`
 //! §8 第 5 条）。
 
 /// 运行应用。

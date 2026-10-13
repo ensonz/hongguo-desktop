@@ -43,7 +43,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "src-tauri" / "nsis" / "installer-hooks.nsh"
+OUT = ROOT / "crates" / "hongguo-tauri-app" / "nsis" / "installer-hooks.nsh"
 
 # 安装器的语言列表（tauri.conf.json > bundle.windows.nsis.languages）。
 # LangString 只能为**已插入**的语言定义：给列表外的语言定义 LangString 会牵出

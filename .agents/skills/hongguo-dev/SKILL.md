@@ -5,7 +5,7 @@ description: hongguo-desktop（红果短剧 Tauri 桌面客户端）项目开发
 
 # hongguo-desktop 开发 skill
 
-Tauri 2 桌面应用（Windows/macOS）。前端 `src/`：React 19 + TS + Vite + TanStack Router/Query + Zustand + Tailwind v4 + shadcn/ui + zod。后端 `src-tauri/`：Rust，`commands(薄) → service(编排) → domain/api(外部接口) + store(持久化)` 分层。前后端只通过 IPC command、事件推送、自定义协议 `hongguo-local/stream/cover` 三条通道交互。
+Tauri 2 桌面应用（Windows/macOS）。前端 `src/`：React 19 + TS + Vite + TanStack Router/Query + Zustand + Tailwind v4 + shadcn/ui + zod。后端在 `crates/`（Rust workspace）：`hongguo-tauri`（壳装配 / commands）→ `hongguo-service`（编排）→ `hongguo-api` + `hongguo-store` 分层，Tauri 应用入口在 `crates/hongguo-tauri-app`。前后端只通过 IPC command、事件推送、自定义协议 `hongguo-local/stream/cover` 三条通道交互。
 
 ## 按任务读对应参考文档
 
