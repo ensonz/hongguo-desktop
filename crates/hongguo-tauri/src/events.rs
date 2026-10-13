@@ -54,8 +54,23 @@ fn forward(app: &tauri::AppHandle, event: ServiceEvent) {
         ServiceEvent::DownloadQueueChanged(ev) => {
             let _ = app.emit(names::DOWNLOAD_QUEUE_CHANGED, ev);
         }
+        ServiceEvent::MergeTaskAdded(task) => {
+            let _ = app.emit(names::MERGE_TASK_ADDED, task);
+        }
+        ServiceEvent::MergeProgress(task) => {
+            let _ = app.emit(names::MERGE_PROGRESS, task);
+        }
+        ServiceEvent::MergeCompleted(task) => {
+            let _ = app.emit(names::MERGE_COMPLETED, task);
+        }
+        ServiceEvent::MergeFailed(task) => {
+            let _ = app.emit(names::MERGE_FAILED, task);
+        }
         ServiceEvent::OnlineProgress(ev) => {
             let _ = app.emit(names::ONLINE_PROGRESS, ev);
+        }
+        ServiceEvent::CompatProgress(ev) => {
+            let _ = app.emit(names::COMPAT_PROGRESS, ev);
         }
         ServiceEvent::LoginMfa(ev) => {
             let _ = app.emit(hongguo_service::login_service::events::LOGIN_MFA_STATE, ev);
@@ -112,6 +127,42 @@ mod tests {
                 ServiceEvent::DownloadQueueChanged(QueueChangedEvent {}),
             ),
             (
+                names::MERGE_TASK_ADDED,
+                ServiceEvent::MergeTaskAdded(hongguo_common::model::MergeTask::new(
+                    "1",
+                    "剧",
+                    "out",
+                    hongguo_common::model::MergeMode::Quick,
+                )),
+            ),
+            (
+                names::MERGE_PROGRESS,
+                ServiceEvent::MergeProgress(hongguo_common::model::MergeTask::new(
+                    "1",
+                    "剧",
+                    "out",
+                    hongguo_common::model::MergeMode::Quick,
+                )),
+            ),
+            (
+                names::MERGE_COMPLETED,
+                ServiceEvent::MergeCompleted(hongguo_common::model::MergeTask::new(
+                    "1",
+                    "剧",
+                    "out",
+                    hongguo_common::model::MergeMode::Quick,
+                )),
+            ),
+            (
+                names::MERGE_FAILED,
+                ServiceEvent::MergeFailed(hongguo_common::model::MergeTask::new(
+                    "1",
+                    "剧",
+                    "out",
+                    hongguo_common::model::MergeMode::Quick,
+                )),
+            ),
+            (
                 names::ONLINE_PROGRESS,
                 ServiceEvent::OnlineProgress(OnlineProgressEvent {
                     key: "1:1".into(),
@@ -120,6 +171,17 @@ mod tests {
                     percent: 100.0,
                     phase: "ready".into(),
                 }),
+            ),
+            (
+                names::COMPAT_PROGRESS,
+                ServiceEvent::CompatProgress(
+                    hongguo_service::play_service::compat_play::CompatProgressEvent {
+                        key: "1:1".into(),
+                        percent: 0.0,
+                        phase:
+                            hongguo_service::play_service::compat_play::CompatPhase::Downloading,
+                    },
+                ),
             ),
             (
                 hongguo_service::login_service::events::LOGIN_MFA_STATE,
@@ -138,7 +200,12 @@ mod tests {
                 "download-failed",
                 "download-stopped",
                 "download-queue-changed",
+                "merge-task-added",
+                "merge-progress",
+                "merge-completed",
+                "merge-failed",
                 "online-play-progress",
+                "compat-play-progress",
                 "login-mfa-state",
             ]
         );

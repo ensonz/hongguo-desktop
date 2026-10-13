@@ -46,7 +46,7 @@ impl super::HomeView {
     }
 
     /// 刷新下载任务快照与选集浮层的完成角标。
-    fn refresh_downloads(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn refresh_downloads(&mut self, cx: &mut Context<Self>) {
         let state = Arc::clone(&self.state);
         let sid = self
             .now

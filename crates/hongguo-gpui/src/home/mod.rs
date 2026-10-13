@@ -46,6 +46,7 @@ use hongguo_common::model::{DownloadTask, VideoDefinition};
 use hongguo_media_platform_api::video::VideoFrame;
 use hongguo_playback::{PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
+use hongguo_service::events::ServiceEvent;
 use tokio::sync::mpsc;
 
 use danmaku::DmFlight;
@@ -488,6 +489,7 @@ impl HomeView {
             stage_rects: Rc::new(Cell::new(None)),
         };
         view.subscribe_controls(cx);
+        view.subscribe_service_events(cx);
         // 下载队列恢复：running 视为中断改回 pending（Tauri bootstrap 同款），
         // 然后触发一轮调度把中断的任务续跑起来。库读取失败只记错误不拦
         // 启动——壳的其余功能不依赖队列（显式容错：有日志、只此一处）。
@@ -533,6 +535,50 @@ impl HomeView {
             view.load_history(cx);
         }
         view
+    }
+
+    /// 订阅 service 业务事件（登录 MFA、下载状态）并落到视图状态。
+    ///
+    /// 事件泵把 tokio broadcast 转成 GPUI 侧可 await 的无界通道
+    /// （见 [`crate::events`]）；这里起一条消费循环——与 Tauri 壳消费
+    /// 同一批事件（一份业务实现，两种 UI 适配）。
+    fn subscribe_service_events(&mut self, cx: &mut Context<Self>) {
+        let mut rx = crate::events::subscribe(&self.state);
+        cx.spawn(async move |this, cx| {
+            while let Some(event) = rx.recv().await {
+                let ok = this
+                    .update(cx, |view, cx| view.on_service_event(event, cx))
+                    .is_ok();
+                if !ok {
+                    break; // 视图已销毁
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// service 事件 → 视图状态。
+    fn on_service_event(&mut self, event: ServiceEvent, cx: &mut Context<Self>) {
+        match event {
+            ServiceEvent::LoginMfa(ev) => self.on_login_mfa_event(ev, cx),
+            // 下载面板开着时随事件即时刷新（面板本身另有 1s 轮询兜底）
+            ServiceEvent::DownloadTaskAdded(_)
+            | ServiceEvent::DownloadProgress(_)
+            | ServiceEvent::DownloadCompleted(_)
+            | ServiceEvent::DownloadFailed(_)
+            | ServiceEvent::DownloadStopped(_)
+            | ServiceEvent::DownloadQueueChanged(_) => {
+                if self.downloads_open {
+                    self.refresh_downloads(cx);
+                }
+            }
+            ServiceEvent::OnlineProgress(_) => {}
+            ServiceEvent::MergeTaskAdded(_)
+            | ServiceEvent::MergeProgress(_)
+            | ServiceEvent::MergeCompleted(_)
+            | ServiceEvent::MergeFailed(_) => {}
+            ServiceEvent::CompatProgress(_) => {}
+        }
     }
 
     /// 引擎是否就位：控制条、选集/下载面板渲染的共同门槛。真实壳=引擎

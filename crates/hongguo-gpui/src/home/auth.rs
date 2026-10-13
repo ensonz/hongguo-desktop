@@ -2,6 +2,7 @@
 //! 评论/回复头像的拉取与渲染。
 
 use std::sync::Arc;
+#[cfg(feature = "screenshot")]
 use std::time::Duration;
 #[cfg(feature = "screenshot")]
 use std::time::Instant;
@@ -18,6 +19,7 @@ use gpui_kit::{SharedString, div};
 #[cfg(feature = "screenshot")]
 use super::controls::CONTROLS_HOLD_SECS;
 use crate::bridge;
+use hongguo_service::login_service::flow::LoginResult;
 
 impl super::HomeView {
     /// 登录态（settings 账号卡片的 user_id 非空）。
@@ -44,8 +46,7 @@ impl super::HomeView {
 
     /// 退出登录（settings.account 清空落库；Tauri login_logout 同口径）。
     pub(crate) fn login_logout(&mut self, cx: &mut Context<Self>) {
-        if let Err(e) = hongguo_service::login_service::account::persist_account(&self.state, None)
-        {
+        if let Err(e) = hongguo_service::login_service::flow::logout(&self.state) {
             log::warn!("[Login] 退出失败: {e}");
             return;
         }
@@ -55,8 +56,8 @@ impl super::HomeView {
         cx.notify();
     }
 
-    /// 发送短信验证码（发码下发的 csrf Cookie 暂存 state，sms_login 消费；
-    /// Tauri login_send_code 同款编排）。
+    /// 发送短信验证码（编排在 service 的 `login_service::flow`，
+    /// 与 Tauri login_send_code 同一份；csrf 凭据由 service 暂存）。
     fn login_send_code(&mut self, cx: &mut Context<Self>) {
         let Some(input) = &self.login_mobile else {
             return;
@@ -71,8 +72,7 @@ impl super::HomeView {
         self.login_message = None;
         let state = Arc::clone(&self.state);
         let rx = bridge::spawn(async move {
-            let env = state.api_env();
-            hongguo_api::login::send_sms_code(&env, &mobile).await
+            hongguo_service::login_service::flow::send_code(&state, &mobile).await
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
@@ -80,10 +80,8 @@ impl super::HomeView {
                 view.login_busy = false;
                 match result {
                     Ok(outcome) => {
+                        // csrf 凭据已由 service 暂存（提交时消费），壳不再经手
                         log::info!("[Login] 发码成功: {}", outcome.message);
-                        if !outcome.csrf_cookie.is_empty() {
-                            *view.state.login_csrf.write() = Some(outcome.csrf_cookie);
-                        }
                         view.login_message = Some(format!("{}（注意查收短信）", outcome.message));
                     }
                     Err(e) => {
@@ -97,9 +95,9 @@ impl super::HomeView {
         .detach();
     }
 
-    /// 短信验证码登录：成功落库账号（persist_account 无 tauri 依赖）+
-    /// 后台拉一次 user_info 刷新昵称/头像；MFA（风控短信上行）转「重试
-    /// 登录」路径——点重试用暂存的 retry 上下文原样重发。
+    /// 短信验证码登录：编排全在 service 的 `login_service::flow`（落库 +
+    /// MFA 后台轮询 + 资料刷新与 Tauri 同一份）。MFA 转后台后，状态经
+    /// `login-mfa-state` 事件回到 [`HomeView::on_login_mfa_event`]。
     fn login_submit(&mut self, cx: &mut Context<Self>) {
         let Some(mobile_input) = &self.login_mobile else {
             return;
@@ -121,11 +119,9 @@ impl super::HomeView {
         self.login_message = None;
         let state = Arc::clone(&self.state);
         let mfa = self.mfa_retry.clone();
-        let mobile_for_api = mobile.clone();
         let rx = bridge::spawn(async move {
-            let env = hongguo_service::login_service::csrf::with_csrf(&state, state.api_env());
             let mfa = mfa.as_ref().map(|(t, k)| (t.as_str(), k.as_str()));
-            hongguo_api::login::sms_login(&env, &mobile_for_api, &code, mfa).await
+            hongguo_service::login_service::flow::submit(&state, &mobile, &code, mfa).await
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
@@ -136,57 +132,31 @@ impl super::HomeView {
                     view.login_message = Some(format!("登录失败：{e}"));
                     cx.notify();
                 }
-                Ok(hongguo_api::login::LoginOutcome::Success {
-                    cookies,
-                    user,
-                    token,
-                }) => {
+                Ok(LoginResult::Success { user }) => {
                     view.login_busy = false;
-                    log::info!("[Login] 登录成功: {} ({})", user.name, user.user_id);
-                    let account = hongguo_service::login_service::account::account_from_login(
-                        mobile, cookies, &user, token,
-                    );
-                    if let Err(e) = hongguo_service::login_service::account::persist_account(
-                        &view.state,
-                        Some(account),
-                    ) {
-                        log::warn!("[Login] 账号落库失败: {e}");
-                        view.login_message = Some(format!("账号落库失败：{e}"));
-                        cx.notify();
-                        return;
-                    }
                     view.mfa_retry = None;
-                    // 后台拉 user_info 刷新昵称/头像（sms_login 只给默认
-                    // 档案；refresh_profile_after_login 耦合 tauri runtime，
-                    // 这里自行编排——失败只记日志）
-                    let state = Arc::clone(&view.state);
-                    cx.spawn(async move |this, cx| {
-                        let refreshed =
-                            hongguo_service::login_service::account::fetch_and_refresh_user(&state)
-                                .await;
-                        let _ = this.update(cx, |view, cx| {
-                            match refreshed {
-                                Ok(user) => {
-                                    view.login_message = Some(format!("登录成功：{}", user.name));
-                                }
-                                Err(e) => {
-                                    log::warn!("[Login] 用户资料刷新失败: {e}");
-                                    view.login_message = Some("登录成功".into());
-                                }
-                            }
-                            cx.notify();
-                        });
-                    })
-                    .detach();
+                    log::info!("[Login] 登录成功: {} ({})", user.name, user.user_id);
+                    // 账号落库与资料刷新（真昵称/高清头像）由 service 的
+                    // complete_login 后台完成——壳不再自行跟进
+                    view.login_message = Some(format!("登录成功：{}", user.name));
                     cx.notify();
                 }
-                Ok(hongguo_api::login::LoginOutcome::Mfa(ctx)) => {
+                Ok(LoginResult::Mfa {
+                    retry_tag,
+                    sms_code_key,
+                    tips,
+                    ..
+                }) => {
                     view.login_busy = false;
-                    view.mfa_retry = Some((ctx.retry_tag.clone(), ctx.sms_code_key.clone()));
+                    view.mfa_retry = Some((retry_tag, sms_code_key));
                     log::info!("[Login] 需要短信上行验证，转后台自动轮询");
-                    view.login_message =
-                        Some(hongguo_service::login_service::polling::mfa_tips(&ctx));
-                    view.spawn_mfa_polling(cx);
+                    // 后续状态（等待/成功/失败）经 login-mfa-state 事件回来
+                    view.login_message = Some(tips);
+                    cx.notify();
+                }
+                Ok(LoginResult::MfaWaiting) => {
+                    // 单次校验路径的结果；提交路径理论上不会出现
+                    view.login_busy = false;
                     cx.notify();
                 }
             });
@@ -194,157 +164,39 @@ impl super::HomeView {
         .detach();
     }
 
-    /// MFA 后台自动轮询（Tauri polling::spawn_mfa_polling 的 gpui 编排）：
-    /// 每 3 秒一次 `upsms_verify`，用户回复短信后自动 `mfa_relogin` 落库，
-    /// 全程只更新面板 message（壳无事件总线，message 就是状态出口）。
-    /// 退出条件：5 分钟超时 / 流程被清（取消/退出登录）/ 指纹变更（用户
-    /// 重新发起登录，旧循环自行退出）。
-    fn spawn_mfa_polling(&mut self, cx: &mut Context<Self>) {
-        const MFA_TIMEOUT: Duration = Duration::from_secs(300);
-        const MFA_POLL_INTERVAL: Duration = Duration::from_secs(3);
-        let state = Arc::clone(&self.state);
-        cx.spawn(async move |this, cx| {
-            let deadline = std::time::Instant::now() + MFA_TIMEOUT;
-            let mut round: u32 = 0;
-            loop {
-                if std::time::Instant::now() > deadline {
-                    let _ = this.update(cx, |view, cx| {
-                        view.state.login_mfa.write().take();
-                        view.login_message = Some("5 分钟未确认，登录已超时退出".into());
-                        view.mfa_retry = None;
-                        cx.notify();
-                    });
-                    log::warn!("[Login] MFA 5 分钟未确认，超时退出");
-                    return;
-                }
-                // 流程被清（取消/退出登录）→ 循环退出
-                let Some(flow) = state.login_mfa.read().clone() else {
-                    return;
-                };
-                let fingerprint = (flow.ctx.retry_tag.clone(), flow.ctx.log_id.clone());
-                let env = hongguo_service::login_service::csrf::with_csrf(&state, state.api_env());
-                round += 1;
-                let outcome = hongguo_api::login::upsms_verify(&flow.ctx, &env).await;
-                match outcome {
-                    Ok(hongguo_api::login::UpsmsState::Registered { mfa_token, .. }) => {
-                        log::info!("[Login] MFA 第 {round} 轮 registered，自动重登");
-                        // registered 响应下发新 mfa_token，重登必须带它
-                        let mut ctx = flow.ctx.clone();
-                        ctx.mfa_token = mfa_token;
-                        let relogin = hongguo_api::login::mfa_relogin(
-                            &env,
-                            &flow.mobile,
-                            &flow.code,
-                            &ctx,
-                        )
-                        .await;
-                        match relogin {
-                            Ok(hongguo_api::login::LoginOutcome::Success {
-                                cookies,
-                                user,
-                                token,
-                            }) => {
-                                let account =
-                                    hongguo_service::login_service::account::account_from_login(
-                                        flow.mobile.clone(),
-                                        cookies,
-                                        &user,
-                                        token,
-                                    );
-                                let _ = this.update(cx, |view, cx| {
-                                    if let Err(e) =
-                                        hongguo_service::login_service::account::persist_account(
-                                            &view.state,
-                                            Some(account),
-                                        ) {
-                                        view.login_message =
-                                            Some(format!("账号落库失败：{e}"));
-                                    } else {
-                                        view.login_message =
-                                            Some(format!("登录成功：{}", user.name));
-                                    }
-                                    view.state.login_mfa.write().take();
-                                    view.mfa_retry = None;
-                                    cx.notify();
-                                });
-                                // 后台拉 user_info 刷新昵称/头像（同 login_submit）
-                                let state = Arc::clone(&state);
-                                let _ = this.update(cx, |_, cx| {
-                                    cx.spawn(async move |this, cx| {
-                                        let refreshed = hongguo_service::login_service::account::fetch_and_refresh_user(&state).await;
-                                        let _ = this.update(cx, |view, cx| {
-                                            if let Ok(user) = refreshed {
-                                                view.login_message =
-                                                    Some(format!("登录成功：{}", user.name));
-                                                cx.notify();
-                                            }
-                                        });
-                                    })
-                                    .detach();
-                                });
-                                log::info!(
-                                    "[Login] MFA 自动登录成功: {} ({})",
-                                    user.name,
-                                    user.user_id
-                                );
-                                return;
-                            }
-                            Ok(hongguo_api::login::LoginOutcome::Mfa(next)) => {
-                                // 新一轮验证（换了方式）：替换流程继续等
-                                let _ = this.update(cx, |view, cx| {
-                                    view.state.login_mfa.write().replace(
-                                        hongguo_api::login::MfaFlow {
-                                            ctx: (*next).clone(),
-                                            mobile: flow.mobile.clone(),
-                                            code: flow.code.clone(),
-                                        },
-                                    );
-                                    view.mfa_retry = Some((
-                                        next.retry_tag.clone(),
-                                        next.sms_code_key.clone(),
-                                    ));
-                                    view.login_message =
-                                        Some(hongguo_service::login_service::polling::mfa_tips(
-                                            &next,
-                                        ));
-                                    cx.notify();
-                                });
-                            }
-                            Err(e) => {
-                                let _ = this.update(cx, |view, cx| {
-                                    view.state.login_mfa.write().take();
-                                    view.mfa_retry = None;
-                                    view.login_message = Some(format!("登录失败：{e}"));
-                                    cx.notify();
-                                });
-                                return;
-                            }
-                        }
-                    }
-                    Ok(hongguo_api::login::UpsmsState::Waiting) => {
-                        // 30 秒打一条，用户在等的时候日志可查轮询是否活着
-                        if round % 10 == 1 {
-                            log::info!("[Login] MFA 第 {round} 轮：等待用户回复短信");
-                        }
-                    }
-                    Err(e) => {
-                        // 单次网络抖动不致命：流程还在就继续等，直到超时
-                        log::warn!("[Login] MFA 轮询出错（继续等待）: {e}");
-                    }
-                }
-                // 指纹变了说明用户发起了新登录，旧循环退出
-                let current = state.login_mfa.read().clone();
-                if let Some(cur) = current
-                    && (cur.ctx.retry_tag, cur.ctx.log_id) != fingerprint
-                {
-                    return;
-                }
-                cx.background_executor()
-                    .timer(MFA_POLL_INTERVAL)
-                    .await;
+    /// 登录 MFA 状态事件（service 后台轮询的出口，与 Tauri 壳同一批事件）：
+    /// 更新面板文案与重试上下文。轮询本身在 service 里跑（进程级任务运行时），
+    /// 壳只做 UI 适配——之前这里有一份与 service 逐行对应的轮询复刻。
+    pub(super) fn on_login_mfa_event(
+        &mut self,
+        ev: hongguo_service::login_service::events::LoginMfaStateEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use hongguo_service::login_service::events::LoginMfaStateEvent;
+        match ev {
+            LoginMfaStateEvent::Success { name } => {
+                self.login_busy = false;
+                self.mfa_retry = None;
+                self.login_message = Some(format!("登录成功：{name}"));
             }
-        })
-        .detach();
+            LoginMfaStateEvent::Failed {
+                message_kind,
+                message,
+            } => {
+                self.login_busy = false;
+                self.mfa_retry = None;
+                self.login_message = Some(if message_kind == "settings.loginMfaTimeout" {
+                    "5 分钟未确认，登录已超时退出".into()
+                } else {
+                    format!("登录失败：{message}")
+                });
+            }
+            LoginMfaStateEvent::Waiting { server_tip } => {
+                self.login_busy = false;
+                self.login_message = Some(server_tip);
+            }
+        }
+        cx.notify();
     }
 
     /// 拉评论/回复头像（avatar URL → RGBA）。同一阶梯（嗅探透传 jpeg，

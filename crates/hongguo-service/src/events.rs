@@ -19,8 +19,9 @@ use crate::download_service::events::{
     ProgressEvent, QueueChangedEvent, TaskEvent, TaskFailureEvent,
 };
 use crate::login_service::events::LoginMfaStateEvent;
+use crate::play_service::compat_play::CompatProgressEvent;
 use crate::play_service::online::OnlineProgressEvent;
-use hongguo_common::model::DownloadTask;
+use hongguo_common::model::{DownloadTask, MergeTask};
 
 /// 总线容量：进度事件已节流，1024 足够吸收瞬时突发。
 const CAPACITY: usize = 1024;
@@ -40,8 +41,18 @@ pub enum ServiceEvent {
     DownloadStopped(TaskEvent),
     /// 队列整体变化（`download-queue-changed`，载荷空对象）。
     DownloadQueueChanged(QueueChangedEvent),
+    /// 合并任务登记（`merge-task-added`，载荷 = 任务快照）。
+    MergeTaskAdded(MergeTask),
+    /// 合并进度（`merge-progress`，任务快照含 percent / episodeCount）。
+    MergeProgress(MergeTask),
+    /// 合并完成（`merge-completed`，任务快照含产物路径）。
+    MergeCompleted(MergeTask),
+    /// 合并失败（`merge-failed`，任务快照含 i18n error）。
+    MergeFailed(MergeTask),
     /// 在线取流/解密进度（`online-play-progress`）。
     OnlineProgress(OnlineProgressEvent),
+    /// 兼容转码进度（`compat-play-progress`）。
+    CompatProgress(CompatProgressEvent),
     /// 登录 MFA 后台状态（`login-mfa-state`）。
     LoginMfa(LoginMfaStateEvent),
 }
