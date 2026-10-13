@@ -179,6 +179,10 @@ pub struct HomeView {
 
     /// 已解码封面（series_id → RGBA）：切剧间隙的全屏占位。
     covers: HashMap<String, Arc<RenderImage>>,
+    /// 已解码评论/回复头像（avatar URL → RGBA）；加载失败不入表（退回首字
+    /// 圆形占位）。
+    avatars: HashMap<String, Arc<RenderImage>>,
+    avatars_pending: HashSet<String>,
     covers_pending: HashSet<String>,
 
     // —— 播放态 ——
@@ -450,6 +454,8 @@ impl HomeView {
             indexes,
             covers: HashMap::new(),
             covers_pending: HashSet::new(),
+            avatars: HashMap::new(),
+            avatars_pending: HashSet::new(),
             epoch: 0,
             player: None,
             now: None,
@@ -1835,6 +1841,11 @@ impl HomeView {
                         view.comments_has_more = page.has_more;
                         view.comments_cursor = page.next_cursor;
                         view.comments = Arc::new(page.items);
+                        let urls: Vec<String> =
+                            view.comments.iter().map(|c| c.avatar.clone()).collect();
+                        for url in urls {
+                            view.load_avatar(url, cx);
+                        }
                     }
                     Err(e) => log::warn!("[Home] 评论拉取失败: {e}"),
                 }
@@ -1875,6 +1886,11 @@ impl HomeView {
                         }
                     }
                     view.comments = Arc::new(items);
+                    let urls: Vec<String> =
+                        view.comments.iter().map(|c| c.avatar.clone()).collect();
+                    for url in urls {
+                        view.load_avatar(url, cx);
+                    }
                 }
                 cx.notify();
             });
@@ -1912,12 +1928,14 @@ impl HomeView {
                 view.comment_sending = false;
                 match result {
                     Ok(item) => {
+                        let avatar = item.avatar.clone();
                         let mut items = (*view.comments).clone();
                         items.insert(0, item);
                         view.comments = Arc::new(items);
                         view.comments_total += 1;
                         view.ep_comment_count += 1;
                         view.comment_clear_input = true;
+                        view.load_avatar(avatar, cx);
                     }
                     Err(e) => log::warn!("[Home] 评论发送失败: {e}"),
                 }
@@ -2007,7 +2025,7 @@ impl HomeView {
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
-            let _ = this.update(cx, |view, _| {
+            let _ = this.update(cx, |view, cx| {
                 view.replies_loading.remove(&comment_id);
                 match result {
                     Ok(page) => {
@@ -2023,7 +2041,11 @@ impl HomeView {
                                 items.push(r);
                             }
                         }
+                        let urls: Vec<String> = items.iter().map(|r| r.avatar.clone()).collect();
                         view.replies.insert(comment_id, Arc::new(items));
+                        for url in urls {
+                            view.load_avatar(url, cx);
+                        }
                     }
                     Err(e) => log::warn!("[Home] 回复拉取失败: {e}"),
                 }
@@ -2075,6 +2097,11 @@ impl HomeView {
                         }
                         view.replies.insert(comment_id.clone(), Arc::new(items));
                         view.replies_open.insert(comment_id.clone());
+                        let avatar = view
+                            .replies
+                            .get(&comment_id)
+                            .and_then(|v| v.last().map(|r| r.avatar.clone()))
+                            .unwrap_or_default();
                         // 父评论 replyCount +1（Tauri submitReply onSuccess
                         // 同款）——「展开 N 条回复」与实际条数一致，也是
                         // 删除回复 -1 的对称面
@@ -2085,6 +2112,7 @@ impl HomeView {
                         view.comments = Arc::new(parents);
                         view.reply_to = None;
                         view.comment_clear_input = true;
+                        view.load_avatar(avatar, cx);
                     }
                     Err(e) => log::warn!("[Home] 回复发送失败: {e}"),
                 }
@@ -2987,6 +3015,79 @@ impl HomeView {
             });
         })
         .detach();
+    }
+
+    /// 拉评论/回复头像（avatar URL → RGBA）。同一阶梯（嗅探透传 jpeg，
+    /// 失败退回首字圆形占位）；key 就是 URL，列表里同人多条只拉一次。
+    /// `on_miss` 场景不重试：头像属装饰信息，失败静默（与封面同口径）。
+    fn load_avatar(&mut self, url: String, cx: &mut Context<Self>) {
+        if url.is_empty()
+            || self.avatars.contains_key(&url)
+            || !self.avatars_pending.insert(url.clone())
+        {
+            return;
+        }
+        let rx = bridge::spawn({
+            let remote = url.clone();
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    hongguo_protocol::cover::acquire_renderable(&remote).map(|(bytes, _)| bytes)
+                })
+                .await
+                .expect("阻塞池 join")
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let bytes: Vec<u8> = match rx.await.expect("tokio 桥不会丢弃发送端") {
+                Ok(b) => b,
+                Err(e) => {
+                    log::warn!("[Home] 头像加载失败: {e}");
+                    return;
+                }
+            };
+            let _ = this.update(cx, |view, cx| match image::load_from_memory(&bytes) {
+                Ok(decoded) => {
+                    view.avatars.insert(
+                        url,
+                        Arc::new(crate::image_upload::render_image(decoded.to_rgba8())),
+                    );
+                    cx.notify();
+                }
+                Err(e) => log::warn!("[Home] 头像解码失败: {e}"),
+            });
+        })
+        .detach();
+    }
+
+    /// 头像元素：有图用图（圆形裁切），无图/未加载退回昵称首字圆形占位。
+    /// 外层固定尺寸框是必须的——img 直接 size_full 在无约束 flex 里会撑爆。
+    fn render_avatar(&self, url: &str, name: &str, size: f32) -> gpui_kit::AnyElement {
+        let frame = div()
+            .flex_shrink_0()
+            .rounded_full()
+            .overflow_hidden()
+            .size(gpui_kit::px(size));
+        match self.avatars.get(url) {
+            Some(img) => frame
+                .child(
+                    gpui_kit::img(gpui_kit::ImageSource::Render(Arc::clone(img)))
+                        .size_full()
+                        .object_fit(gpui_kit::ObjectFit::Cover),
+                )
+                .into_any_element(),
+            None => frame
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(gpui_kit::rgba(0x404040ff))
+                .text_xs()
+                .text_color(gpui_kit::rgb(0xffffff))
+                .child({
+                    let ch = name.chars().next().unwrap_or('游');
+                    SharedString::from(ch.to_string())
+                })
+                .into_any_element(),
+        }
     }
 
     // —— 渲染 ——
@@ -4190,22 +4291,7 @@ impl HomeView {
                 h_flex()
                     .items_start()
                     .gap_2()
-                    .child(
-                        // 头像占位：昵称首字圆形（远程头像图随 img 远程源对齐补）
-                        div()
-                            .size_8()
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .items_center()
-                            .justify_center()
-                            .bg(gpui_kit::rgba(0x404040ff))
-                            .text_xs()
-                            .text_color(gpui_kit::rgb(0xffffff))
-                            .child({
-                                let ch = c.user_name.chars().next().unwrap_or('游');
-                                SharedString::from(ch.to_string())
-                            }),
-                    )
+                    .child(self.render_avatar(&c.avatar, &c.user_name, 32.0))
                     .child(
                         v_flex()
                             .flex_1()
@@ -4352,21 +4438,7 @@ impl HomeView {
                         h_flex()
                             .items_start()
                             .gap_2()
-                            .child(
-                                div()
-                                    .size_6()
-                                    .flex_shrink_0()
-                                    .rounded_full()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(gpui_kit::rgba(0x404040ff))
-                                    .text_size(gpui_kit::px(10.0))
-                                    .text_color(gpui_kit::rgb(0xffffff))
-                                    .child({
-                                        let ch = r.user_name.chars().next().unwrap_or('游');
-                                        SharedString::from(ch.to_string())
-                                    }),
-                            )
+                            .child(self.render_avatar(&r.avatar, &r.user_name, 24.0))
                             .child(
                                 v_flex()
                                     .flex_1()
