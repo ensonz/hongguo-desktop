@@ -1,8 +1,8 @@
-//! Win32 窗口原语（user32 手写 FFI，零新依赖）。
+//! Win32 窗口原语（user32 / dwmapi 手写 FFI，零新依赖）。
 //!
-//! gpui 没有暴露的窗口系统能力统一落这里（自 `mini.rs` 迁移，小屏落位/
-//! 还原/置顶是当前唯一调用方）。新增窗口系统能力先查 gpui /
-//! gpui-component，别往这里堆。
+//! gpui 没有暴露的窗口系统能力统一落这里（自 `mini.rs` 迁移），当前调用
+//! 方：`mini`（小屏落位/还原/置顶）与无边框窗口的边框线消除。新增窗口
+//! 系统能力先查 gpui / gpui-component，别往这里堆。
 
 use gpui_kit::Window;
 
@@ -16,6 +16,34 @@ pub(crate) fn hwnd_of(window: &Window) -> Option<isize> {
     {
         raw_window_handle::RawWindowHandle::Win32(w) => Some(w.hwnd.get()),
         _ => None,
+    }
+}
+
+/// 去掉窗口四周的 1px 系统边框线（Win11 22H2+；失败静默——旧系统没有
+/// 这个属性，保留默认外观）。
+///
+/// gpui 在 Windows 的窗口带 `WS_THICKFRAME`（可缩放边 + 贴靠），DWM 给它
+/// 描一圈边框线；Tauri `decorations:false` 是纯 `WS_POPUP` 所以没有这条
+/// 线。组件库的 TitleBar 只自绘标题栏内容，边框线不归它管——这里按
+/// `DWMWA_BORDER_COLOR = NONE` 关掉线，缩放/贴靠/最大化行为全部保留。
+pub(crate) fn hide_border(window: &Window) {
+    let Some(hwnd) = hwnd_of(window) else {
+        return;
+    };
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+    let color = DWMWA_COLOR_NONE;
+    // SAFETY：句柄来自 gpui 的 platform window，value 是本次调用自造值
+    let hr = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR,
+            std::ptr::from_ref(&color).cast(),
+            std::mem::size_of::<u32>() as u32,
+        )
+    };
+    if hr != 0 {
+        log::debug!("[Win32] 去边框线失败（hr={hr}）——系统不支持 DWMWA_BORDER_COLOR，保留默认");
     }
 }
 
@@ -149,8 +177,9 @@ pub(crate) const SW_RESTORE: i32 = 9;
 pub(crate) const SW_MAXIMIZE: i32 = 3;
 const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
-// SAFETY：全部是 user32 的标准函数签名（Windows 契约保真）。
-// user32 由既有链接链带入（mini 路径裸跑多年）。
+// SAFETY：全部是 user32 / dwmapi 的标准函数签名（Windows 契约保真）。
+// user32 由既有链接链带入（mini 路径裸跑多年）；dwmapi 本壳首次用到，
+// 显式挂导入库。
 unsafe extern "system" {
     unsafe fn SetWindowPos(
         hwnd: isize,
@@ -202,4 +231,14 @@ struct MONITORINFO {
     rc_monitor: RECT,
     rc_work: RECT,
     dw_flags: u32,
+}
+
+#[link(name = "dwmapi")]
+unsafe extern "system" {
+    unsafe fn DwmSetWindowAttribute(
+        hwnd: isize,
+        attr: u32,
+        value: *const core::ffi::c_void,
+        size: u32,
+    ) -> i32;
 }

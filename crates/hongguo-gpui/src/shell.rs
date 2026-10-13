@@ -8,7 +8,7 @@ use std::sync::Arc;
 use gpui_kit::component::sidebar::{Sidebar, SidebarMenuItem};
 use gpui_kit::component::{ActiveTheme, h_flex, v_flex};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, Entity, Window};
+use gpui_kit::{App, Entity, Window, div};
 use hongguo_service::app_state::AppStateInner;
 
 use crate::home::HomeView;
@@ -160,19 +160,39 @@ impl gpui_kit::Render for Shell {
         cx: &mut Context<Self>,
     ) -> impl gpui_kit::IntoElement {
         let theme = cx.theme();
-        h_flex()
+        // 小屏播放：顶栏与侧栏都藏（480×270 里只留播放器，Tauri 小屏同款；
+        // 拖窗由播放页顶部的拖拽条承担，见 render_stage 的 mini-drag-bar）
+        let in_mini = crate::mini::is_active();
+        // 顶栏（组件库 TitleBar）：应用名居左、最小化/最大化/关闭居右（组件
+        // 在非 macOS 自动附上），空白整条可拖窗——无边框窗口（Tauri
+        // decorations:false 同款）的窗口操控全在这条 34px 的自绘栏里
+        let title_bar = (!in_mini).then(|| {
+            gpui_kit::component::TitleBar::new().child(
+                div()
+                    .text_sm()
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .child("红果"),
+            )
+        });
+        v_flex()
             .id("shell")
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .items_stretch()
-            // 小屏播放时侧栏藏掉（480×270 装不下，Tauri use-mini-window
-            // 「侧栏隐藏」同款；状态见 crate::mini）
-            .children((!crate::mini::is_active()).then(|| self.render_sidebar(cx)))
+            .children(title_bar)
             .child(
-                // 内容区：吃掉剩余宽度；过载时只允许它收缩（coding-guides
-                // 「flex_1 仍可能拒绝收缩」），滚动归视图自己。
-                v_flex().flex_1().min_w_0().child(self.render_content()),
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .items_stretch()
+                    // 小屏播放时侧栏藏掉（Tauri use-mini-window「侧栏隐藏」
+                    // 同款；状态见 crate::mini）
+                    .children((!in_mini).then(|| self.render_sidebar(cx)))
+                    .child(
+                        // 内容区：吃掉剩余宽度；过载时只允许它收缩（coding-guides
+                        // 「flex_1 仍可能拒绝收缩」），滚动归视图自己。
+                        v_flex().flex_1().min_w_0().child(self.render_content()),
+                    ),
             )
     }
 }

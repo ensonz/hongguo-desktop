@@ -639,6 +639,25 @@ impl super::HomeView {
                         .into_any_element()
                 }),
             )
+            // 小屏拖拽条（Tauri MiniDragBar 同款）：顶栏在小屏不渲染，窗口
+            // 拖动职责落在这条 24px 顶带——标记成 WindowControlArea::Drag，
+            // 平台 WM_NCHITTEST 给 HTCAPTION 原生拖拽；拦下鼠标下传，拖拽
+            // 残留的 click 不能触发「点画面暂停」
+            .children(in_mini.then(|| {
+                div()
+                    .id("mini-drag-bar")
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(gpui_kit::px(24.0))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .window_control_area(gpui_kit::WindowControlArea::Drag)
+                    .into_any_element()
+            }))
             .children(controls)
             // 选集浮层本体（最顶层；自身拦鼠标，点击不落到捕获层）
             .children(

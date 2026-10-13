@@ -115,17 +115,27 @@ fn main() {
                 expect(unused_variables, reason = "句柄只有 screenshot feature 用")
             )]
             let (shell_window, shell) = gpui_kit::open_window(
-                gpui_kit::WindowOptions {
-                    window_bounds: Some(gpui_kit::WindowBounds::Windowed(bounds)),
+                // 无边框（Tauri decorations:false 同款）：以组件库 TitleBar
+                // 的窗口选项为基底——标题栏自绘、拖拽与窗口钮走平台原生命中
+                // 测试（WindowControlArea → HTCAPTION/HTMINBUTTON/…）。
+                {
+                    let mut options = gpui_kit::component::TitleBar::window_options();
+                    options.window_bounds = Some(gpui_kit::WindowBounds::Windowed(bounds));
                     // 标题空着的话任务栏是一条空白条目，用户根本认不出这个窗口
-                    titlebar: Some(gpui_kit::TitlebarOptions {
+                    options.titlebar = Some(gpui_kit::TitlebarOptions {
                         title: Some("红果".into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
+                        ..gpui_kit::component::TitleBar::title_bar_options()
+                    });
+                    options
                 },
                 cx,
-                |window, cx| cx.new(|cx| shell::Shell::new(state.clone(), window, cx)),
+                |window, cx| {
+                    // 组件库管不到的最后一寸：WS_THICKFRAME 引出的 1px 系统
+                    // 边框线，按 DWM 边框色关掉（缩放/贴靠不受影响）
+                    #[cfg(target_os = "windows")]
+                    win32::hide_border(window);
+                    cx.new(|cx| shell::Shell::new(state.clone(), window, cx))
+                },
             )
             .expect("窗口创建失败");
             shell.update(cx, |shell, cx| shell.activate(cx));
