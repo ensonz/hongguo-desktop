@@ -11,6 +11,7 @@ pub mod device_cmd;
 pub mod discover_cmd;
 pub mod download;
 pub mod history_cmd;
+pub mod incognito_cmd;
 pub mod interact_cmd;
 pub mod login_cmd;
 pub mod merge_cmd;
@@ -20,6 +21,7 @@ pub mod series_cmd;
 pub mod settings_cmd;
 pub mod storage_cmd;
 pub mod transcode_cmd;
+pub mod window_cmd;
 
 #[cfg(test)]
 mod tests {
