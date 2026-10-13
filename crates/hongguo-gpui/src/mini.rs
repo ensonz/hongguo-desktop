@@ -88,6 +88,17 @@ pub(crate) fn is_active() -> bool {
     MINI_ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// 预览专用快照（screenshot feature）：无头环境没有真实窗口几何可存，
+/// 给 1024×680 占位矩形——退出小屏的还原路径在预览里不会被走到。
+#[cfg(feature = "screenshot")]
+pub(crate) fn preview_geometry() -> SavedGeometry {
+    SavedGeometry {
+        rect: (0, 0, 1024, 680),
+        #[cfg(target_os = "windows")]
+        maximized: false,
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn hwnd_of(window: &Window) -> Option<isize> {
     // Window 有个同名固有方法（返回 AnyWindowHandle），必须全限定调到

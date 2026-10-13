@@ -336,6 +336,25 @@ impl RankView {
             )
             .into_any_element()
     }
+
+    /// 预览种子（screenshot feature）：灌假榜单与合成封面，跳过网络。
+    /// `empty` = 空态分支（Loaded + 空列表，渲染「暂无内容」）。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_preview_seed(&mut self, empty: bool, cx: &mut Context<Self>) {
+        self.phase = Phase::Loaded;
+        self.loading = false;
+        self.loaded_once = true;
+        self.items = if empty {
+            Vec::new()
+        } else {
+            crate::preview::fixtures::rank_items()
+        };
+        for (i, item) in self.items.iter().enumerate() {
+            self.covers
+                .insert(item.series_id.clone(), crate::preview::fixtures::cover(i));
+        }
+        cx.notify();
+    }
 }
 
 impl gpui_kit::Render for RankView {

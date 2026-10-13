@@ -24,6 +24,7 @@ mod http_client;
 mod image_upload;
 mod mini;
 mod playback_prefs;
+mod preview;
 mod rank;
 #[cfg(feature = "screenshot")]
 mod screenshot;
@@ -50,11 +51,8 @@ pub(crate) fn tokio() -> &'static tokio::runtime::Runtime {
 }
 
 fn main() {
-    // 独立数据根最先声明：GPUI 壳用与 Tauri 客户端平级的独立目录
-    // （%APPDATA%\hongguo-gpui，与 hongguo-downloader 无任何交集），
-    // 互不锁库（实测并存时后启动者因库锁直接退出）。
-    hongguo_store::paths::set_shell_data_root("hongguo-gpui");
-    // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。
+    // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。预览
+    // 模式同样要日志与 panic 留痕，所以这两样在数据根声明之前就位。
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     // panic 留痕：音频设备回调等非主线程的 panic 会静默带走整条线程
     // （实测：回调线程一死，声音原地消失、时钟冻结、界面无限「缓冲中」，
@@ -66,6 +64,28 @@ fn main() {
         );
         std::process::abort();
     }));
+    // 离屏预览：--render-preview <目录> 直接接管进程。必须在下方声明
+    // 交互壳数据根之前分发——preview::run 要把数据根指到预览专用目录
+    //（set_shell_data_root 是 OnceLock，只有第一次生效）。管线编在
+    // screenshot feature 里，裸构建给不出图，明确报错而不是静默忽略。
+    let preview_dir = preview::requested_dir();
+    #[cfg(feature = "screenshot")]
+    if let Some(dir) = preview_dir {
+        preview::run(&dir).expect("预览渲染失败");
+        return;
+    }
+    #[cfg(not(feature = "screenshot"))]
+    if preview_dir.is_some() {
+        eprintln!(
+            "--render-preview 需要 screenshot feature：\
+             cargo run -p hongguo-gpui --features screenshot -- --render-preview <目录>"
+        );
+        std::process::exit(2);
+    }
+    // 独立数据根最先声明：GPUI 壳用与 Tauri 客户端平级的独立目录
+    // （%APPDATA%\hongguo-gpui，与 hongguo-downloader 无任何交集），
+    // 互不锁库（实测并存时后启动者因库锁直接退出）。
+    hongguo_store::paths::set_shell_data_root("hongguo-gpui");
     let state = build_app_state();
 
     // 资产源必须接上：gpui 的 SvgRenderer 从 App 的 AssetSource 读 SVG——

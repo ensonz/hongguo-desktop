@@ -64,6 +64,8 @@ pub(crate) mod mini_panel;
 pub(crate) mod overlay;
 pub(crate) mod picker;
 pub(crate) mod playback;
+#[cfg(feature = "screenshot")]
+pub(crate) mod preview_seed;
 pub(crate) mod stage;
 
 /// 当前在播的剧（overlay 与进度落盘的身份）。
@@ -108,6 +110,11 @@ pub struct HomeView {
     /// 引擎出生纪元：每次切剧 +1，陈旧事件/任务按它丢弃。
     epoch: u64,
     player: Option<std::sync::Arc<PlayerHandle>>,
+    /// 预览的虚拟引擎标记（screenshot feature）：预览无真实引擎，而控制条/
+    /// 选集/下载面板的渲染门槛都是 player.is_some()——种子置位后同一门槛
+    /// 放行，这些 UI 走同一段渲染代码出画（见 [`Self::engine_ready`]）。
+    #[cfg(feature = "screenshot")]
+    preview_engine: bool,
     now: Option<NowPlaying>,
     switching: bool,
     /// 当前可上屏的帧；`None` = 还没出画（画封面占位）。
@@ -350,6 +357,8 @@ impl HomeView {
             avatars_pending: HashSet::new(),
             epoch: 0,
             player: None,
+            #[cfg(feature = "screenshot")]
+            preview_engine: false,
             now: None,
             switching: false,
             frame: None,
@@ -518,9 +527,28 @@ impl HomeView {
             })
             .detach();
         }
-        view.load_feed(Source::Feed, false, cx);
-        view.load_history(cx);
+        // 预览进程只吃 fixtures 假快照，不发任何启动请求
+        if !crate::preview::is_active() {
+            view.load_feed(Source::Feed, false, cx);
+            view.load_history(cx);
+        }
         view
+    }
+
+    /// 引擎是否就位：控制条、选集/下载面板渲染的共同门槛。真实壳=引擎
+    /// 句柄在；预览进程由种子置位虚拟引擎（screenshot feature）。
+    fn engine_ready(&self) -> bool {
+        self.player.is_some() || self.preview_engine()
+    }
+
+    #[cfg(feature = "screenshot")]
+    fn preview_engine(&self) -> bool {
+        self.preview_engine
+    }
+
+    #[cfg(not(feature = "screenshot"))]
+    fn preview_engine(&self) -> bool {
+        false
     }
 
     fn subscribe_controls(&mut self, cx: &mut Context<Self>) {

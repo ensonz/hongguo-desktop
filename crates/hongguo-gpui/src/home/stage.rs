@@ -454,7 +454,7 @@ impl super::HomeView {
         // 控制条（底部悬浮，鼠标活动时可见）；小屏换紧凑条（Tauri
         // MiniScreenControls 同款，与同一套状态源协作）
         let in_mini = self.mini.is_some();
-        let controls = (self.player.is_some() && self.controls_visible()).then(|| {
+        let controls = (self.engine_ready() && self.controls_visible()).then(|| {
             if in_mini {
                 self.render_mini_controls(cx)
             } else {
@@ -580,7 +580,7 @@ impl super::HomeView {
             .children(comment_panel)
             // 下载面板（右侧滑出；字段快照由 Render::render 顶层刷新）；小屏不带
             .children(
-                (self.downloads_open && !in_mini && self.player.is_some())
+                (self.downloads_open && !in_mini && self.engine_ready())
                     .then(|| self.render_downloads_panel(cx)),
             )
             .children(buffering_badge)
@@ -623,7 +623,7 @@ impl super::HomeView {
             // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层
             // 拦下鼠标下传（舞台的播放/暂停与信息层都不该收到这次点击）
             .children(
-                (self.picker_open && !in_mini && self.player.is_some()).then(|| {
+                (self.picker_open && !in_mini && self.engine_ready()).then(|| {
                     div()
                         .absolute()
                         .size_full()
@@ -642,7 +642,7 @@ impl super::HomeView {
             .children(controls)
             // 选集浮层本体（最顶层；自身拦鼠标，点击不落到捕获层）
             .children(
-                (self.picker_open && !in_mini && self.player.is_some())
+                (self.picker_open && !in_mini && self.engine_ready())
                     .then(|| self.render_picker(cx)),
             )
             // 登录面板（居中卡片，盖整窗；壳侧栏「登录/退出登录」入口开关）

@@ -33,8 +33,9 @@ impl Shell {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
-        // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）
-        let dest = if std::env::var("HONGGUO_RANK").is_ok() {
+        // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
+        // 预览进程有自己的目的地种子，不吃这个环境变量（可能残留）
+        let dest = if !crate::preview::is_active() && std::env::var("HONGGUO_RANK").is_ok() {
             rank.update(cx, RankView::load);
             Dest::Rank
         } else {
@@ -84,6 +85,30 @@ impl Shell {
     #[cfg(feature = "screenshot")]
     pub(crate) fn debug_open_login(&self, cx: &mut App) {
         self.feed.update(cx, |home, cx| home.debug_open_login(cx));
+    }
+
+    /// 预览种子分发（screenshot feature）：rank 场景切到排行榜并灌假榜单，
+    /// 其余全走首页。未知场景键的错误向上传（矩阵写错键名启动即报，
+    /// 开发工具宁可显性失败）。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_preview_seed(
+        &mut self,
+        scene: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> anyhow::Result<()> {
+        if scene.starts_with("rank") {
+            self.dest = Dest::Rank;
+            self.rank.update(cx, |rank, cx| {
+                rank.debug_preview_seed(scene == "rank-empty", cx)
+            });
+        } else {
+            self.dest = Dest::Feed;
+            self.feed
+                .update(cx, |home, cx| home.debug_preview_seed(scene, window, cx))?;
+        }
+        cx.notify();
+        Ok(())
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl gpui_kit::IntoElement {

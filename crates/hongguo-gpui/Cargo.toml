@@ -27,6 +27,12 @@ test = false
 name = "emoji_insert"
 required-features = ["screenshot"]
 
+# 预览场景矩阵的覆盖率断言（纯数据，不出图、不碰窗口）：scenes.rs 自洽、
+# 经 #[path] 源文件级引入（bin 无 lib 目标，集成测试进不了 crate 内部）。
+# 不依赖 test-support，默认构建即可跑。
+[[test]]
+name = "preview_scenes"
+
 # 进程内抓帧取证（screenshot.rs）：`--features screenshot` 才编入，走 GPUI
 # `render_to_image`（不需要系统屏幕录制授权，无头也能拿真图）。默认构建不带。
 #
