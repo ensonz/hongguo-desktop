@@ -46,6 +46,9 @@ pub(crate) fn install(
             "picker" => {
                 feed.update(cx, |shell, cx| shell.debug_open_picker(cx));
             }
+            "comments" => {
+                feed.update(cx, |shell, cx| shell.debug_open_comments(cx));
+            }
             _ => {}
         }
         for i in 1..=count {

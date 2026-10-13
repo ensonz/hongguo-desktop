@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use gpui_kit::RenderImage;
 
-use crate::emoji_files::EMOJI_FILES;
+pub(crate) use crate::emoji_files::EMOJI_FILES;
 
 /// 一段解析结果：纯文本或一张表情图。
 pub(crate) enum EmojiSegment {
@@ -20,8 +20,8 @@ pub(crate) enum EmojiSegment {
 
 /// 名字 → 解码后的 RenderImage 缓存（首次用到才解码；毒锁恢复为空表——
 /// 解码失败重试代价只是一次 webp 解码）。名字先归一到静态表的 `'static`
-/// 条目，缓存键才不借运行时字符串。
-fn emoji_by_name(name: &str) -> Option<Arc<RenderImage>> {
+/// 条目，缓存键才不借运行时字符串。表情选择器网格同源复用。
+pub(crate) fn emoji_by_name(name: &str) -> Option<Arc<RenderImage>> {
     type EmojiCache = HashMap<&'static str, Option<Arc<RenderImage>>>;
     static CACHE: OnceLock<Mutex<EmojiCache>> = OnceLock::new();
     let static_name = EMOJI_FILES

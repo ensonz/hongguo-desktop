@@ -330,6 +330,8 @@ pub struct HomeView {
     comment_input: Option<Entity<InputState>>,
     comment_sending: bool,
     comment_clear_input: bool,
+    /// 评论面板的表情选择器开着（笑脸按钮 toggle；连选不关面板）。
+    emoji_picker_open: bool,
     /// 待确认删除目标：Some((id, 父评论 id——回复场景才有))，Tauri
     /// deleteTarget 同构；id 是 comment_id 或 reply_id（同走 comment/del
     /// service_id=4）。
@@ -545,6 +547,7 @@ impl HomeView {
             comment_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("说点什么…"))),
             comment_sending: false,
             comment_clear_input: false,
+            emoji_picker_open: false,
             comment_delete_target: None,
             comment_deleting: false,
             downloads_open: false,
@@ -1584,6 +1587,17 @@ impl HomeView {
             self.load_related_seasons(now.series_id.clone(), cx);
             self.load_reservations(cx);
         }
+        cx.notify();
+    }
+
+    /// 取证辅助（screenshot feature 的 HONGGUO_SHOT_PANEL=comments）：
+    /// 打开评论面板与表情选择器（无人值守抓网格 UI）。
+    #[cfg(feature = "screenshot")]
+    pub(crate) fn debug_open_comments(&mut self, cx: &mut Context<Self>) {
+        self.comments_panel_open = true;
+        self.emoji_picker_open = true;
+        self.controls_until = Some(Instant::now() + Duration::from_secs(600));
+        self.load_comments_first_page(cx);
         cx.notify();
     }
 
@@ -3952,6 +3966,28 @@ impl HomeView {
                         h_flex()
                             .items_center()
                             .gap_2()
+                            // 表情按钮（Tauri EmojiPickerButton 同款：开时高亮；
+                            // 点击不夺输入框焦点，插入落真实光标处）
+                            .child(
+                                div()
+                                    .id("emoji-btn")
+                                    .px_1()
+                                    .cursor_pointer()
+                                    .text_color(if self.emoji_picker_open {
+                                        gpui_kit::rgb(0xffffff)
+                                    } else {
+                                        gpui_kit::rgba(0xffffff99)
+                                    })
+                                    .hover(|s| s.text_color(gpui_kit::rgb(0xffffff)))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.emoji_picker_open = !this.emoji_picker_open;
+                                        cx.notify();
+                                    }))
+                                    .child(
+                                        Icon::new(gpui_kit::assets::IconName::FaceGrinning)
+                                            .size_4(),
+                                    ),
+                            )
                             .children(comment_input.as_ref().map(|input| {
                                 Input::new(input).flex_1().h(gpui_kit::px(32.0)).text_xs()
                             }))
@@ -3973,6 +4009,78 @@ impl HomeView {
                             ),
                     ),
             )
+            // 表情选择器：点外部收起的捕获层 + 上拉网格（Tauri EmojiPicker
+            // 同款：8 列、每格一张表情图、连选不关面板、选完光标处插入）
+            .children(self.emoji_picker_open.then(|| {
+                div()
+                    .absolute()
+                    .inset_0()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.emoji_picker_open = false;
+                            cx.notify();
+                        }),
+                    )
+                    .into_any_element()
+            }))
+            .children(self.emoji_picker_open.then(|| {
+                let comment_input = comment_input.clone();
+                v_flex()
+                    .absolute()
+                    .left_3()
+                    .bottom(gpui_kit::px(56.0))
+                    .w(gpui_kit::px(264.0))
+                    .p_2()
+                    .rounded(gpui_kit::px(12.0))
+                    .bg(gpui_kit::rgba(0x000000d9))
+                    .border_1()
+                    .border_color(gpui_kit::rgba(0xffffff14))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .child(
+                        div()
+                            .id("emoji-grid")
+                            .max_h(gpui_kit::px(176.0))
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_wrap()
+                            .gap_0p5()
+                            .children(crate::danmaku_emoji::EMOJI_FILES.iter().map(|(name, _)| {
+                                let code = name.to_string();
+                                let img = crate::danmaku_emoji::emoji_by_name(name);
+                                div()
+                                    .id(gpui_kit::ElementId::from(format!("emoji-{}", code)))
+                                    .size_8()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(gpui_kit::px(6.0))
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(gpui_kit::rgba(0xffffff26)))
+                                    .on_click({
+                                        let input = comment_input.clone();
+                                        move |_, window, cx| {
+                                            if let Some(input) = &input {
+                                                // 光标处插入 [名字]（焦点纪律：
+                                                // 点格子不夺焦，选完接着打字）
+                                                input.update(cx, |state, cx| {
+                                                    state.insert(code.clone(), window, cx);
+                                                });
+                                            }
+                                        }
+                                    })
+                                    .children(img.map(|img| {
+                                        gpui_kit::img(gpui_kit::ImageSource::Render(img))
+                                            .size_6()
+                                            .object_fit(gpui_kit::ObjectFit::Contain)
+                                    }))
+                            })),
+                    )
+                    .into_any_element()
+            }))
             .children(self.comment_delete_target.is_some().then(|| {
                 // 删除确认浮层（Tauri ConfirmDialog 同款语义：comment/del
                 // service_id=4，评论与回复同款；点遮罩=取消）
