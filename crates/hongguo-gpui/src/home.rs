@@ -45,7 +45,7 @@ use hongguo_api::detail::{RelatedItem, fetch_related_series};
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::{WatchHistoryItem, fetch_watch_history};
 use hongguo_api::interact::{
-    InteractionItem, collect_series, digg_comment, digg_video, fetch_bookshelf,
+    InteractionItem, collect_series, delete_comment, digg_comment, digg_video, fetch_bookshelf,
     fetch_interaction_state, send_comment, send_danmaku, send_reply,
 };
 use hongguo_api::recommend::fetch_recommend_feed;
@@ -323,6 +323,12 @@ pub struct HomeView {
     comment_input: Option<Entity<InputState>>,
     comment_sending: bool,
     comment_clear_input: bool,
+    /// 待确认删除目标：Some((id, 父评论 id——回复场景才有))，Tauri
+    /// deleteTarget 同构；id 是 comment_id 或 reply_id（同走 comment/del
+    /// service_id=4）。
+    comment_delete_target: Option<(String, Option<String>)>,
+    /// 删除请求在途（防重复提交）。
+    comment_deleting: bool,
     // —— 下载 ——
     /// 下载面板开着。
     downloads_open: bool,
@@ -529,6 +535,8 @@ impl HomeView {
             comment_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("说点什么…"))),
             comment_sending: false,
             comment_clear_input: false,
+            comment_delete_target: None,
+            comment_deleting: false,
             downloads_open: false,
             incognito: false,
             fullscreen: false,
@@ -1513,11 +1521,17 @@ impl HomeView {
 
     /// 登录态（settings 账号卡片的 user_id 非空）。
     fn logged_in(&self) -> bool {
+        !self.my_user_id().is_empty()
+    }
+
+    /// 当前登录用户 id（未登录空串）：评论/回复「删除」按钮的 isMine 判据
+    ///（Tauri myUserId 同口径）。
+    fn my_user_id(&self) -> String {
         self.state
             .settings()
             .account
-            .as_ref()
-            .is_some_and(|a| !a.user_id.is_empty())
+            .map(|a| a.user_id)
+            .unwrap_or_default()
     }
 
     /// 点赞当前集（裸 vid 为点赞对象）：乐观翻转 + 计数 ±1，失败回滚。
@@ -1989,13 +2003,103 @@ impl HomeView {
                             .get(&comment_id)
                             .map(|v| (**v).clone())
                             .unwrap_or_default();
-                        items.push(reply);
+                        if !items.iter().any(|r| r.reply_id == reply.reply_id) {
+                            items.push(reply);
+                        }
                         view.replies.insert(comment_id.clone(), Arc::new(items));
-                        view.replies_open.insert(comment_id);
+                        view.replies_open.insert(comment_id.clone());
+                        // 父评论 replyCount +1（Tauri submitReply onSuccess
+                        // 同款）——「展开 N 条回复」与实际条数一致，也是
+                        // 删除回复 -1 的对称面
+                        let mut parents = (*view.comments).clone();
+                        if let Some(hit) = parents.iter_mut().find(|c| c.comment_id == comment_id) {
+                            hit.reply_count += 1;
+                        }
+                        view.comments = Arc::new(parents);
                         view.reply_to = None;
                         view.comment_clear_input = true;
                     }
                     Err(e) => log::warn!("[Home] 回复发送失败: {e}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 点「删除」：记下待确认目标，弹确认浮层（Tauri setDeleteTarget 同款；
+    /// 真删除在 confirm_delete）。
+    fn request_delete(&mut self, id: String, parent: Option<String>, cx: &mut Context<Self>) {
+        self.comment_delete_target = Some((id, parent));
+        cx.notify();
+    }
+
+    /// 确认浮层「取消」/点遮罩：只清目标态。
+    fn cancel_delete(&mut self, cx: &mut Context<Self>) {
+        if self.comment_delete_target.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// 确认删除：comment/del service_id=4（评论与回复同款，data_type=9）。
+    /// 成功后**本地摘除**，不重取整列表（Tauri confirmDelete 同款）：
+    /// 回复 → 回复列表摘除 + 父评论 replyCount-1；评论 → 列表摘除 +
+    /// total-1 + 关掉其展开态/回复目标。
+    fn confirm_delete(&mut self, cx: &mut Context<Self>) {
+        let Some((id, parent)) = self.comment_delete_target.take() else {
+            return;
+        };
+        if self.comment_deleting || !self.logged_in() {
+            return;
+        }
+        self.comment_deleting = true;
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn({
+            let id = id.clone();
+            async move {
+                let env = state.api_env();
+                delete_comment(&id, 4, &env).await
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.comment_deleting = false;
+                match result {
+                    Ok(()) => {
+                        if let Some(parent_id) = parent {
+                            // 回复：回复缓存摘除 + 父评论 replyCount-1
+                            //（与发送成功的 +1 对称，Tauri confirmDelete 同款）
+                            let mut items = view
+                                .replies
+                                .get(&parent_id)
+                                .map(|v| (**v).clone())
+                                .unwrap_or_default();
+                            items.retain(|r| r.reply_id != id);
+                            view.replies.insert(parent_id.clone(), Arc::new(items));
+                            let mut parents = (*view.comments).clone();
+                            if let Some(hit) =
+                                parents.iter_mut().find(|c| c.comment_id == parent_id)
+                            {
+                                hit.reply_count = (hit.reply_count - 1).max(0);
+                            }
+                            view.comments = Arc::new(parents);
+                        } else {
+                            let mut items = (*view.comments).clone();
+                            items.retain(|c| c.comment_id != id);
+                            view.comments = Arc::new(items);
+                            view.comments_total = (view.comments_total - 1).max(0);
+                            view.ep_comment_count = (view.ep_comment_count - 1).max(0);
+                            // 被删评论的展开回复态与回复目标一并清掉
+                            view.replies_open.remove(&id);
+                            view.replies.remove(&id);
+                            if view.reply_to.as_ref().is_some_and(|(rc, _, _)| rc == &id) {
+                                view.reply_to = None;
+                            }
+                        }
+                        log::info!("[Home] 评论/回复已删除（本地摘除）");
+                    }
+                    Err(e) => log::warn!("[Home] 评论删除失败: {e}"),
                 }
                 cx.notify();
             });
@@ -3815,12 +3919,96 @@ impl HomeView {
                             ),
                     ),
             )
+            .children(self.comment_delete_target.is_some().then(|| {
+                // 删除确认浮层（Tauri ConfirmDialog 同款语义：comment/del
+                // service_id=4，评论与回复同款；点遮罩=取消）
+                let is_reply = self
+                    .comment_delete_target
+                    .as_ref()
+                    .and_then(|(_, p)| p.as_ref())
+                    .is_some();
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(gpui_kit::rgba(0x00000099))
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.cancel_delete(cx)),
+                    )
+                    .child(
+                        v_flex()
+                            .w(gpui_kit::px(272.0))
+                            .p_4()
+                            .gap_2p5()
+                            .rounded(gpui_kit::px(12.0))
+                            .bg(gpui_kit::rgb(0x262626))
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Left,
+                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .child(if is_reply {
+                                        "删除回复"
+                                    } else {
+                                        "删除评论"
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(gpui_kit::rgba(0xffffff99))
+                                    .child(if is_reply {
+                                        "确定删除这条回复吗？删除后不可恢复。"
+                                    } else {
+                                        "确定删除这条评论吗？删除后不可恢复。"
+                                    }),
+                            )
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .justify_end()
+                                    .gap_2()
+                                    .mt_1()
+                                    .child(
+                                        Button::new("comment-del-cancel")
+                                            .label("取消")
+                                            .ghost()
+                                            .small()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.cancel_delete(cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("comment-del-confirm")
+                                            .label(if self.comment_deleting {
+                                                "删除中…"
+                                            } else {
+                                                "删除"
+                                            })
+                                            .danger()
+                                            .small()
+                                            .disabled(self.comment_deleting)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.confirm_delete(cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+            }))
             .into_any_element()
     }
 
     /// 评论列表一行：头像占位（昵称首字圆形）/昵称/文本/相对时间/♡。
     fn render_comment_row(&self, c: &CommentItem, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let cid = c.comment_id.clone();
+        let is_mine = !self.my_user_id().is_empty() && c.user_id == self.my_user_id();
         let digged = self
             .comment_digg_override
             .get(&cid)
@@ -3887,6 +4075,43 @@ impl HomeView {
                                             .text_color(gpui_kit::rgba(0xffffff73))
                                             .child(Self::relative_time(c.create_time)),
                                     )
+                                    .child(
+                                        // 回复本条评论（打开底部回复输入框；
+                                        // Tauri 评论行「回复」同款）
+                                        div()
+                                            .id(ElementId::from(format!("comment-reply-{cid}")))
+                                            .text_size(gpui_kit::px(11.0))
+                                            .cursor_pointer()
+                                            .text_color(gpui_kit::rgba(0xffffff73))
+                                            .hover(|s| s.text_color(gpui_kit::rgba(0xd4d4d8ff)))
+                                            .on_click({
+                                                let cid = cid.clone();
+                                                let name = c.user_name.clone();
+                                                cx.listener(move |this, _, _, cx| {
+                                                    // 只展开底部回复输入框（Tauri
+                                                    // setReplyTarget 同款，不拉回复区）
+                                                    this.reply_to =
+                                                        Some((cid.clone(), None, name.clone()));
+                                                    cx.notify();
+                                                })
+                                            })
+                                            .child("回复"),
+                                    )
+                                    .children(is_mine.then(|| {
+                                        div()
+                                            .id(ElementId::from(format!("comment-del-{cid}")))
+                                            .text_size(gpui_kit::px(11.0))
+                                            .cursor_pointer()
+                                            .text_color(gpui_kit::rgba(0xffffff73))
+                                            .hover(|s| s.text_color(gpui_kit::rgb(0xf87171)))
+                                            .on_click({
+                                                let cid = cid.clone();
+                                                cx.listener(move |this, _, _, cx| {
+                                                    this.request_delete(cid.clone(), None, cx);
+                                                })
+                                            })
+                                            .child("删除")
+                                    }))
                                     .children((reply_count > 0).then({
                                         let cid = cid.clone();
                                         move || {
@@ -3960,6 +4185,8 @@ impl HomeView {
                         let rid = r.reply_id.clone();
                         let rcid = cid.clone();
                         let rname = r.user_name.clone();
+                        let reply_mine =
+                            !self.my_user_id().is_empty() && r.user_id == self.my_user_id();
                         h_flex()
                             .items_start()
                             .gap_2()
@@ -4041,6 +4268,28 @@ impl HomeView {
                                                     })
                                                     .child("回复"),
                                             )
+                                            .children(reply_mine.then(|| {
+                                                div()
+                                                    .id(ElementId::from(format!("reply-del-{rid}")))
+                                                    .text_size(gpui_kit::px(10.0))
+                                                    .cursor_pointer()
+                                                    .text_color(gpui_kit::rgba(0xffffff73))
+                                                    .hover(|s| {
+                                                        s.text_color(gpui_kit::rgb(0xf87171))
+                                                    })
+                                                    .on_click({
+                                                        let rid = rid.clone();
+                                                        let rcid = rcid.clone();
+                                                        cx.listener(move |this, _, _, cx| {
+                                                            this.request_delete(
+                                                                rid.clone(),
+                                                                Some(rcid.clone()),
+                                                                cx,
+                                                            );
+                                                        })
+                                                    })
+                                                    .child("删除")
+                                            }))
                                             .child(
                                                 // ♡ 回复点赞（乐观 ±1）
                                                 div()

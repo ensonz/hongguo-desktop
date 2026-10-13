@@ -135,7 +135,27 @@ fn build_app_state() -> Arc<AppStateInner> {
         "[Device] 现役档案 iid={}（{device_source}）",
         device.get("iid")
     );
-    Arc::new(AppStateInner::with_device(db, device))
+    let state = Arc::new(AppStateInner::with_device(db, device));
+    // 设置装载（Tauri bootstrap store.rs 步骤 2 同款）：db 里存过就装载并
+    // 归一化——登录账号（评论/回复的 isMine、发送、点赞全靠它）、下载根、
+    // 并发数都从这里来；gpui 壳此前没装载，这些一直是默认值。
+    match state.store.settings() {
+        Ok(Some(stored)) => {
+            let settings = hongguo_service::settings_service::normalize(stored).unwrap_or_default();
+            log::info!(
+                "[Store] 设置装载完成（账号={}）",
+                settings
+                    .account
+                    .as_ref()
+                    .map(|a| a.user_id.as_str())
+                    .unwrap_or("未登录")
+            );
+            state.replace_settings(settings);
+        }
+        Ok(None) => log::info!("[Store] 无存量设置，使用默认值"),
+        Err(e) => log::warn!("[Store] 设置装载失败，使用默认值: {e}"),
+    }
+    state
 }
 
 /// 开库；被锁时稍等重试一次（与 Tauri 壳同一口径）。
