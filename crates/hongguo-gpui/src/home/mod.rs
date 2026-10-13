@@ -52,6 +52,7 @@ use danmaku::DmFlight;
 use feed::{Source, SourceFeed, StreamItem};
 
 pub(crate) mod auth;
+pub(crate) mod comment_view;
 pub(crate) mod comments;
 pub(crate) mod controls;
 pub(crate) mod danmaku;
@@ -60,6 +61,7 @@ pub(crate) mod feed;
 pub(crate) mod fmt;
 pub(crate) mod interact;
 pub(crate) mod mini_panel;
+pub(crate) mod overlay;
 pub(crate) mod picker;
 pub(crate) mod playback;
 pub(crate) mod stage;

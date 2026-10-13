@@ -1,0 +1,172 @@
+//! 舞台信息叠加层：热度/剧名/集数/简介压在画面左下，控制条弹出时抬
+//! 到其上沿，闲置淡出由调用方按 controls_visible 决定渲染。
+
+use gpui_kit::component::h_flex;
+use gpui_kit::component::v_flex;
+use gpui_kit::prelude::*;
+use gpui_kit::{SharedString, div};
+#[cfg(target_os = "windows")]
+use std::sync::atomic::{AtomicU32, Ordering};
+
+impl super::HomeView {
+    /// 信息叠加层（Tauri immersive-info-overlay 对齐）：热度/剧名/集数/
+    /// 简介压在画面左下，控制条弹出时抬到其上沿（bottom_12），闲置淡出
+    /// 由调用方按 controls_visible 决定渲染。
+    pub(super) fn render_overlay(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let Some(now) = &self.now else {
+            return div().into_any_element();
+        };
+        // 展示标记跟着**在播的剧**（起播时抄存），不跟游标：换一批/钉住条目
+        // 位移时游标可能落在别的条目上，跟游标会把隔壁剧的热度/角标贴错。
+        let badge = (!now.badge.is_empty()).then(|| now.badge.clone());
+        let season = (!now.season_tag.is_empty()).then(|| now.season_tag.clone());
+        let heat = (!now.heat_text.is_empty()).then(|| now.heat_text.clone());
+        let intro = self.intros.get(&now.series_id).cloned();
+        let intro_expandable = intro.as_ref().is_some_and(|i| i.chars().count() > 40);
+        v_flex()
+            .absolute()
+            .bottom_12()
+            .left_3()
+            .max_w(gpui_kit::relative(0.62))
+            .gap_1()
+            .children(heat.map(|h| {
+                // 热度行（hgplayer 同款：剧名上方，琥珀色）
+                div()
+                    .text_xs()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .text_color(gpui_kit::rgba(0xfcd34de6))
+                    .child(SharedString::from(h))
+            }))
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_1p5()
+                    .children(badge.map(|b| {
+                        div()
+                            .px_1()
+                            .rounded(gpui_kit::px(2.0))
+                            .bg(gpui_kit::rgba(0xef4444e6))
+                            .child(
+                                div()
+                                    .text_size(gpui_kit::px(10.0))
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .child(SharedString::from(b)),
+                            )
+                    }))
+                    .children(season.map(|s| {
+                        div()
+                            .px_1()
+                            .rounded(gpui_kit::px(2.0))
+                            .bg(gpui_kit::rgba(0xffffff33))
+                            .child(
+                                div()
+                                    .text_size(gpui_kit::px(10.0))
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .text_color(gpui_kit::rgb(0xffffff))
+                                    .child(SharedString::from(s)),
+                            )
+                    }))
+                    .children((!now.title.is_empty()).then(|| {
+                        // Tauri 同款交互：点剧名离开播放器看档案。GPUI 壳
+                        // 无详情路由，先打开官方详情页（系统默认浏览器）；
+                        // stopPropagation：点标题不能同时触发「点画面暂停」。
+                        div()
+                            .id("overlay-title")
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .truncate()
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(gpui_kit::rgba(0xffd7d7ff)))
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Left,
+                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                            )
+                            .on_click({
+                                let sid = now.series_id.clone();
+                                cx.listener(move |_, _, _, cx| {
+                                    cx.stop_propagation();
+                                    let url =
+                                        format!("https://hongguoduanju.com/detail?series_id={sid}");
+                                    log::info!("[Home] 打开详情页: {url}");
+                                    #[cfg(target_os = "windows")]
+                                    {
+                                        use std::os::windows::process::CommandExt;
+                                        let _ = std::process::Command::new("cmd")
+                                            .args(["/C", "start", "", &url])
+                                            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+                                            .spawn();
+                                    }
+                                    #[cfg(not(target_os = "windows"))]
+                                    {
+                                        let _ =
+                                            std::process::Command::new("open").arg(&url).spawn();
+                                    }
+                                })
+                            })
+                            .child(SharedString::from(format!("@{}", now.title)))
+                    })),
+            )
+            .child(
+                div()
+                    .mt_0p5()
+                    .text_xs()
+                    .text_color(gpui_kit::rgba(0xffffffd9))
+                    .child(format!("第{}集", now.vid_index))
+                    .children((now.episode_count > 0).then(|| {
+                        div()
+                            .text_color(gpui_kit::rgba(0xffffffb3))
+                            .child(format!(" · 全{}集", now.episode_count))
+                    })),
+            )
+            .children(intro.map(|intro| {
+                // 简介块只占舞台约三分之一（hgplayer 同款量级）；块内点击
+                // 不落回舞台（防触发暂停/继续），展开交互只在按钮上
+                let expanded = self.intro_expanded;
+                h_flex()
+                    .id("overlay-intro")
+                    .mt_1()
+                    .max_w(gpui_kit::relative(0.58))
+                    .items_end()
+                    .gap_2()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .on_click(cx.listener(|_, _, _, cx| cx.stop_propagation()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .line_height(gpui_kit::relative(1.6))
+                            .text_color(gpui_kit::rgba(0xffffffb3))
+                            .when(!expanded, |s| s.h(gpui_kit::px(32.0)).overflow_hidden())
+                            .child(SharedString::from(intro.clone())),
+                    )
+                    .children((intro_expandable).then(|| {
+                        div()
+                            .id("intro-toggle")
+                            .flex_shrink_0()
+                            .pb(gpui_kit::px(2.0))
+                            .text_xs()
+                            .cursor_pointer()
+                            .text_color(gpui_kit::rgba(0xffffff99))
+                            .hover(|s| s.text_color(gpui_kit::rgb(0xffffff)))
+                            .when(expanded, |s| {
+                                s.on_click(cx.listener(|this, _, _, cx| {
+                                    this.intro_expanded = false;
+                                    cx.notify();
+                                }))
+                            })
+                            .when(!expanded, |s| {
+                                s.on_click(cx.listener(|this, _, _, cx| {
+                                    this.intro_expanded = true;
+                                    cx.notify();
+                                }))
+                            })
+                            .child(if expanded { "收起" } else { "展开" })
+                    }))
+            }))
+            .into_any_element()
+    }
+}
