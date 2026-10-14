@@ -120,24 +120,8 @@ pub async fn fetch_series_meta(
     env: &super::client::ApiEnv,
 ) -> AppResult<SeriesMeta> {
     // body 照抄抓包（audit 纪律）：screen_width_px 是字符串形态
-    let body = serde_json::to_vec(&serde_json::json!({
-        "biz_param": {
-            "caller_scene": "single_col",
-            "detail_page_version": 1,
-            "disable_digg_stat": false,
-            "disable_video_relate_book": false,
-            "from_video_id": "",
-            "need_all_video_definition": false,
-            "need_mp4_align": false,
-            "screen_width_px": "1078",
-            "source": 4,
-            "use_os_player": false,
-            "use_server_dns": false,
-            "video_id_type": 1,
-        },
-        "series_id": series_id,
-    }))
-    .map_err(|e| AppError::Signer(e.to_string()))?;
+    let body = serde_json::to_vec(&crate::params::video_detail_payload(series_id))
+        .map_err(|e| AppError::Signer(e.to_string()))?;
 
     let bytes = super::client::api_call(VIDEO_DETAIL_PATH, Some(body), env).await?;
     let value: Value = serde_json::from_slice(&bytes)
