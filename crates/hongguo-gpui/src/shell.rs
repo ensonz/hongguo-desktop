@@ -109,6 +109,26 @@ impl Dest {
         }
     }
 
+    /// 取证开关取值 → 目的地（`HONGGUO_PAGE=browse|new|…`，与 HONGGUO_RANK
+    /// 同族：无人值守点检任一页面）。
+    fn from_key(key: &str) -> Option<Dest> {
+        match key {
+            "home" => Some(Dest::Home),
+            "browse" => Some(Dest::Browse),
+            "rank" => Some(Dest::Rank),
+            "new" => Some(Dest::New),
+            "history" => Some(Dest::History),
+            "collections" => Some(Dest::Collections),
+            "liked" => Some(Dest::Liked),
+            "reservations" => Some(Dest::Reservations),
+            "tasks" => Some(Dest::Tasks),
+            "merge" => Some(Dest::Merge),
+            "storage" => Some(Dest::Storage),
+            "settings" => Some(Dest::Settings),
+            _ => None,
+        }
+    }
+
     /// 目的地 → 壳内视图（12 页 + 详情全部实现，无空态兜底）。
     fn view(self) -> View {
         match self {
@@ -279,8 +299,13 @@ impl Shell {
         })
         .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
-        // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）。
+        // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）；
+        // HONGGUO_PAGE=browse|new|history|… 直接开在对应目的地（逐页点检）。
         // 预览进程有自己的目的地种子，不吃这些环境变量（可能残留）
+        let page_start = (!crate::preview::is_active())
+            .then(|| std::env::var("HONGGUO_PAGE").ok())
+            .flatten()
+            .and_then(|v| Dest::from_key(&v));
         let tab_source = (!crate::preview::is_active())
             .then(|| std::env::var("HONGGUO_TAB").ok())
             .flatten()
@@ -292,13 +317,15 @@ impl Shell {
         let dest = if !crate::preview::is_active() && std::env::var("HONGGUO_RANK").is_ok() {
             rank.update(cx, RankView::load);
             Dest::Rank
+        } else if let Some(page) = page_start {
+            page
         } else {
             if let Some(source) = tab_source {
                 feed.update(cx, |home, cx| home.switch_source(source, cx));
             }
             Dest::Home
         };
-        Self {
+        let mut shell = Self {
             dest,
             state,
             sidebar_collapsed: false,
@@ -316,7 +343,31 @@ impl Shell {
             merge,
             detail: None,
             detail_series: None,
+        };
+        if let Some(page) = page_start {
+            shell.enter_dest(page, cx);
         }
+        shell
+    }
+
+    /// 切换目的地并触发进入钩子（侧栏点击与 `HONGGUO_PAGE` 取证开关共用）。
+    fn enter_dest(&mut self, dest: Dest, cx: &mut Context<Self>) {
+        self.dest = dest;
+        match dest {
+            Dest::Rank => self.rank.update(cx, RankView::load),
+            Dest::Browse => self.browse.update(cx, BrowseView::load),
+            Dest::New => self.new_drama.update(cx, NewDramaView::load),
+            Dest::Liked => self.liked.update(cx, LikedView::load),
+            Dest::Collections => self.collections.update(cx, CollectionView::load),
+            Dest::History => self.history.update(cx, HistoryView::load),
+            Dest::Reservations => self.reservations.update(cx, ReservationView::load),
+            Dest::Tasks => self.tasks.update(cx, TasksView::load),
+            Dest::Settings => self.settings_page.update(cx, SettingsView::load),
+            Dest::Storage => self.storage.update(cx, StorageView::load),
+            Dest::Merge => self.merge.update(cx, MergeView::load),
+            _ => {}
+        }
+        cx.notify();
     }
 
     /// 页面「继续播放」的统一入口：切回首页沉浸流起播（详情页播放同通道，
@@ -566,28 +617,7 @@ impl Shell {
                     if this.dest == dest {
                         return;
                     }
-                    this.dest = dest;
-                    match dest {
-                        Dest::Rank => this.rank.update(cx, RankView::load),
-                        Dest::Browse => this.browse.update(cx, BrowseView::load),
-                        Dest::New => this.new_drama.update(cx, NewDramaView::load),
-                        Dest::Liked => this.liked.update(cx, LikedView::load),
-                        Dest::Collections => {
-                            this.collections.update(cx, CollectionView::load)
-                        }
-                        Dest::History => this.history.update(cx, HistoryView::load),
-                        Dest::Reservations => {
-                            this.reservations.update(cx, ReservationView::load)
-                        }
-                        Dest::Tasks => this.tasks.update(cx, TasksView::load),
-                        Dest::Settings => {
-                            this.settings_page.update(cx, SettingsView::load)
-                        }
-                        Dest::Storage => this.storage.update(cx, StorageView::load),
-                        Dest::Merge => this.merge.update(cx, MergeView::load),
-                        _ => {}
-                    }
-                    cx.notify();
+                            this.enter_dest(dest, cx);
                 }))
                 .child(
                     gpui_kit::component::Icon::new(dest.icon())
