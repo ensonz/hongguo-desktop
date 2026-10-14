@@ -21,6 +21,21 @@ pub(crate) fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// 秒 → 时分秒（与 Tauri `utils/format.ts` 的 formatDuration 同口径：
+/// 不足 1 小时 mm:ss，否则 h:mm:ss）。历史行进度徽标用。
+pub(crate) fn format_duration(seconds: f64) -> String {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return "00:00".to_string();
+    }
+    let total = seconds as u64;
+    let (h, m, s) = (total / 3600, (total % 3600) / 60, total % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
+}
+
 /// 相对时间（评论时间戳）。分层与 Tauri `utils/relative-time.ts` 同口径
 /// （hgplayer：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 30 天内 /
 /// M月D日）——此前自创「N 个月前/N 年前」与前端漂移。技术栈不同不共享

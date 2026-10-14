@@ -11,7 +11,7 @@ mod scenes;
 use gpui_kit::component::theme::ThemeMode;
 
 /// 场景键全集（种子分发消费的键；矩阵必须把每个键都至少排一次）。
-const SCENE_KEYS: [&str; 24] = [
+const SCENE_KEYS: [&str; 27] = [
     "feed",
     "picker",
     "picker-series",
@@ -34,6 +34,9 @@ const SCENE_KEYS: [&str; 24] = [
     "collections",
     "collections-empty",
     "collections-manage",
+    "history",
+    "history-empty",
+    "history-manage",
     "detail",
     "detail-related",
 ];

@@ -27,6 +27,7 @@ use crate::home::HomeView;
 use crate::pages::merge::MergeView;
 use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::collections::{CollectionEvent, CollectionView};
+use crate::pages::history::{HistoryEvent, HistoryView};
 use crate::pages::rank::RankView;
 use crate::pages::storage::StorageView;
 
@@ -110,6 +111,7 @@ impl Dest {
             Dest::Rank => Some(View::Rank),
             Dest::Liked => Some(View::Liked),
             Dest::Collections => Some(View::Collections),
+            Dest::History => Some(View::History),
             Dest::Storage => Some(View::Storage),
             Dest::Merge => Some(View::Merge),
             Dest::Detail => Some(View::Detail),
@@ -124,6 +126,7 @@ enum View {
     Rank,
     Liked,
     Collections,
+    History,
     Storage,
     Merge,
     Detail,
@@ -138,6 +141,7 @@ pub struct Shell {
     rank: Entity<RankView>,
     liked: Entity<LikedView>,
     collections: Entity<CollectionView>,
+    history: Entity<HistoryView>,
     storage: Entity<StorageView>,
     merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
@@ -151,6 +155,7 @@ impl Shell {
         let rank = cx.new(|_cx| RankView::new(state.clone()));
         let liked = cx.new(|cx| LikedView::new(state.clone(), window, cx));
         let collections = cx.new(|cx| CollectionView::new(state.clone(), window, cx));
+        let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
         let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
         let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
@@ -170,6 +175,15 @@ impl Shell {
         .detach();
         cx.subscribe(&collections, |this, _, event: &CollectionEvent, cx| {
             let CollectionEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&history, |this, _, event: &HistoryEvent, cx| {
+            let HistoryEvent::Play {
                 series_id,
                 vid_index,
                 start_secs,
@@ -205,6 +219,7 @@ impl Shell {
             rank,
             liked,
             collections,
+            history,
             storage,
             merge,
             detail: None,
@@ -344,6 +359,10 @@ impl Shell {
             self.dest = Dest::Collections;
             self.collections
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("history") {
+            self.dest = Dest::History;
+            self.history
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -426,6 +445,7 @@ impl Shell {
                         Dest::Collections => {
                             this.collections.update(cx, CollectionView::load)
                         }
+                        Dest::History => this.history.update(cx, HistoryView::load),
                         Dest::Storage => this.storage.update(cx, StorageView::load),
                         Dest::Merge => this.merge.update(cx, MergeView::load),
                         _ => {}
@@ -562,6 +582,7 @@ impl Shell {
             Some(View::Rank) => self.rank.clone().into_any_element(),
             Some(View::Liked) => self.liked.clone().into_any_element(),
             Some(View::Collections) => self.collections.clone().into_any_element(),
+            Some(View::History) => self.history.clone().into_any_element(),
             Some(View::Storage) => self.storage.clone().into_any_element(),
             Some(View::Merge) => self.merge.clone().into_any_element(),
             Some(View::Detail) => self

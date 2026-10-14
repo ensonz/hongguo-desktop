@@ -10,6 +10,7 @@ use std::sync::Arc;
 use gpui_kit::RenderImage;
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
+use hongguo_api::history::WatchHistoryItem;
 use hongguo_api::interact::{BookshelfEntry, InteractionItem};
 use hongguo_api::rank::RankItem;
 use hongguo_common::model::{
@@ -139,6 +140,26 @@ pub(crate) fn bookshelf_entries() -> Vec<BookshelfEntry> {
             series_id: (*sid).into(),
             collect_time_ms: 1_760_000_000_000 - i as i64 * 86_400_000,
             content_type: if i % 2 == 0 { 1 } else { 1004 },
+        })
+        .collect()
+}
+
+/// 历史页：6 条观看记录（进度/时长/集数错开，时间基准贴近当前）。
+pub(crate) fn watch_history_items() -> Vec<WatchHistoryItem> {
+    const BASE_MS: i64 = 1_792_000_000_000; // 2026-10-13 前后
+    SERIES
+        .iter()
+        .enumerate()
+        .map(|(i, (sid, title, _))| WatchHistoryItem {
+            series_id: (*sid).into(),
+            title: (*title).into(),
+            cover: String::new(), // 预览封面直接灌 covers，不走 URL
+            vid_index: (3 + i) as i64,
+            vid: format!("hv{i}"),
+            position_ms: 300_000 + i as i64 * 60_000,
+            duration_ms: 1_200_000,
+            episode_cnt: 24 + i as i64 * 6,
+            updated_at_ms: BASE_MS - i as i64 * 86_400_000,
         })
         .collect()
 }
