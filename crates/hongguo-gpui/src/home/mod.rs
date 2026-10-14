@@ -1,10 +1,11 @@
 //! 首页：沉浸式播放流（Tauri `home-page.tsx` 的 GPUI 对齐实现）。
 //!
 //! 视频铺满整页：滚轮在当前 tab 源内切上一部/下一部剧，剧名/集数/热度叠加
-//! 在画面左下，切剧间隙封面占位。三个 tab（推荐 16 / 漫剧 36 / 真人 39）
-//! 来自书城 cell 换一换的同一接口，**重复点当前 tab = 换一批**（重开会话、
-//! 游标归零）；推荐 tab 把「你的内容」（云端历史 + 书架）种子排前，同一
-//! 个号打开就是你的剧（对齐第三方与 Tauri 端）。
+//! 在画面左下，切剧间隙封面占位。顶栏 tab 列表由服务端下发（bookmall/tab
+//! 响应 tab_item[]，回落三件套推荐 16 / 漫剧 36 / 真人 39），同一接口供数，
+//! **重复点当前 tab = 换一批**（重开会话、游标归零）；推荐 tab 把「你的
+//! 内容」（云端历史 + 书架）种子排前，同一个号打开就是你的剧（对齐第三方
+//! 与 Tauri 端）。
 //!
 //! 播放经 [`hongguo_playback`] 引擎：起点决策（本地档案 >3 秒续播，云端
 //! 历史兜底）、5 秒节流落盘、首帧出画预取下一部的流、自动连播（末集接
@@ -107,6 +108,10 @@ pub struct HomeView {
     active: Source,
     feeds: HashMap<Source, SourceFeed>,
     indexes: HashMap<Source, usize>,
+    /// 顶栏 tab（服务端下发，回落三件套初始化；stage 渲染与壳导航用）。
+    tabs: Vec<Source>,
+    /// 服务端下发的 tab 标题（tab_type → title；缺省回落本地名）。
+    tab_labels: HashMap<String, String>,
 
     /// 已解码封面（series_id → RGBA）：切剧间隙的全屏占位。
     covers: HashMap<String, Arc<RenderImage>>,
@@ -384,11 +389,12 @@ impl gpui_kit::EventEmitter<HomeEvent> for HomeView {}
 
 impl HomeView {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let tabs = Source::fallback_tabs().to_vec();
         let mut feeds = HashMap::new();
         let mut indexes = HashMap::new();
-        for s in Source::ALL {
-            feeds.insert(s, SourceFeed::default());
-            indexes.insert(s, 0usize);
+        for s in &tabs {
+            feeds.insert(s.clone(), SourceFeed::default());
+            indexes.insert(s.clone(), 0usize);
         }
         // 偏好先于引擎：起播后重放都吃它
         let prefs = crate::playback_prefs::load_from(
@@ -396,9 +402,11 @@ impl HomeView {
         );
         let mut view = Self {
             state: Arc::clone(&state),
-            active: Source::Feed,
+            active: Source::recommend(),
             feeds,
             indexes,
+            tabs,
+            tab_labels: HashMap::new(),
             covers: HashMap::new(),
             covers_pending: HashSet::new(),
             avatars: HashMap::new(),
@@ -608,10 +616,20 @@ impl HomeView {
         }
         // 预览进程只吃 fixtures 假快照，不发任何启动请求
         if !crate::preview::is_active() {
-            view.load_feed(Source::Feed, false, cx);
+            view.load_feed(Source::recommend(), false, cx);
             view.load_history(cx);
+            view.load_tabs(cx);
         }
         view
+    }
+
+    /// tab 的显示名：服务端下发标题优先，缺省回落本地名。
+    pub(crate) fn tab_label(&self, s: &Source) -> String {
+        self.tab_labels
+            .get(s.as_str())
+            .filter(|t| !t.is_empty())
+            .cloned()
+            .unwrap_or_else(|| s.fallback_label().to_string())
     }
 
     /// 设置页改了快捷键映射：换进运行中的视图（新值已由设置页落盘）。
@@ -692,17 +710,22 @@ impl HomeView {
     /// 当前 tab 源（预览交互探针读，断言切源生效）。
     #[cfg(feature = "screenshot")]
     pub(crate) fn active_source(&self) -> Source {
-        self.active
+        self.active.clone()
     }
 
     pub(crate) fn switch_source(&mut self, s: Source, cx: &mut Context<Self>) {
-        log::info!("[Home] 切换 tab 源 → {}（当前 {}）", s.label(), self.active.label());
-        if self.active == s {
+        log::info!(
+            "[Home] 切换 tab 源 → {}（当前 {}）",
+            self.tab_label(&s),
+            self.tab_label(&self.active)
+        );
+        let same = self.active == s;
+        let empty = self.feeds.get(&s).is_none_or(|f| f.items.is_empty());
+        if same {
             self.load_feed(s, true, cx);
             return;
         }
-        self.active = s;
-        let empty = self.feeds.get(&s).is_none_or(|f| f.items.is_empty());
+        self.active = s.clone();
         if empty {
             self.load_feed(s, false, cx);
         } else {
@@ -938,7 +961,7 @@ impl gpui_kit::Render for HomeView {
                         Button::new("home-retry")
                             .label("重试")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.load_feed(this.active, false, cx);
+                                this.load_feed(this.active.clone(), false, cx);
                             })),
                     )
                     .into_any_element(),

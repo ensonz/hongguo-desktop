@@ -1,5 +1,5 @@
-//! 沉浸流的数据面：三个 tab 源（推荐/漫剧/真人）、「你的内容」种子、
-//! 渲染/交互共用的展示列表与游标。
+//! 沉浸流的数据面：顶栏 tab 源（服务端下发 + 回落三件套）、「你的内容」
+//! 种子、渲染/交互共用的展示列表与游标。
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -8,34 +8,41 @@ use gpui_kit::prelude::*;
 use hongguo_api::discover::FeedItem;
 use hongguo_api::history::fetch_watch_history;
 use hongguo_api::interact::fetch_bookshelf;
-use hongguo_api::recommend::fetch_recommend_feed;
+use hongguo_api::recommend::{fetch_feed_tabs, fetch_recommend_feed};
 
 use crate::bridge;
 
-/// 沉浸流的三个 tab（tab_type 即书城 cell 换一换的契约，见 docs 抓包文档）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Source {
-    Feed,
-    Comic,
-    Human,
-}
+/// 沉浸流的 tab 身份（即书城 cell 换一换的 tab_type 契约）。列表由服务端
+/// 下发（[`Self::load_tabs`]），回落三件套见 [`Self::fallback_tabs`]。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Source(Arc<str>);
 
 impl Source {
-    pub(crate) const ALL: [Source; 3] = [Source::Feed, Source::Comic, Source::Human];
-
-    fn tab_type(self) -> &'static str {
-        match self {
-            Source::Feed => "16",
-            Source::Comic => "36",
-            Source::Human => "39",
-        }
+    /// 推荐 tab（种子语义锚点 + 回落表的默认选中）。
+    pub(crate) fn recommend() -> Self {
+        Self("16".into())
     }
 
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Source::Feed => "推荐",
-            Source::Comic => "漫剧",
-            Source::Human => "真人",
+    /// 服务端列表到手前的回落三件套（抓包锁定：推荐16/漫剧36/真人剧39）。
+    pub(crate) fn fallback_tabs() -> [Self; 3] {
+        [Self("16".into()), Self("36".into()), Self("39".into())]
+    }
+
+    pub(crate) fn new(tab_type: &str) -> Self {
+        Self(tab_type.into())
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// 回落名（服务端标题缺失时显示；16/36/39 有本地名，未知 tab 显示 tab_type）。
+    pub(crate) fn fallback_label(&self) -> &str {
+        match self.0.as_ref() {
+            "16" => "推荐",
+            "36" => "漫剧",
+            "39" => "真人",
+            other => other,
         }
     }
 }
@@ -114,7 +121,7 @@ impl super::HomeView {
             .get(&source)
             .map(|f| f.session.clone())
             .unwrap_or_default();
-        let tab = source.tab_type().to_string();
+        let tab = source.as_str().to_string();
         let rx = bridge::spawn(async move {
             let env = state.api_env();
             fetch_recommend_feed(&tab, &session, 0, &[], &env).await
@@ -174,7 +181,7 @@ impl super::HomeView {
             feed.fetching_more = true;
         }
         let state = Arc::clone(&self.state);
-        let tab = source.tab_type().to_string();
+        let tab = source.as_str().to_string();
         let rx = bridge::spawn(async move {
             let env = state.api_env();
             fetch_recommend_feed(&tab, &session, offset, &[], &env).await
@@ -228,6 +235,51 @@ impl super::HomeView {
             return;
         }
         self.play_target(item, None, None, cx);
+    }
+
+    /// 顶栏 tab 列表（服务端下发；拉取失败静默保留回落三件套，api 层已有
+    /// 日志）。关注 45 游客无数据面，未登录过滤（Tauri buildTabList 同口径）。
+    pub(super) fn load_tabs(&mut self, cx: &mut Context<Self>) {
+        const FOLLOW_TAB_TYPE: &str = "45";
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_feed_tabs(&env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let Ok(meta_tabs) = result else {
+                return;
+            };
+            let _ = this.update(cx, |view, cx| {
+                let logged_in = view.logged_in();
+                let tabs: Vec<Source> = meta_tabs
+                    .into_iter()
+                    .filter(|t| logged_in || t.tab_type != FOLLOW_TAB_TYPE)
+                    .map(|t| {
+                        view.tab_labels.insert(t.tab_type.clone(), t.title);
+                        Source::new(&t.tab_type)
+                    })
+                    .collect();
+                // 服务端异常空表：保留回落三件套
+                if tabs.is_empty() {
+                    return;
+                }
+                // 新 tab 补源状态（load_feed 的 expect("源已初始化")）
+                for s in &tabs {
+                    view.feeds.entry(s.clone()).or_default();
+                    view.indexes.entry(s.clone()).or_insert(0);
+                }
+                // 当前选中的 tab 被服务端撤掉（或登录态变化失去数据面）：回推荐
+                if !tabs.contains(&view.active) {
+                    view.active = Source::recommend();
+                    view.load_feed(Source::recommend(), false, cx);
+                }
+                view.tabs = tabs;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 云端历史（推荐 tab 种子 + 起点兜底）。登录才有数据，匿名回空表。
@@ -325,7 +377,9 @@ impl super::HomeView {
         let feed = self.feeds.get(&self.active).expect("源已初始化");
         let mut seen: HashSet<String> = HashSet::new();
         let mut items: Vec<StreamItem> = Vec::with_capacity(self.seeds.len() + feed.items.len());
-        if self.active == Source::Feed {
+        // 种子只属于推荐 tab（tab_type 16）：类型 tab 的头一条必须是该类型
+        // 的剧（Tauri home-page 同口径）
+        if self.active.as_str() == "16" {
             for s in &self.seeds {
                 if !s.series_id.is_empty() && seen.insert(s.series_id.clone()) {
                     items.push(s.clone());

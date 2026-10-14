@@ -25,7 +25,7 @@ use gpui_kit::{ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_media_platform_api::video::{FrameBuffer, VideoFrame};
 
 use super::danmaku::DM_LANE_GAP;
-use super::feed::{Source, StreamItem};
+use super::feed::StreamItem;
 use crate::bridge;
 
 /// 舞台周期状态日志（HONGGUO_DIAG 取证）的最小间隔（秒）。
@@ -604,7 +604,8 @@ impl super::HomeView {
                 }),
             )
             // 分类 tab（Tauri 顶栏 portal 的悬浮形态）：舞台顶部居中，与
-            // 左上连播胶囊同一行，显隐跟随悬浮层总闸；小屏不渲染。tab 的
+            // 左上连播胶囊同一行，显隐跟随悬浮层总闸；小屏不渲染。列表由
+            // 服务端下发（self.tabs，回落三件套见 feed::Source）。tab 的
             // 点击不能下传画面（触发暂停/选中）——拦截放进 on_click 里：
             // 同元素挂 on_mouse_down(stop) 会把 Button 内部的按下记录一并
             // 杀掉，点击就永远合成不出来（tab 点不动就是这么来的）
@@ -616,10 +617,10 @@ impl super::HomeView {
                     .right_0()
                     .justify_center()
                     .gap_2()
-                    .children(Source::ALL.map(|s| {
+                    .children(self.tabs.iter().cloned().map(|s| {
                         let active = s == self.active;
-                        let button = Button::new(format!("stage-tab-{}", s.label()))
-                            .label(s.label())
+                        let button = Button::new(format!("stage-tab-{}", s.as_str()))
+                            .label(self.tab_label(&s))
                             .small();
                         let button = if active {
                             button.secondary()
@@ -627,7 +628,7 @@ impl super::HomeView {
                             button.ghost()
                         };
                         button.on_click(cx.listener(move |this, _, _, cx| {
-                            this.switch_source(s, cx);
+                            this.switch_source(s.clone(), cx);
                             cx.stop_propagation();
                         }))
                     }))

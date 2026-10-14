@@ -310,8 +310,7 @@ impl Shell {
             .then(|| std::env::var("HONGGUO_TAB").ok())
             .flatten()
             .and_then(|v| match v.as_str() {
-                "36" => Some(crate::home::Source::Comic),
-                "39" => Some(crate::home::Source::Human),
+                "36" | "39" => Some(crate::home::Source::new(&v)),
                 _ => None,
             });
         let dest = if !crate::preview::is_active() && std::env::var("HONGGUO_RANK").is_ok() {

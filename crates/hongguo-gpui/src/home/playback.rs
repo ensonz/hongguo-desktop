@@ -105,8 +105,9 @@ impl super::HomeView {
         self.set_cursor(next);
         // 快滑到尾部：预取下一页
         let feed = self.feeds.get(&self.active).expect("源已初始化");
-        if feed.has_more && !feed.fetching_more && len - next <= 3 {
-            self.load_more(self.active, cx);
+        let should_load_more = feed.has_more && !feed.fetching_more && len - next <= 3;
+        if should_load_more {
+            self.load_more(self.active.clone(), cx);
         }
         if let Some(item) = self.display_items().get(next).cloned() {
             self.play_target(item, None, None, cx);

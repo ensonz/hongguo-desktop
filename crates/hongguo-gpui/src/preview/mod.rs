@@ -235,7 +235,7 @@ fn interaction_probe(
                 window.dispatch_event(input, cx);
             }
             let _ = window.draw(cx);
-            if shell.update(cx, |shell, cx| shell.active_source(cx)) != crate::home::Source::Feed {
+            if shell.update(cx, |shell, cx| shell.active_source(cx)) != crate::home::Source::recommend() {
                 return Some((x as f32, y));
             }
         }
@@ -248,7 +248,7 @@ fn interaction_probe(
     );
     let active = cx.update_window(handle, |_, _, cx| shell.update(cx, |s, cx| s.active_source(cx)))?;
     anyhow::ensure!(
-        active == crate::home::Source::Comic,
+        active == crate::home::Source::new("36"),
         "交互探针：首个翻源的 tab 应是「漫剧」（实际 {active:?}）"
     );
     log::info!(
