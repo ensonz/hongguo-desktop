@@ -24,6 +24,7 @@ mod home;
 mod http_client;
 mod image_upload;
 mod mini;
+mod play_activity;
 mod playback_prefs;
 mod preview;
 mod pages;

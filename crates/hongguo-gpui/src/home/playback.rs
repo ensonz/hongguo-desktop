@@ -148,6 +148,13 @@ impl super::HomeView {
                 item.title.as_str()
             }
         );
+        // 播放期系统活动断言（无条件持有，直到用户暂停）：无声/被遮挡/
+        // 后台的进程会被 macOS 深度节流——换集起播的 50ms 轮询实测被拉长
+        // 到 20s、GPUI 渲染循环整个停摆。断言必须挂在**节流打不到的入口**
+        // （用户/连播事件的 UI 路径），不能挂在 render——被节流的恰恰是
+        // render，翻沿永远走不到。暂停即释放（用户在场，恢复由
+        // toggle_pause 重新持有）。
+        crate::play_activity::set_active(true);
         self.switching = true;
         // 新一次起播尝试：清上一轮的失败态（自动重试的记账位只在引擎
         // 就位时复位——在这里也清会让「失败→重试→失败」死循环）

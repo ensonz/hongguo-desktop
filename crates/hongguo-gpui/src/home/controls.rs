@@ -211,8 +211,12 @@ impl super::HomeView {
         };
         if player.is_paused() {
             player.resume();
+            // 恢复播放重新持有活动断言（play_target 持有、用户暂停释放）
+            crate::play_activity::set_active(true);
         } else {
             player.pause();
+            // 暂停 = 用户在场，系统可以休眠；主流播放器同语义
+            crate::play_activity::set_active(false);
         }
         self.wake_controls(cx);
         cx.notify();
