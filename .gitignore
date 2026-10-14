@@ -43,3 +43,6 @@ skills-lock.json
 
 # 抓包工具链的本地 venv（captures/decode_flows.py 用，自己建）
 .venv-capture/
+
+
+src-tauri
