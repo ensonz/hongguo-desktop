@@ -101,6 +101,13 @@ export function HomePage() {
     comic: 0,
     human: 0,
   });
+  /** 「在播不动」闸门：换一批（重开会话）后的新列表通常不含在播剧，
+   *  把它钉在最前保住在播画面。跨 tab 切换必须关闸——否则在播剧占住
+   *  新源的第 0 位，播放器目标永远不换，看起来「点了没反应」；关闸后
+   *  新源首批一到，当前剧就落到该 tab 游标处，切 tab 即换片。
+   *  挂载默认开闸：从别的菜单回首页时在播剧往往不在信息流里，钉住它
+   *  才能「切菜单回来不换视频」。 */
+  const [pinHold, setPinHold] = useState(true);
 
   const feed = useFeed(FEED_TAB[source]);
   const prefetchEpisodes = usePrefetchSeriesEpisodes();
@@ -178,14 +185,19 @@ export function HomePage() {
     if (feed.isRefreshing || feed.isLoading) return;
     if (!(feed.dataUpdatedAt > 0 && Date.now() - feed.dataUpdatedAt > FEED_STALE_MS)) return;
     feed.restart();
-    // 游标归零放到微任务：effect 体里同步 setState 会触发 react-hooks 告警
-    queueMicrotask(() => setIndexes((prev) => ({ ...prev, [source]: 0 })));
+    // 钉住在播 + 游标归零一起放微任务：effect 体里同步 setState 会触发
+    // react-hooks 告警
+    queueMicrotask(() => {
+      setPinHold(true);
+      setIndexes((prev) => ({ ...prev, [source]: 0 }));
+    });
   }, [restored, playingId, feed, source, setIndexes]);
 
   // 在播剧置顶钉：换一批后的新列表里通常没有它，「在播不动」靠把它插
-  // 在最前（标题/封面从档案缓存取，缺失给占位——起播走 store 目标，不受影响）
+  // 在最前（标题/封面从档案缓存取，缺失给占位——起播走 store 目标，不受
+  // 影响）。只服务换一批/回首页场景，跨 tab 切换关闸（见 pinHold）。
   const playingPin = useMemo(() => {
-    if (!playingId || items.some((i) => i.seriesId === playingId)) return null;
+    if (!pinHold || !playingId || items.some((i) => i.seriesId === playingId)) return null;
     const cached = queryClient.getQueryData<Series>(keys.seriesEpisodes(playingId));
     return {
       seriesId: playingId,
@@ -196,7 +208,7 @@ export function HomePage() {
       seasonTag: undefined,
       badge: undefined,
     };
-  }, [playingId, items, queryClient]);
+  }, [pinHold, playingId, items, queryClient]);
   const displayItems = useMemo(
     () => (playingPin ? [playingPin, ...items] : items),
     [playingPin, items],
@@ -356,13 +368,17 @@ export function HomePage() {
   // 分类 tab 现已 portal 进 AppShell 顶栏（见 TopBarTabs），不再悬浮画面。
   // 样式与排行榜/新剧的内容 tab 同一套主题语义色——全应用一个 tab 语言，
   // 自动跟随亮暗主题。**重复点当前 tab = 换一批**（「再刷一组」的最直接
-  // 入口）：重开会话取服务端当前时间桶的新一批。
+  // 入口）：重开会话取服务端当前时间桶的新一批，在播剧钉住不动。
+  // 切到**别的** tab 则关掉在播钉：新源首批一到，当前剧即落到该 tab
+  // 游标处并接管播放——切 tab 就换片，而不是停在上一 tab 的剧上等滚动。
   const pickTab = (id: StreamSource) => {
     if (id === source) {
       feed.restart();
+      setPinHold(true);
       setIndexes((prev) => ({ ...prev, [id]: 0 }));
       return;
     }
+    setPinHold(false);
     setSource(id);
     try {
       window.localStorage.setItem(SOURCE_KEY, id);
