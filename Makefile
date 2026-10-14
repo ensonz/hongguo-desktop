@@ -30,6 +30,7 @@ gpui:
 # 离屏 UI 预览（screenshot feature）：无头渲染真实壳代码 + 假数据快照，
 # 逐场景存 PNG——各功能菜单的视觉验收依据。机制与边界见
 # crates/hongguo-gpui/src/preview/mod.rs 头注释。
+# windows不支持
 gpui-preview:
 	cargo run -p hongguo-gpui --features screenshot -- --render-preview /tmp/hongguo-gpui-preview
 
