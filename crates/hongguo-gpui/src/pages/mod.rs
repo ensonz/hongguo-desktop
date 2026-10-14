@@ -11,6 +11,7 @@ pub(crate) mod merge;
 pub(crate) mod liked;
 pub(crate) mod list_common;
 pub(crate) mod rank;
+pub(crate) mod reservations;
 pub(crate) mod storage;
 
 /// 页面卡面：Tauri Card 的 GPUI 对齐形态（圆角 12 + 边框 + 卡面底色 +

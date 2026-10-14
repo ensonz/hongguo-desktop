@@ -29,6 +29,7 @@ use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::collections::{CollectionEvent, CollectionView};
 use crate::pages::history::{HistoryEvent, HistoryView};
 use crate::pages::rank::RankView;
+use crate::pages::reservations::{ReservationEvent, ReservationView};
 use crate::pages::storage::StorageView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
@@ -112,6 +113,7 @@ impl Dest {
             Dest::Liked => Some(View::Liked),
             Dest::Collections => Some(View::Collections),
             Dest::History => Some(View::History),
+            Dest::Reservations => Some(View::Reservations),
             Dest::Storage => Some(View::Storage),
             Dest::Merge => Some(View::Merge),
             Dest::Detail => Some(View::Detail),
@@ -127,6 +129,7 @@ enum View {
     Liked,
     Collections,
     History,
+    Reservations,
     Storage,
     Merge,
     Detail,
@@ -142,6 +145,7 @@ pub struct Shell {
     liked: Entity<LikedView>,
     collections: Entity<CollectionView>,
     history: Entity<HistoryView>,
+    reservations: Entity<ReservationView>,
     storage: Entity<StorageView>,
     merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
@@ -156,6 +160,7 @@ impl Shell {
         let liked = cx.new(|cx| LikedView::new(state.clone(), window, cx));
         let collections = cx.new(|cx| CollectionView::new(state.clone(), window, cx));
         let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
+        let reservations = cx.new(|cx| ReservationView::new(state.clone(), window, cx));
         let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
         let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
@@ -191,6 +196,24 @@ impl Shell {
             this.start_play(series_id, vid_index, start_secs, cx);
         })
         .detach();
+        cx.subscribe(&reservations, |this, _, event: &ReservationEvent, cx| match event.clone() {
+            ReservationEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => this.start_play(series_id, vid_index, start_secs, cx),
+            ReservationEvent::OpenDetail { series_id, prefill } => {
+                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+            }
+            ReservationEvent::Login => {
+                // 切回首页开登录面板（Tauri 弹 LoginDialog 的同位入口）
+                this.dest = Dest::Home;
+                this.feed
+                    .update(cx, |home, cx| home.toggle_login_panel(cx));
+                cx.notify();
+            }
+        })
+        .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
         // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）。
         // 预览进程有自己的目的地种子，不吃这些环境变量（可能残留）
@@ -220,6 +243,7 @@ impl Shell {
             liked,
             collections,
             history,
+            reservations,
             storage,
             merge,
             detail: None,
@@ -375,6 +399,10 @@ impl Shell {
             self.dest = Dest::History;
             self.history
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("reservation") {
+            self.dest = Dest::Reservations;
+            self.reservations
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -458,6 +486,9 @@ impl Shell {
                             this.collections.update(cx, CollectionView::load)
                         }
                         Dest::History => this.history.update(cx, HistoryView::load),
+                        Dest::Reservations => {
+                            this.reservations.update(cx, ReservationView::load)
+                        }
                         Dest::Storage => this.storage.update(cx, StorageView::load),
                         Dest::Merge => this.merge.update(cx, MergeView::load),
                         _ => {}
@@ -595,6 +626,7 @@ impl Shell {
             Some(View::Liked) => self.liked.clone().into_any_element(),
             Some(View::Collections) => self.collections.clone().into_any_element(),
             Some(View::History) => self.history.clone().into_any_element(),
+            Some(View::Reservations) => self.reservations.clone().into_any_element(),
             Some(View::Storage) => self.storage.clone().into_any_element(),
             Some(View::Merge) => self.merge.clone().into_any_element(),
             Some(View::Detail) => self

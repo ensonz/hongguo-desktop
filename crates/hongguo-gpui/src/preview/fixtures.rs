@@ -10,6 +10,7 @@ use std::sync::Arc;
 use gpui_kit::RenderImage;
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
+use hongguo_api::calendar::CalendarItem;
 use hongguo_api::history::WatchHistoryItem;
 use hongguo_api::interact::{BookshelfEntry, InteractionItem};
 use hongguo_api::rank::RankItem;
@@ -160,6 +161,35 @@ pub(crate) fn watch_history_items() -> Vec<WatchHistoryItem> {
             duration_ms: 1_200_000,
             episode_cnt: 24 + i as i64 * 6,
             updated_at_ms: BASE_MS - i as i64 * 86_400_000,
+        })
+        .collect()
+}
+
+/// 预约页：一页预约条目（已上线带评分/播放数；待上线带上线时间）。
+pub(crate) fn reservation_items(online: bool) -> Vec<CalendarItem> {
+    const BASE_MS: i64 = 1_792_100_000_000;
+    SERIES
+        .iter()
+        .take(4)
+        .enumerate()
+        .map(|(i, (sid, title, heat))| CalendarItem {
+            series_id: (*sid).into(),
+            title: (*title).into(),
+            cover: String::new(), // 预览封面直接灌 covers
+            vid: String::new(),
+            score: if online { 8.6 - i as f64 * 0.3 } else { 0.0 },
+            play_cnt: if online { 4_030_000 + i as i64 * 120_000 } else { 0 },
+            episode_cnt: if online { 24 + i as u32 * 6 } else { 0 },
+            description: "战乱年代，一介孤女在渡口撑起商行，卷入朝堂风云。".into(),
+            category: "古装".into(),
+            rec_tags: vec![(*heat).into(), "权谋".into(), "大女主".into()],
+            publish_time: if online {
+                BASE_MS - (i as i64 + 1) * 86_400_000
+            } else {
+                BASE_MS + (i as i64 + 1) * 86_400_000 * 3
+            },
+            is_online: online,
+            has_subscribed: true,
         })
         .collect()
 }

@@ -299,6 +299,39 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "history-manage",
             font_scale: 1.,
         },
+        // —— 预约 ——
+        PreviewCase {
+            name: "reservation-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "reservation",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "reservation-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "reservation",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "reservation-offline-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "reservation-offline",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "reservation-empty-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "reservation-empty",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",
