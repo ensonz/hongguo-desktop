@@ -80,6 +80,72 @@ impl super::HomeView {
         }
     }
 
+    /// 离开首页的卸载清理（Tauri 路由切换 = 组件卸载的同语义）：强落进度、
+    /// 释放引擎、收起浮层。HomeView 实体常驻带来「信息流/游标/封面缓存不
+    /// 丢」，但 Tauri 卸载免费提供的停播面必须在这里补齐——不然解码、
+    /// 声音、自动连播、5 秒落盘在切走后照常跑（切菜单还在播的根源）。
+    /// 回流态不动：回首页由 [`Self::resume_if_idle`] 从落盘进度接上。
+    pub(crate) fn release_for_leave(&mut self, cx: &mut Context<Self>) {
+        if self.player.is_none() {
+            return;
+        }
+        // 先落进度再放引擎：读数来自句柄，Drop 之后就是 0 了
+        self.save_progress_now();
+        // 陈旧事件与在途起播任务按纪元弃置；句柄 Drop = 任务 abort、音频
+        // 设备释放、事件通道关闭（循环自灭）
+        self.epoch += 1;
+        self.player = None;
+        self.frame = None;
+        #[cfg(target_os = "windows")]
+        self.clear_frame_image();
+        self.switching = false;
+        self.buffering = false;
+        self.scrubbing = None;
+        self.silent_until_input = false;
+        self.controls_until = None;
+        self.pending_title = None;
+        self.close_overlays();
+        log::info!("[Home] 离开首页：引擎已释放，进度已落盘");
+        cx.notify();
+    }
+
+    /// 回到首页的续播（Tauri 重挂载「挂载默认开闸」同语义）：引擎不在
+    /// （被 [`Self::release_for_leave`] 释放 / 冷启动还没起）就按当前游标
+    /// 重走起点决策——`resolve_entry` 从落盘进度接上，同一部剧同一位置。
+    /// 信息流还没就位时不动，首批落定的冷启动钩子（after_feed_loaded）
+    /// 会接管。
+    pub(crate) fn resume_if_idle(&mut self, cx: &mut Context<Self>) {
+        if self.engine_ready() || self.switching {
+            return;
+        }
+        let Some(item) = self.display_items().get(self.cursor()).cloned() else {
+            return;
+        };
+        // 控制条亮一拍（Tauri 重挂载 chrome 初始可见同款）
+        self.controls_until = Some(Instant::now() + Self::CONTROLS_VISIBLE);
+        self.play_target(item, None, None, cx);
+    }
+
+    /// 收起全部浮层/弹层（卸载语义：Tauri 重挂载后一切面板都是关着的）。
+    fn close_overlays(&mut self) {
+        self.picker_open = false;
+        self.comments_panel_open = false;
+        self.downloads_open = false;
+        self.dm_panel_open = false;
+        self.dm_hovered = false;
+        self.dm_panel_hovered = false;
+        self.danmaku_emoji_open = false;
+        self.emoji_picker_open = false;
+        self.volume_popup_open = false;
+        self.volume_hovered = false;
+        self.volume_popup_hovered = false;
+        self.rate_menu_open = false;
+        self.definition_menu_open = false;
+        self.controls_hovered = false;
+        self.pointer_on_stage = false;
+        self.reply_to = None;
+    }
+
     /// 滚轮冷却裁决 + 记账：到点可切返回 true 并落章。只由滚轮路径调用    /// （键盘 ↑↓ 不吃这把锁）；换剧与连播切集共用——冷却原写在换剧分支
     /// 里，连播切集漏网，一次惯性滚动连跳好几集。
     pub(super) fn wheel_cooldown_ready(&mut self) -> bool {
@@ -134,11 +200,15 @@ impl super::HomeView {
         start_override: Option<f64>,
         cx: &mut Context<Self>,
     ) {
+        // 「在播不动」闸：目标就是在播的那部才拦。引擎不在（被
+        // `release_for_leave` 释放）时不算在播——回首页续播同部剧必须
+        // 放行重走起点决策，否则从落盘进度接上的通道永远打不开。
         if self
             .now
             .as_ref()
             .is_some_and(|n| n.series_id == item.series_id)
             && forced_next_ep.is_none()
+            && (self.engine_ready() || self.switching)
         {
             return;
         }

@@ -51,8 +51,8 @@ use hongguo_service::events::ServiceEvent;
 use tokio::sync::mpsc;
 
 use danmaku::DmFlight;
-use feed::{SourceFeed, StreamItem};
 pub(crate) use feed::Source;
+use feed::{SourceFeed, StreamItem};
 
 /// 首页发往壳的事件（页面间不互相持有，壳订阅后裁决目的地）。
 #[derive(Debug, Clone)]
@@ -72,6 +72,7 @@ pub(crate) mod fmt;
 pub(crate) mod incognito;
 pub(crate) mod interact;
 pub(crate) mod mini_panel;
+pub(crate) mod minimize;
 pub(crate) mod overlay;
 pub(crate) mod picker;
 pub(crate) mod playback;
@@ -135,8 +136,9 @@ pub struct HomeView {
     /// ——在播剧被换出列表时钉在最前，新批到位游标 0 仍是它，不切；跨 tab
     /// 切换关闸——新源首批到位即换游标处的剧（切 tab 就换片）。不关闸的话
     /// 钉子会占住新源的第 0 位，播放目标判「就是在播」而不切（点了没反应
-    /// 的根因）。HomeView 是常驻 Entity，「回首页不换片」由状态常驻天然
-    /// 满足，无需 Tauri 的重挂载恢复。
+    /// 的根因）。HomeView 实体常驻：信息流/游标/封面缓存跨目的地保留；
+    /// 播放器生命周期不保活——离开首页即释放（[`Self::release_for_leave`]），
+    /// 回首页按落盘进度续播（[`Self::resume_if_idle`]，Tauri 重挂载同语义）。
     pin_hold: bool,
     switching: bool,
     /// 当前可上屏的帧；`None` = 还没出画（画封面占位）。
@@ -315,6 +317,10 @@ pub struct HomeView {
     /// 隐身轮询任务在跑（防重复起；关开关后由下一拍自杀收位）。
     #[cfg(target_os = "windows")]
     incognito_polling: bool,
+    /// 最小化欠下的那次播放（Tauri owedPlay 同构，见 [`minimize`]）：
+    /// 最小化瞬间本来在播才记欠，还原补上。
+    #[cfg(target_os = "windows")]
+    minimize_owed: bool,
     /// 全屏中（Render 时从 window.is_fullscreen 读，切图标用）。
     fullscreen: bool,
     /// 小屏播放态（Tauri miniScreen 同款）：Some 是进入前的几何快照。
@@ -536,6 +542,8 @@ impl HomeView {
             incognito_owed: false,
             #[cfg(target_os = "windows")]
             incognito_polling: false,
+            #[cfg(target_os = "windows")]
+            minimize_owed: false,
             fullscreen: false,
             mini: None,
             immersive: false,
@@ -582,6 +590,12 @@ impl HomeView {
         #[cfg(not(target_os = "windows"))]
         if view.incognito {
             view.incognito = false;
+        }
+        // 最小化自动暂停监听（pauseOnMinimize，开关每拍现读）：同样要原生
+        // 句柄，预览/无头环境与 macOS 不起
+        #[cfg(target_os = "windows")]
+        if let Some(hwnd) = crate::win32::hwnd_of(window) {
+            view.spawn_minimize_poller(hwnd, cx);
         }
         // 下载队列恢复：running 视为中断改回 pending（Tauri bootstrap 同款），
         // 然后触发一轮调度把中断的任务续跑起来。库读取失败只记错误不拦
@@ -1013,8 +1027,7 @@ impl gpui_kit::Render for HomeView {
                             // seriesPanelOpen/downloading 的显式守卫；评论面板
                             // 在 Tauri 靠 data-wheel-block 拦——面板类统一在
                             // 舞台层守卫（条状区域见各自根节点的滚轮拦截）
-                            if this.picker_open || this.comments_panel_open || this.downloads_open
-                            {
+                            if this.picker_open || this.comments_panel_open || this.downloads_open {
                                 return;
                             }
                             // Tauri 同参：|Δy|<15 忽略；方向同 Tauri

@@ -98,7 +98,7 @@ impl super::HomeView {
     /// 倍速档位（与 Tauri 版 `player-controls.tsx` 的 RATES 完全一致）。
     const RATES: [f64; 6] = [0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
     /// 控制条可见时长：鼠标静止/无操作后自动隐藏。
-    const CONTROLS_VISIBLE: Duration = Duration::from_secs(3);
+    pub(super) const CONTROLS_VISIBLE: Duration = Duration::from_secs(3);
     /// 拖动中实时 seek 的最小间隔：引擎一次 seek = 冲流 + 解码器重建，
     /// 250ms 限频跟手又不拖垮供给（Tauri 侧浏览器自行合并，这里显式限）。
     const SCRUB_SEEK_MIN_INTERVAL: Duration = Duration::from_millis(250);
