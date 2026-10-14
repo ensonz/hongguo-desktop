@@ -15,14 +15,24 @@
 //! 播放（帧流 → GPU 纹理）是 §5.3 spike，另行立项。
 
 mod bridge;
+mod cover_img;
+mod danmaku_emoji;
+mod detail;
+mod emoji_files;
+mod events;
 mod home;
 mod http_client;
 mod image_upload;
+mod mini;
+mod play_activity;
 mod playback_prefs;
-mod rank;
+mod preview;
+mod pages;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod shell;
+#[cfg(target_os = "windows")]
+mod win32;
 
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -45,50 +55,97 @@ pub(crate) fn tokio() -> &'static tokio::runtime::Runtime {
 }
 
 fn main() {
+    // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。预览
+    // 模式同样要日志与 panic 留痕，所以这两样在数据根声明之前就位。
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // panic 留痕：音频设备回调等非主线程的 panic 会静默带走整条线程
+    // （实测：回调线程一死，声音原地消失、时钟冻结、界面无限「缓冲中」，
+    // 日志里却一片安静）。钩子让它至少留下现场，然后 abort 显性化。
+    std::panic::set_hook(Box::new(|info| {
+        log::error!(
+            "[Panic] 线程 {:?} panic：{info}",
+            std::thread::current().name().unwrap_or("<unnamed>")
+        );
+        std::process::abort();
+    }));
+    // 离屏预览：--render-preview <目录> 直接接管进程。必须在下方声明
+    // 交互壳数据根之前分发——preview::run 要把数据根指到预览专用目录
+    //（set_shell_data_root 是 OnceLock，只有第一次生效）。管线编在
+    // screenshot feature 里，裸构建给不出图，明确报错而不是静默忽略。
+    let preview_dir = preview::requested_dir();
+    #[cfg(feature = "screenshot")]
+    if let Some(dir) = preview_dir {
+        preview::run(&dir).expect("预览渲染失败");
+        return;
+    }
+    #[cfg(not(feature = "screenshot"))]
+    if preview_dir.is_some() {
+        eprintln!(
+            "--render-preview 需要 screenshot feature：\
+             cargo run -p hongguo-gpui --features screenshot -- --render-preview <目录>"
+        );
+        std::process::exit(2);
+    }
     // 独立数据根最先声明：GPUI 壳用与 Tauri 客户端平级的独立目录
     // （%APPDATA%\hongguo-gpui，与 hongguo-downloader 无任何交集），
     // 互不锁库（实测并存时后启动者因库锁直接退出）。
     hongguo_store::paths::set_shell_data_root("hongguo-gpui");
-    // 日志先于一切：装配失败的原因只在这里（与 Tauri 壳同一约定）。
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let state = build_app_state();
 
-    gpui_kit::application().run(move |cx| {
-        gpui_kit::init(cx);
-        // 封面是 CDN 签名 URL：gpui 图片缓存需要一个 HTTP 客户端才能拉远程资源。
-        http_client::ReqwestClient::install(cx);
-        // 客户端视觉身份是深色（与 Tauri 壳一致）；后续接跟随系统。
-        gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
-        let bounds = gpui_kit::Bounds::centered(
-            None,
-            gpui_kit::size(gpui_kit::px(1024.), gpui_kit::px(680.)),
-            cx,
-        );
-        // 默认构建用不到这个句柄（只有 screenshot feature 抓帧要），
-        // 关掉 feature 时按「有意不用」放行，别为一个变量把 feature 拧到反。
-        #[cfg_attr(
-            not(feature = "screenshot"),
-            expect(unused_variables, reason = "句柄只有 screenshot feature 用")
-        )]
-        let (shell_window, shell) = gpui_kit::open_window(
-            gpui_kit::WindowOptions {
-                window_bounds: Some(gpui_kit::WindowBounds::Windowed(bounds)),
-                // 标题空着的话任务栏是一条空白条目，用户根本认不出这个窗口
-                titlebar: Some(gpui_kit::TitlebarOptions {
-                    title: Some("红果".into()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            cx,
-            |_, cx| cx.new(|cx| shell::Shell::new(state.clone(), cx)),
-        )
-        .expect("窗口创建失败");
-        shell.update(cx, |shell, cx| shell.activate(cx));
-        // 图形链路取证：HONGGUO_SHOT=… 时进程内抓帧存 PNG（见截图模块头注释）
-        #[cfg(feature = "screenshot")]
-        screenshot::install(shell_window, cx);
-    });
+    // 资产源必须接上：gpui 的 SvgRenderer 从 App 的 AssetSource 读 SVG——
+    // 不接的话**所有纯图标按钮都是空壳**（按钮在、图标没了，实测控制条
+    // 只剩文字按钮可见）。注意用 AllAssets（完整 Lucide 目录）而不是
+    // Assets（那只是组件兼容默认子集 106 个，音量/弹幕/小窗/全屏等
+    // 图标不在其中，缺的就是它们）。
+    gpui_kit::application()
+        .with_assets(gpui_kit::assets::AllAssets)
+        .run(move |cx| {
+            gpui_kit::init(cx);
+            // 封面是 CDN 签名 URL：gpui 图片缓存需要一个 HTTP 客户端才能拉远程资源。
+            http_client::ReqwestClient::install(cx);
+            // 客户端视觉身份是深色（与 Tauri 壳一致）；后续接跟随系统。
+            gpui_kit::component::Theme::change(gpui_kit::component::ThemeMode::Dark, None, cx);
+            let bounds = gpui_kit::Bounds::centered(
+                None,
+                // 默认窗口与 Tauri conf 同参（1280×840，最小 1024×680）
+                gpui_kit::size(gpui_kit::px(1280.), gpui_kit::px(840.)),
+                cx,
+            );
+            // 默认构建用不到这个句柄（只有 screenshot feature 抓帧要），
+            // 关掉 feature 时按「有意不用」放行，别为一个变量把 feature 拧到反。
+            #[cfg_attr(
+                not(feature = "screenshot"),
+                expect(unused_variables, reason = "句柄只有 screenshot feature 用")
+            )]
+            let (shell_window, shell) = gpui_kit::open_window(
+                // 无边框（Tauri decorations:false 同款）：以组件库 TitleBar
+                // 的窗口选项为基底——标题栏自绘、拖拽与窗口钮走平台原生命中
+                // 测试（WindowControlArea → HTCAPTION/HTMINBUTTON/…）。
+                {
+                    let mut options = gpui_kit::component::TitleBar::window_options();
+                    options.window_bounds = Some(gpui_kit::WindowBounds::Windowed(bounds));
+                    // 标题空着的话任务栏是一条空白条目，用户根本认不出这个窗口
+                    options.titlebar = Some(gpui_kit::TitlebarOptions {
+                        title: Some("红果".into()),
+                        ..gpui_kit::component::TitleBar::title_bar_options()
+                    });
+                    options
+                },
+                cx,
+                |window, cx| {
+                    // 组件库管不到的最后一寸：WS_THICKFRAME 引出的 1px 系统
+                    // 边框线，按 DWM 边框色关掉（缩放/贴靠不受影响）
+                    #[cfg(target_os = "windows")]
+                    win32::hide_border(window);
+                    cx.new(|cx| shell::Shell::new(state.clone(), window, cx))
+                },
+            )
+            .expect("窗口创建失败");
+            shell.update(cx, |shell, cx| shell.activate(cx));
+            // 图形链路取证：HONGGUO_SHOT=… 时进程内抓帧存 PNG（见截图模块头注释）
+            #[cfg(feature = "screenshot")]
+            screenshot::install(shell_window, shell.clone(), cx);
+        });
 }
 
 /// 开库并组装全局状态。与 Tauri 壳的装配逐层同源：
@@ -114,7 +171,27 @@ fn build_app_state() -> Arc<AppStateInner> {
         "[Device] 现役档案 iid={}（{device_source}）",
         device.get("iid")
     );
-    Arc::new(AppStateInner::with_device(db, device))
+    let state = Arc::new(AppStateInner::with_device(db, device));
+    // 设置装载（Tauri bootstrap store.rs 步骤 2 同款）：db 里存过就装载并
+    // 归一化——登录账号（评论/回复的 isMine、发送、点赞全靠它）、下载根、
+    // 并发数都从这里来；gpui 壳此前没装载，这些一直是默认值。
+    match state.store.settings() {
+        Ok(Some(stored)) => {
+            let settings = hongguo_service::settings_service::normalize(stored).unwrap_or_default();
+            log::info!(
+                "[Store] 设置装载完成（账号={}）",
+                settings
+                    .account
+                    .as_ref()
+                    .map(|a| a.user_id.as_str())
+                    .unwrap_or("未登录")
+            );
+            state.replace_settings(settings);
+        }
+        Ok(None) => log::info!("[Store] 无存量设置，使用默认值"),
+        Err(e) => log::warn!("[Store] 设置装载失败，使用默认值: {e}"),
+    }
+    state
 }
 
 /// 开库；被锁时稍等重试一次（与 Tauri 壳同一口径）。

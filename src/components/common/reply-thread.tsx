@@ -64,12 +64,12 @@ const SKIN = {
     mention: '',
     meta: 'text-muted-foreground mt-0.5 flex items-center gap-3 text-[10px]',
     actionBtn: 'hover:text-foreground cursor-pointer',
-    deleteBtn: 'cursor-pointer hover:text-red-500',
+    deleteBtn: 'cursor-pointer hover:text-destructive',
     diggBtn:
       'text-muted-foreground hover:text-foreground flex shrink-0 cursor-pointer flex-col items-center gap-0.5 self-start',
-    diggLiked: 'text-red-500',
+    diggLiked: 'text-hot',
     heart: 'size-3',
-    heartLiked: 'fill-red-500 text-red-500',
+    heartLiked: 'fill-hot text-hot',
     keys: {
       replyToPrefix: 'detail.replyToPrefix',
       reply: 'detail.reply',
@@ -93,7 +93,7 @@ interface RowActions {
 
 /** 一条回复行：头像 / 昵称 / 表情文本 / 时间 / ♡（回复点赞与评论点赞同形态，
  *  object_id 传 reply_id）。自己的回复（userId 对上登录 uid）带删除入口。 */
-export function ReplyRow({
+function ReplyRow({
   reply,
   myUserId,
   variant,

@@ -10,7 +10,8 @@
 | 议题 | 状态 | 落点 |
 | --- | --- | --- |
 | 首页沉浸播放流（推荐/漫剧/真人三 tab、滚轮切剧、种子排前、起点决策） | ✅ | `src/home.rs` |
-| 播放引擎接入（HEVC/AAC 解码、音频时钟、倍速/seek/音量/静音、自动连播） | ✅ 本机可播 | `hongguo-playback` + `platform::mf` |
+| 播放引擎接入（HEVC/AAC 解码、音频时钟、倍速/seek/音量/静音、自动连播） | ✅ 本机可播 | `hongguo-playback` + `hongguo-media-platform-windows`（MF） |
+| 服务事件接线（架构二期）：登录 MFA / 下载状态随 `hongguo_service::events` 事件泵进视图 | ✅ | `src/events.rs`；下载调度与登录轮询的两份壳侧复刻已删 |
 | 排行榜视图（热度榜 10 部 + 封面） | ✅ | `src/rank.rs` |
 | 封面（首页切剧占位 + 榜单卡片，HEIC 三级阶梯） | ✅ 颜色/裁切均对 | `src/image_upload.rs`、`hongguo-media::bgra` |
 | 数据根独立（`%APPDATA%\hongguo-gpui`，与 Tauri 互不锁库） | ✅ | `src/main.rs`、`hongguo-store::paths` |

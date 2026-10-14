@@ -11,7 +11,7 @@ use super::discover::check_code;
 use super::rank::RANK_CELL_PATH;
 use hongguo_common::{AppError, AppResult};
 
-pub use model::RecommendTabConfig;
+pub use model::{FeedTabMeta, RecommendTabConfig};
 
 /// 拉一页首页推荐流（书城换一换，hgplayer RecommendTab 同源同流程）。
 ///
@@ -70,6 +70,91 @@ fn known_tab_config(tab: &str) -> Option<RecommendTabConfig> {
         cell_id: cell_id.into(),
         bookstore_id: bookstore_id.into(),
     })
+}
+
+/// 推荐 tab 在顶栏里的 tab_type：顶栏列表请求的源 tab（其响应 `tab_item[]`
+/// 即完整顶栏），也是种子语义的归属 tab（「你的内容」只进推荐 tab——壳侧口径）。
+const RECOMMEND_TAB_TYPE: &str = "16";
+
+/// 顶栏 tab 列表（服务端下发）。
+///
+/// 一次 cr=4 请求（推荐 tab）的 `tab_item[]` 就是完整顶栏：tab_type/title/
+/// 顺序即官方顶栏顺序，线格式见 [`FeedTabMeta`]（2026-10-15 官方抓包实锤；
+/// 非活跃 tab 的 bookstore_id 为 null，切换到该 tab 时它自己的 cr=4 才带）。
+/// 进程缓存按 [`TAB_CONFIG_TTL`] 节奏复验，重取失败沿用旧列表
+/// （stale-while-error）——运营调整晚一刻到达，好过顶栏整体报错。
+pub async fn fetch_feed_tabs(env: &ApiEnv) -> AppResult<Vec<FeedTabMeta>> {
+    if let Some(cached) = cached_feed_tabs() {
+        if cached.at.elapsed() < TAB_CONFIG_TTL {
+            return Ok(cached.tabs);
+        }
+        match request_bookstore_tab(RECOMMEND_TAB_TYPE, env).await {
+            Ok(value) => {
+                let tabs = parse_feed_tabs(&value)?;
+                log::info!("[Recommend] 顶栏列表复验更新（{} 个 tab）", tabs.len());
+                cache_feed_tabs_insert(tabs.clone());
+                return Ok(tabs);
+            }
+            Err(e) => {
+                log::warn!(
+                    "[Recommend] 顶栏列表复验失败（{e}），沿用 {:?} 前的旧值",
+                    cached.at.elapsed()
+                );
+                return Ok(cached.tabs);
+            }
+        }
+    }
+    let value = request_bookstore_tab(RECOMMEND_TAB_TYPE, env).await?;
+    let tabs = parse_feed_tabs(&value)?;
+    cache_feed_tabs_insert(tabs.clone());
+    Ok(tabs)
+}
+
+/// tab_item[] → 顶栏列表（保序）。缺 tab_type 的残缺条目跳过。
+fn parse_feed_tabs(value: &Value) -> AppResult<Vec<FeedTabMeta>> {
+    let tabs = value
+        .pointer("/data/tab_item")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AppError::Media("推荐 tab 响应缺 tab_item".into()))?;
+    Ok(tabs
+        .iter()
+        .filter_map(|t| {
+            let tab_type = flex_str(t.get("tab_type"))?;
+            Some(FeedTabMeta {
+                tab_type,
+                title: t
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                bookstore_id: flex_str(t.get("bookstore_id")).filter(|s| !s.is_empty()),
+            })
+        })
+        .collect())
+}
+
+/// 顶栏列表缓存（与 tab 配置同 TTL；stale-while-error）。
+#[derive(Clone)]
+struct CachedFeedTabs {
+    tabs: Vec<FeedTabMeta>,
+    at: std::time::Instant,
+}
+
+type FeedTabsCache = parking_lot::Mutex<Option<CachedFeedTabs>>;
+static FEED_TABS_CACHE: std::sync::OnceLock<FeedTabsCache> = std::sync::OnceLock::new();
+
+fn cache_feed_tabs_insert(tabs: Vec<FeedTabMeta>) {
+    *FEED_TABS_CACHE.get_or_init(FeedTabsCache::default).lock() = Some(CachedFeedTabs {
+        tabs,
+        at: std::time::Instant::now(),
+    });
+}
+
+fn cached_feed_tabs() -> Option<CachedFeedTabs> {
+    FEED_TABS_CACHE
+        .get_or_init(FeedTabsCache::default)
+        .lock()
+        .clone()
 }
 
 /// 配置进程内缓存（首页 cr=4 与翻页共享；失败回落抓包已知值）。
@@ -148,14 +233,9 @@ async fn resolve_tab_config(tab: &str, env: &ApiEnv) -> AppResult<RecommendTabCo
     Ok(value)
 }
 
-/// `GET bookmall/tab/v?client_req_type=4&tab_type=<T>` →（配置, 首页）。
-///
-/// hgplayer 切 tab 同款请求（2026-10-08 抓包锁定）。注意 tab_item 里的
-/// id 字段是 JSON 数字，容忍字符串形态。
-async fn fetch_tab_first_page(
-    tab: &str,
-    env: &ApiEnv,
-) -> AppResult<(RecommendTabConfig, super::discover::FeedPage)> {
+/// `GET bookmall/tab/v?client_req_type=4&tab_type=<T>` 并过业务 code 检查；
+/// tab 首页与顶栏列表走同一请求。
+async fn request_bookstore_tab(tab: &str, env: &ApiEnv) -> AppResult<Value> {
     let q: Vec<(String, String)> = [
         ("auth_aweme", "true"),
         ("auth_backward", "true"),
@@ -193,13 +273,27 @@ async fn fetch_tab_first_page(
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析推荐 tab 首页失败: {e}")))?;
     check_code(&value)?;
-    let flex_str = |v: Option<&Value>| -> Option<String> {
-        match v {
-            Some(Value::String(s)) => Some(s.clone()),
-            Some(Value::Number(n)) => Some(n.to_string()),
-            _ => None,
-        }
-    };
+    Ok(value)
+}
+
+/// tab_item 字段数字/字符串双形态，容忍后归一为字符串。
+fn flex_str(v: Option<&Value>) -> Option<String> {
+    match v {
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// `GET bookmall/tab/v?client_req_type=4&tab_type=<T>` →（配置, 首页）。
+///
+/// hgplayer 切 tab 同款请求（2026-10-08 抓包锁定）。注意 tab_item 里的
+/// id 字段是 JSON 数字，容忍字符串形态。
+async fn fetch_tab_first_page(
+    tab: &str,
+    env: &ApiEnv,
+) -> AppResult<(RecommendTabConfig, super::discover::FeedPage)> {
+    let value = request_bookstore_tab(tab, env).await?;
     let tabs = value
         .pointer("/data/tab_item")
         .and_then(Value::as_array)
@@ -414,12 +508,27 @@ fn recommend_feed_entry(raw: &Value) -> Option<super::discover::FeedItem> {
             .unwrap_or_default()
             .to_string(),
         horiz_cover: String::new(),
+        // 推荐位 vid 两个位置都见过：顶层 vid（2026-10-08 样本）与
+        // video_detail.video_list[0].vid（2026-10-14 实流，起点集）——
+        // 批量取流预取的 vid 源就是它，两级回落兜住
         vid: raw
             .get("vid")
             .map(|v| match v {
                 Value::Number(n) => n.to_string(),
                 Value::String(s) => s.clone(),
                 _ => String::new(),
+            })
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                det.and_then(|d| d.get("video_list"))
+                    .and_then(Value::as_array)
+                    .and_then(|arr| arr.first())
+                    .and_then(|v| v.get("vid"))
+                    .map(|v| match v {
+                        Value::Number(n) => n.to_string(),
+                        Value::String(s) => s.clone(),
+                        _ => String::new(),
+                    })
             })
             .unwrap_or_default(),
         episode_cnt: det
@@ -547,12 +656,58 @@ mod tests {
         assert_eq!(page.next_offset, 6);
         assert_eq!(page.session_id, "20261008181149086C4BCA8151179AD830");
     }
+
+    /// 顶栏列表解析（2026-10-15 官方实抓样本形状）：顺序即顶栏顺序
+    /// 关注/漫剧/真人剧/推荐，仅活跃 tab（16）带 bookstore_id，tab_type
+    /// 数字/字符串双形态，缺 tab_type 的残缺条目跳过。
+    #[test]
+    fn parses_feed_tab_bar() {
+        let value = serde_json::json!({
+            "data": { "tab_item": [
+                { "tab_type": 45, "title": "关注" },
+                { "tab_type": 36, "title": "漫剧", "bookstore_id": null },
+                { "tab_type": 39, "title": "真人剧" },
+                { "title": "缺 tab_type 的废条目" },
+                { "tab_type": "16", "title": "推荐", "bookstore_id": "7294257258253254693" }
+            ]}
+        });
+        let tabs = parse_feed_tabs(&value).unwrap();
+        assert_eq!(
+            tabs.iter().map(|t| t.tab_type.as_str()).collect::<Vec<_>>(),
+            ["45", "36", "39", "16"],
+            "保序且跳过残缺条目"
+        );
+        assert_eq!(tabs[0].title, "关注");
+        assert_eq!(tabs[0].bookstore_id, None, "游客态关注无数据面");
+        assert_eq!(tabs[1].bookstore_id, None);
+        assert_eq!(tabs[3].title, "推荐");
+        assert_eq!(
+            tabs[3].bookstore_id.as_deref(),
+            Some("7294257258253254693")
+        );
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod probe {
     use super::*;
     use crate::rank::probe::anon_env;
+
+    /// 顶栏列表直连实测（2026-10-15 官方抓包：游客拿到 45/36/39/16 四个
+    /// tab，顺序即官方顶栏，仅 16 带 bookstore_id）。
+    #[tokio::test]
+    #[ignore = "直连真实接口的探测用例"]
+    async fn probe_feed_tabs() {
+        let env = anon_env();
+        let tabs = fetch_feed_tabs(&env).await.expect("顶栏列表");
+        for t in &tabs {
+            println!(
+                "[tabs] tab_type={:<4} title={:<6} bookstore_id={:?}",
+                t.tab_type, t.title, t.bookstore_id
+            );
+        }
+        assert!(tabs.iter().any(|t| t.tab_type == RECOMMEND_TAB_TYPE));
+    }
 
     /// 首页推荐流两段式全链路（2026-10-08 抓 hgplayer 切「真人剧」tab +
     /// 滚动翻页实锤）：首页 `bookmall/tab cr=4`（每 tab 自带 bookstore_id/

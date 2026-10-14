@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/common/error-state';
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { PlayerView } from '@/features/player/components/player-page';
 import { play } from '@/service/commands';
 import {
@@ -11,41 +10,39 @@ import {
   useAccount,
   useBookshelf,
   useFeed,
+  useFeedTabs,
   usePrefetchSeriesEpisodes,
   useSeriesEpisodes,
   useSeriesProgress,
   useWatchHistory,
 } from '@/service/queries';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
+import { resolveResumeEntry } from '@/utils/resume-entry';
 import { usePlayerStore } from '@/stores/player';
 import { t } from '@/locales';
+/** 推荐流的「换一批」过期阈值（毫秒）：恢复游标后流数据比这更旧就整体
+ *  重开会话（hgplayer 换一批同款 reset 语义）。 */
+const FEED_STALE_MS = 5 * 60_000;
+/** 首帧未出画时兜底预取下一部流前的等待（毫秒）：给当前剧起播让路。 */
+const PREFETCH_FALLBACK_DELAY_MS = 8_000;
 import type { Series } from '@/service/schema';
-import { TABS, TopBarTabs } from './top-bar-tabs';
-import type { StreamSource } from './top-bar-tabs';
+import { RECOMMEND_TAB_TYPE, buildTabList } from './home-tabs';
+import { TopBarTabs } from './top-bar-tabs';
+import { BootSplash } from './boot-splash';
 
 /**
  * 首页：沉浸式播放器流（第三方同款形态）。
  *
- * 视频**铺满整页**，顶部居中是分类 tab 胶囊（推荐 / 漫剧 / 真人）——三者
- * 来自书城 cell 换一换的同一个接口（tab_type 16/36/39，hgplayer 首页同款
- * tab 表），内容随服务端时间桶轮换。滚轮 / ↑↓ 在当前源内切上一部/下一部
- * 剧；剧名/集数/简介叠加在画面左下，鼠标静止 3 秒连同互动栏一起淡出。
- * （hgplayer 的第四个 tab「关注」= 登录后的追更流，由收藏页承载，并且
- * 推荐 tab 头部已种入云端历史+书架，「你的内容」不缺位。）
+ * 视频**铺满整页**，顶部居中是分类 tab 胶囊——列表由服务端下发
+ * （bookmall/tab 响应 tab_item[]：tab_type/标题/顺序，拉取前/失败回落
+ * 本地三件套；关注一律不显示，追更由收藏页承载），内容随服务端时间桶
+ * 轮换。滚轮 / ↑↓ 在当前源内切上一部/下一部剧；剧名/集数/简介叠加在
+ * 画面左下，鼠标静止 3 秒连同互动栏一起淡出。
+ * （推荐 tab 头部已种入云端历史+书架，「你的内容」不缺位。）
  *
  * 切换要快：进入当前剧就预取相邻剧的分集档案；当前剧首帧一出画再预取
  * 下一部的流（后端瞄准续播集）——真正切过去时只剩取流时间。
  */
-
-/**
- * 推荐流源 → 书城 cell 换一换的 tab_type（hgplayer bookmall/tab 下发：
- * 推荐 16 / 漫剧 36 / 真人剧 39；关注 45 是登录后的追更流，由收藏页承载）。
- */
-const FEED_TAB: Record<StreamSource, string> = {
-  feed: '16',
-  comic: '36',
-  human: '39',
-};
 
 /** 源内一条：沉浸流只消费这几个身份字段。 */
 interface StreamItem {
@@ -64,14 +61,14 @@ interface StreamItem {
 
 const SOURCE_KEY = 'hongguo.feedSource';
 
-function readSource(): StreamSource {
+function readSource(): string {
   try {
-    const v = window.localStorage.getItem(SOURCE_KEY) as StreamSource | null;
-    if (v && TABS.some((t) => t.id === v)) return v;
+    const v = window.localStorage.getItem(SOURCE_KEY);
+    if (v) return v;
   } catch {
     // 读不到就用默认
   }
-  return 'feed';
+  return RECOMMEND_TAB_TYPE;
 }
 
 export function HomePage() {
@@ -87,15 +84,18 @@ export function HomePage() {
     }
   }, []);
 
-  const [source, setSource] = useState<StreamSource>(readSource);
+  const [source, setSource] = useState<string>(readSource);
   /** 每源独立游标：切 tab 回来还在上次刷到的位置。 */
-  const [indexes, setIndexes] = useState<Record<StreamSource, number>>({
-    feed: 0,
-    comic: 0,
-    human: 0,
-  });
+  const [indexes, setIndexes] = useState<Record<string, number>>({});
+  /** 「在播不动」闸门：换一批（重开会话）后的新列表通常不含在播剧，
+   *  把它钉在最前保住在播画面。跨 tab 切换必须关闸——否则在播剧占住
+   *  新源的第 0 位，播放器目标永远不换，看起来「点了没反应」；关闸后
+   *  新源首批一到，当前剧就落到该 tab 游标处，切 tab 即换片。
+   *  挂载默认开闸：从别的菜单回首页时在播剧往往不在信息流里，钉住它
+   *  才能「切菜单回来不换视频」。 */
+  const [pinHold, setPinHold] = useState(true);
 
-  const feed = useFeed(FEED_TAB[source]);
+  const feed = useFeed(source);
   const prefetchEpisodes = usePrefetchSeriesEpisodes();
   const setTarget = usePlayerStore((s) => s.setTarget);
   const playingId = usePlayerStore((s) => s.seriesId);
@@ -108,6 +108,22 @@ export function HomePage() {
   // 历史/书架条目没有横版封面，标题等 currentSeries 解析出来自然显示；
   // 未登录时种子为空，行为与从前一致。
   const { data: account } = useAccount();
+  // 顶栏 tab 列表（服务端下发；拉取前/失败回落三件套，见 buildTabList）
+  const { data: serverTabs } = useFeedTabs();
+  const homeTabs = useMemo(() => buildTabList(serverTabs), [serverTabs]);
+  // 服务端列表到手后校验持久化的选中 tab：被服务端撤掉（或登录态变化后
+  // 失去数据面的关注）就重置回推荐 tab，别停在拉不到数据的死 tab 上。
+  // 回落三件套期间不校验——持久化 id 可能是服务端新 tab，等真列表说话。
+  // 渲染期 setState（官方 adjust 模式，与下方游标恢复同款）：条件在重渲染
+  // 后自然为假，不会循环。
+  if (serverTabs?.length && !homeTabs.some((t) => t.id === source)) {
+    setSource(RECOMMEND_TAB_TYPE);
+    try {
+      window.localStorage.setItem(SOURCE_KEY, RECOMMEND_TAB_TYPE);
+    } catch {
+      // 存不进只影响下次启动
+    }
+  }
   const { data: history, isPending: historyPending } = useWatchHistory();
   const { data: bookshelf } = useBookshelf();
   const seedItems = useMemo<StreamItem[]>(() => {
@@ -134,7 +150,7 @@ export function HomePage() {
   // 是该类型的剧——种子(最近看过)排头会把刚看完的那部顶在前面，点 tab
   // 看起来毫无反应(实测:刚看完动漫点真人,头部还是那部动漫)。
   const items: StreamItem[] = useMemo(() => {
-    const activeSeeds = source === 'feed' ? seedItems : [];
+    const activeSeeds = source === RECOMMEND_TAB_TYPE ? seedItems : [];
     return [
       ...activeSeeds,
       ...feedItems
@@ -169,16 +185,21 @@ export function HomePage() {
   useEffect(() => {
     if (!restored || !playingId) return;
     if (feed.isRefreshing || feed.isLoading) return;
-    if (!(feed.dataUpdatedAt > 0 && Date.now() - feed.dataUpdatedAt > 5 * 60_000)) return;
+    if (!(feed.dataUpdatedAt > 0 && Date.now() - feed.dataUpdatedAt > FEED_STALE_MS)) return;
     feed.restart();
-    // 游标归零放到微任务：effect 体里同步 setState 会触发 react-hooks 告警
-    queueMicrotask(() => setIndexes((prev) => ({ ...prev, [source]: 0 })));
+    // 钉住在播 + 游标归零一起放微任务：effect 体里同步 setState 会触发
+    // react-hooks 告警
+    queueMicrotask(() => {
+      setPinHold(true);
+      setIndexes((prev) => ({ ...prev, [source]: 0 }));
+    });
   }, [restored, playingId, feed, source, setIndexes]);
 
   // 在播剧置顶钉：换一批后的新列表里通常没有它，「在播不动」靠把它插
-  // 在最前（标题/封面从档案缓存取，缺失给占位——起播走 store 目标，不受影响）
+  // 在最前（标题/封面从档案缓存取，缺失给占位——起播走 store 目标，不受
+  // 影响）。只服务换一批/回首页场景，跨 tab 切换关闸（见 pinHold）。
   const playingPin = useMemo(() => {
-    if (!playingId || items.some((i) => i.seriesId === playingId)) return null;
+    if (!pinHold || !playingId || items.some((i) => i.seriesId === playingId)) return null;
     const cached = queryClient.getQueryData<Series>(keys.seriesEpisodes(playingId));
     return {
       seriesId: playingId,
@@ -189,14 +210,14 @@ export function HomePage() {
       seasonTag: undefined,
       badge: undefined,
     };
-  }, [playingId, items, queryClient]);
+  }, [pinHold, playingId, items, queryClient]);
   const displayItems = useMemo(
     () => (playingPin ? [playingPin, ...items] : items),
     [playingPin, items],
   );
 
   // 游标越界(榜单/新剧源切换)夹到已加载尾部，后台翻页跟上。
-  const rawIndex = indexes[source];
+  const rawIndex = indexes[source] ?? 0;
   const index = Math.min(rawIndex, Math.max(0, displayItems.length - 1));
   const current = displayItems[index];
   const currentId = current?.seriesId;
@@ -259,23 +280,20 @@ export function HomePage() {
     if (playingId === currentSeries.seriesId) return;
     if (progressQuery.isPending || historyPending) return;
 
-    let idx = 1;
-    let positionMs = 0;
+    // >3 秒都续播（不看片尾）：本地档案优先，云端历史兜底（共享决策，
+    // 与详情页「继续看」/后端 resolve_entry 同口径）
+    const entry = resolveResumeEntry(
+      localProgress,
+      history?.items.find((i) => i.seriesId === currentSeries.seriesId),
+    );
 
-    // >3 秒都续播（不看片尾）：本地档案优先，云端历史兜底
-    if (localProgress && localProgress.currentTime > 3) {
-      idx = localProgress.vidIndex;
-    } else {
-      const h = history?.items.find((i) => i.seriesId === currentSeries.seriesId);
-      if (h && h.positionMs > 3000) {
-        idx = Math.max(1, h.vidIndex);
-        positionMs = h.positionMs;
-      }
-    }
-
-    setTarget(currentSeries.seriesId, idx);
-    if (positionMs > 3000) {
-      setResumeHint({ seriesId: currentSeries.seriesId, vidIndex: idx, positionMs });
+    setTarget(currentSeries.seriesId, entry?.index ?? 1);
+    if (entry && entry.positionMs > 0) {
+      setResumeHint({
+        seriesId: currentSeries.seriesId,
+        vidIndex: entry.index,
+        positionMs: entry.positionMs,
+      });
     }
   }, [
     currentSeries,
@@ -330,7 +348,7 @@ export function HomePage() {
   useEffect(() => {
     if (!nextItem || stageLive) return;
     const id = nextItem.seriesId;
-    const timer = setTimeout(() => prefetchStream(id), 8_000);
+    const timer = setTimeout(() => prefetchStream(id), PREFETCH_FALLBACK_DELAY_MS);
     return () => clearTimeout(timer);
   }, [nextItem, stageLive, prefetchStream]);
 
@@ -345,20 +363,24 @@ export function HomePage() {
   const step = (dir: 1 | -1) => {
     setIndexes((prev) => {
       const max = Math.max(0, items.length - 1);
-      return { ...prev, [source]: Math.min(Math.max(prev[source] + dir, 0), max) };
+      return { ...prev, [source]: Math.min(Math.max((prev[source] ?? 0) + dir, 0), max) };
     });
   };
 
   // 分类 tab 现已 portal 进 AppShell 顶栏（见 TopBarTabs），不再悬浮画面。
   // 样式与排行榜/新剧的内容 tab 同一套主题语义色——全应用一个 tab 语言，
   // 自动跟随亮暗主题。**重复点当前 tab = 换一批**（「再刷一组」的最直接
-  // 入口）：重开会话取服务端当前时间桶的新一批。
-  const pickTab = (id: StreamSource) => {
+  // 入口）：重开会话取服务端当前时间桶的新一批，在播剧钉住不动。
+  // 切到**别的** tab 则关掉在播钉：新源首批一到，当前剧即落到该 tab
+  // 游标处并接管播放——切 tab 就换片，而不是停在上一 tab 的剧上等滚动。
+  const pickTab = (id: string) => {
     if (id === source) {
       feed.restart();
+      setPinHold(true);
       setIndexes((prev) => ({ ...prev, [id]: 0 }));
       return;
     }
+    setPinHold(false);
     setSource(id);
     try {
       window.localStorage.setItem(SOURCE_KEY, id);
@@ -372,15 +394,14 @@ export function HomePage() {
   // 重试 = 重拉当前会话（失败重试不是换一批，keep 语义分离）
   const retrySource = () => feed.refresh();
 
-  // 切 tab 后新源首批在拉：**不整页换骨架屏**——store 里还播着上一部，
-  // 主树继续渲染 PlayerView 顶住画面，顶部细进度条已给「正在切换」反馈。
-  // 骨架屏只在冷启动（store 无目标、真的一无所有）才出现。
+  // 冷启动首批在拉：**不整页换骨架屏**——store 里还播着上一部（或冷启动
+  // 时连 store 目标都还没有），前者主树继续渲染 PlayerView 顶住画面 +
+  // 顶部细进度条，后者给品牌化启动画面（骨架黑砖在暗色下被感知成黑屏）。
   if (isLoading && items.length === 0 && !playingId) {
     return (
-      <div className="flex h-full flex-col gap-3 p-4">
-        <Skeleton className="min-h-0 flex-1 rounded-xl" />
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-3 w-2/3" />
+      <div className="relative h-full min-h-0 overflow-hidden">
+        <TopBarTabs tabs={homeTabs} source={source} onPick={pickTab} />
+        <BootSplash />
       </div>
     );
   }
@@ -432,7 +453,7 @@ export function HomePage() {
     // 还会把滚轮切剧吃掉——这里整个锁死在视口内。
     <div className="relative h-full min-h-0 overflow-hidden">
       {/* 分类 tab 进顶栏（薄行形态，画面上不再有悬浮 tab 层） */}
-      <TopBarTabs source={source} onPick={pickTab} />
+      <TopBarTabs tabs={homeTabs} source={source} onPick={pickTab} />
       {sourceBooting && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-50 h-0.5">
           <div className="hg-loadbar-track">

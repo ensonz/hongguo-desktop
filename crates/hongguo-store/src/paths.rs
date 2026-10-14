@@ -39,9 +39,6 @@ fn resolve_data_root(parent: &Path, declared: Option<&str>) -> PathBuf {
     }
 }
 
-/// 数据文件名。
-pub const DATA_FILE: &str = "data.json";
-
 /// 数据库文件名（M1 起的正式存储）。
 pub const DB_FILE: &str = "hongguo.db";
 
@@ -58,13 +55,6 @@ pub fn cover_cache_dir() -> PathBuf {
 /// 兼容转码缓存上限（沿用现版 4GB）。
 pub const COMPAT_CACHE_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
-/// 数据文件完整路径。
-///
-/// 仅剩两个用途：旧档迁移检测、测试。新代码一律写 [`db_file`]。
-pub fn data_file() -> PathBuf {
-    data_dir().join(DATA_FILE)
-}
-
 /// 数据库文件完整路径。
 pub fn db_file() -> PathBuf {
     data_dir().join(DB_FILE)
@@ -72,8 +62,8 @@ pub fn db_file() -> PathBuf {
 
 /// 单测期间把数据目录重定向到临时目录。
 ///
-/// 服务层的落盘路径是写死的 [`data_file`]，直接测「有没有真的写进磁盘」就会
-/// 写进用户真实的 `%APPDATA%/hongguo-downloader/data.json`，把下载记录冲掉。
+/// 服务层的落盘路径是写死的 [`data_dir`]，直接测「有没有真的写进磁盘」就会
+/// 写进用户真实的数据目录，把下载记录冲掉。
 ///
 /// `HONGGUO_DATA_DIR` 是进程级的：两个用例各改各的会互相把对方的路径顶掉，
 /// 于是「断言写到 A 目录」的用例读到的是 B 的文件。所以这里带一把全局锁，
@@ -124,10 +114,9 @@ mod tests {
     /// [`ScopedDataDir`] 改它。不拿同一把锁的话，一次断言里的两次读可能落到
     /// 两个不同目录上——随机失败（实测约 1/15 次）。
     #[test]
-    fn data_file_is_inside_data_dir() {
+    fn db_file_is_inside_data_dir() {
         let dir = std::env::temp_dir().join(format!("hg-paths-file-{}", std::process::id()));
         let _scope = ScopedDataDir::new(&dir);
-        assert_eq!(data_file(), dir.join(DATA_FILE));
         assert_eq!(db_file(), dir.join(DB_FILE));
     }
 

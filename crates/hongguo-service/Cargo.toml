@@ -8,10 +8,9 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-# 业务状态（AppState）经 Tauri 的 manage 注入；后台任务统一走
-# tauri::async_runtime（全局执行器，任意线程可调，无 Tokio 上下文的线程上
-# 也能安全 spawn——红线 1 的根基）。GPUI 壳直接消费本 crate 时同样可用。
-tauri = { version = "2", features = [] }
+# 业务状态（AppState）由壳装配（Tauri 经 manage 注入；GPUI 直接构造）。
+# 本 crate 不依赖任何 UI 框架：后台任务走 `runtime`（共用任务运行时），
+# 业务事件走 `events`（总线，壳各自订阅适配）。
 # 共用底座：领域模型 / 统一错误 / 纯工具 / 跨端常量。
 hongguo-common = { path = "../hongguo-common" }
 # 官方接口客户端。
@@ -27,7 +26,7 @@ hongguo-media-platform = { path = "../hongguo-media-platform" }
 # 在线流契约（渐进流填充、Range 线格式）。
 hongguo-stream = { path = "../hongguo-stream" }
 # MP4 容器解析（play_service 造解密计划：SparseBuffer / StreamingPlan）。
-hongguo-mp4 = { path = "../hongguo-mp4" }
+hongguo-video = { path = "../hongguo-video" }
 # 自定义协议的供数逻辑（play_service 构造 WebView 播放 URL：local_play_url /
 # stream_url——service→protocol 正向边，方向向下无环，见方案 §4.2 修正注）。
 hongguo-protocol = { path = "../hongguo-protocol" }
@@ -37,7 +36,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures-util = "0.3"
 # 异步运行时设施（Semaphore 门闸、sleep）——运行时内调用，与裸 spawn 的红线无涉。
-tokio = { version = "1", features = ["sync", "time"] }
+# 共用任务运行时（runtime 模块）需要 rt-multi-thread；sync/time 为既有用法。
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 chrono = "0.4"
 # HEVC 扩展安装包的完整性校验（capability_service 算文件 SHA-256）。
 sha2 = "0.11"
@@ -49,7 +49,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-# 本 crate 的测试要构造 MP4 样本，开启 hongguo-mp4 的测试辅助模块。
-hongguo-mp4 = { path = "../hongguo-mp4", features = ["test-support"] }
+# 本 crate 的测试要构造 MP4 样本，开启 hongguo-video 的测试辅助模块。
+hongguo-video = { path = "../hongguo-video", features = ["test-support"] }
 # 落盘用例要把数据目录重定向到临时目录（不能写进用户真实 %APPDATA%）。
 hongguo-store = { path = "../hongguo-store", features = ["test-support"] }

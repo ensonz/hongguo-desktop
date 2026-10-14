@@ -60,12 +60,15 @@ pub async fn fetch_related_series(
     .collect();
 
     let mut last = RelatedSeries::default();
-    for attempt in 0..4u8 {
+    /// 相关推荐的重试次数与递增退避（400/700/1000ms）。实测冷填充通常
+    /// 第二次就有数据，连冷到第四次极罕见（间隔拉长给服务端填充留时间）。
+    const PLAN_RETRY_ATTEMPTS: u8 = 4;
+    const PLAN_RETRY_BASE_MS: u64 = 400;
+    const PLAN_RETRY_STEP_MS: u64 = 300;
+    for attempt in 0..PLAN_RETRY_ATTEMPTS {
         if attempt > 0 {
-            // 递增退避：400/700/1000ms。实测冷填充通常第二次就有数据，
-            // 连冷到第四次极罕见（间隔拉长给服务端填充留时间）。
             tokio::time::sleep(std::time::Duration::from_millis(
-                400 + 300 * (attempt - 1) as u64,
+                PLAN_RETRY_BASE_MS + PLAN_RETRY_STEP_MS * (attempt - 1) as u64,
             ))
             .await;
         }
@@ -117,24 +120,8 @@ pub async fn fetch_series_meta(
     env: &super::client::ApiEnv,
 ) -> AppResult<SeriesMeta> {
     // body 照抄抓包（audit 纪律）：screen_width_px 是字符串形态
-    let body = serde_json::to_vec(&serde_json::json!({
-        "biz_param": {
-            "caller_scene": "single_col",
-            "detail_page_version": 1,
-            "disable_digg_stat": false,
-            "disable_video_relate_book": false,
-            "from_video_id": "",
-            "need_all_video_definition": false,
-            "need_mp4_align": false,
-            "screen_width_px": "1078",
-            "source": 4,
-            "use_os_player": false,
-            "use_server_dns": false,
-            "video_id_type": 1,
-        },
-        "series_id": series_id,
-    }))
-    .map_err(|e| AppError::Signer(e.to_string()))?;
+    let body = serde_json::to_vec(&crate::params::video_detail_payload(series_id))
+        .map_err(|e| AppError::Signer(e.to_string()))?;
 
     let bytes = super::client::api_call(VIDEO_DETAIL_PATH, Some(body), env).await?;
     let value: Value = serde_json::from_slice(&bytes)

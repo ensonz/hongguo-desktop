@@ -5,7 +5,8 @@
 //!
 //! ## 为什么到处是 owned
 //!
-//! 任务体跑在 `tauri::async_runtime::spawn` 里，要求整个 future 是 `Send`。
+//! 任务体跑在共用任务运行时的 `spawn` 里（见 [`crate::runtime`]），
+//! 要求整个 future 是 `Send`。
 //! 本模块大量使用 `parking_lot` 的锁，其 guard **不是 `Send`**——只要 guard
 //! 存活跨越 `.await`，编译器就会拒绝。因此：
 //!
@@ -17,18 +18,22 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter};
 
 use crate::app_state::AppState;
-use crate::download_service::events::{ProgressThrottle, names};
+use crate::download_service::events::ProgressThrottle;
 use crate::download_service::worker::{self, EpisodeDownload, ProgressSink};
+use crate::events::ServiceEvent;
 use hongguo_common::model::DownloadTask;
 use hongguo_common::{AppError, AppResult};
 
 /// 调度器。
 pub struct DownloadScheduler {
-    /// 一键暂停时置位，让在途任务尽快收尾
+    /// 一键暂停时置位，让在途任务尽快收尾（同时阻断新派发）
     cancel: Arc<AtomicBool>,
+    /// 每任务取消位（单个停止用）：任务 id → 标志。
+    /// 任务收尾时移除；[`Self::cancel_task`] 对尚未登记的任务先建后置位，
+    /// 把「已派发、未开跑」的窗口也盖住。
+    flags: Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
     /// 正在运行的任务数
     running: Arc<Mutex<usize>>,
     throttle: Arc<ProgressThrottle>,
@@ -45,14 +50,18 @@ impl DownloadScheduler {
     pub fn new() -> Self {
         Self {
             cancel: Arc::new(AtomicBool::new(false)),
+            flags: Mutex::new(std::collections::HashMap::new()),
             running: Arc::new(Mutex::new(0)),
             throttle: Arc::new(ProgressThrottle::default()),
         }
     }
 
-    /// 一键暂停：置取消位。
+    /// 一键暂停：置全局取消位，并让在途任务尽快收尾。
     pub fn pause_all(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        for flag in self.flags.lock().values() {
+            flag.store(true, Ordering::SeqCst);
+        }
     }
 
     /// 一键启动：清取消位。
@@ -65,11 +74,23 @@ impl DownloadScheduler {
         self.cancel.load(Ordering::SeqCst)
     }
 
+    /// 取消单个任务（真实取消：在途 worker 在下个分片检查点退出）。
+    ///
+    /// 对尚未登记的任务先建后置位——「已派发、未开跑」的窗口里，
+    /// 标志会被 [`Self::execute_inner`] 读到并立即按取消收尾。
+    pub fn cancel_task(&self, id: &str) {
+        self.flags
+            .lock()
+            .entry(id.to_string())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .store(true, Ordering::SeqCst);
+    }
+
     /// 调度一轮：把能跑的任务派出去。
     ///
     /// 在「启动、提交、恢复」时调用；每个任务完成时会自动再触发下一轮
     /// （见 [`Self::execute`] 末尾的 [`Self::reschedule`]）。
-    pub async fn run_once(self: &Arc<Self>, app: AppHandle, state: AppState) {
+    pub async fn run_once(self: &Arc<Self>, state: AppState) {
         if self.is_cancelled() {
             return;
         }
@@ -79,10 +100,9 @@ impl DownloadScheduler {
 
         for task in pending {
             let sched = Arc::clone(self);
-            let app2 = app.clone();
             let state2 = Arc::clone(&state);
-            tauri::async_runtime::spawn(async move {
-                sched.execute(app2, state2, task).await;
+            crate::runtime::spawn(async move {
+                sched.execute(state2, task).await;
             });
         }
     }
@@ -91,10 +111,10 @@ impl DownloadScheduler {
     ///
     /// 单独抽出来是为了断开递归类型：`execute` 不直接 `await` `run_once`，
     /// 否则两者的 opaque future 会形成环，编译器无法确定大小。
-    fn reschedule(self: &Arc<Self>, app: AppHandle, state: AppState) {
+    fn reschedule(self: &Arc<Self>, state: AppState) {
         let sched = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
-            sched.run_once(app, state).await;
+        crate::runtime::spawn(async move {
+            sched.run_once(state).await;
         });
     }
 
@@ -125,61 +145,76 @@ impl DownloadScheduler {
     }
 
     /// 执行单个任务并收尾。
-    async fn execute(self: Arc<Self>, app: AppHandle, state: AppState, task: DownloadTask) {
+    async fn execute(self: Arc<Self>, state: AppState, task: DownloadTask) {
         // 编译期自检：断言 execute_inner 的 future 是 Send，
         // 这样一旦某天又引入非 Send 的持有物，报错会精确指向这一行，
         // 而不是外层 spawn 那行。
         fn assert_send<T: Send>(_: &T) {}
-        let fut = self.execute_inner(app.clone(), state.clone(), task);
+        let fut = self.execute_inner(state.clone(), task);
         assert_send(&fut);
         fut.await;
     }
 
-    async fn execute_inner(self: Arc<Self>, app: AppHandle, state: AppState, task: DownloadTask) {
+    async fn execute_inner(self: Arc<Self>, state: AppState, task: DownloadTask) {
         let id = task.id.clone();
         let queue = state.queue();
-        let result = run_one(Arc::clone(&self), &app, &state, &task).await;
+        // 每任务取消位：本任务这一轮的标志（worker 在分片边界读取）。
+        // 停止命令可能先于本行到达（cancel_task 先建后置位），所以用
+        // entry 取现值，不覆盖已有的 true。
+        let flag = self
+            .flags
+            .lock()
+            .entry(id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        // 暂停发生在「已派发、未开跑」的窗口：不进入下载，直接按取消收尾
+        if self.is_cancelled() {
+            flag.store(true, Ordering::SeqCst);
+        }
+        let result = run_one(Arc::clone(&self), &state, &task, &flag).await;
+        self.flags.lock().remove(&id);
 
         match result {
             Ok((path, size)) => {
                 queue.mark_completed(&id, &path, size);
                 self.throttle.forget(&id);
-                let _ = app.emit(
-                    names::DOWNLOAD_COMPLETED,
-                    &super::events::TaskEvent { id: id.clone() },
-                );
+                state
+                    .events()
+                    .publish(ServiceEvent::DownloadCompleted(super::events::TaskEvent {
+                        id: id.clone(),
+                    }));
             }
             Err(e) => {
                 if is_cancelled(&e) {
                     queue.mark_stopped(&id);
                     self.throttle.forget(&id);
-                    let _ = app.emit(names::DOWNLOAD_STOPPED, &super::events::TaskEvent { id });
+                    state.events().publish(ServiceEvent::DownloadStopped(
+                        super::events::TaskEvent { id },
+                    ));
                 } else {
                     // 队列里记 i18n key，不记「网络请求失败: dns 错误」这种人话：
                     // `DownloadTask.error` 是被前端直接渲染的，底层细节只该进日志。
                     log::error!("[Download] 任务 {id} 失败: {e}");
                     queue.mark_failed(&id, e.i18n_key());
                     self.throttle.forget(&id);
-                    let _ = app.emit(
-                        names::DOWNLOAD_FAILED,
-                        &super::events::TaskFailureEvent {
+                    state.events().publish(ServiceEvent::DownloadFailed(
+                        super::events::TaskFailureEvent {
                             id,
                             error: e.to_string(),
                         },
-                    );
+                    ));
                 }
             }
         }
 
         *self.running.lock() -= 1;
-        let _ = app.emit(
-            names::DOWNLOAD_QUEUE_CHANGED,
-            &super::events::QueueChangedEvent {},
-        );
+        state.events().publish(ServiceEvent::DownloadQueueChanged(
+            super::events::QueueChangedEvent {},
+        ));
         persist(&state);
 
         // 继续派发下一个（走 reschedule 断开递归类型）
-        self.reschedule(app, state);
+        self.reschedule(state);
     }
 }
 
@@ -191,10 +226,14 @@ fn is_cancelled(e: &AppError) -> bool {
 /// 一集的完整流程：取流地址 → 下载 → 解密。
 async fn run_one(
     sched: Arc<DownloadScheduler>,
-    app: &AppHandle,
     state: &AppState,
     task: &DownloadTask,
+    cancel: &AtomicBool,
 ) -> AppResult<(String, u64)> {
+    // 停止/暂停可能在派发后、取流前到达：不再发起任何网络请求
+    if cancel.load(Ordering::SeqCst) {
+        return Err(AppError::Cancelled);
+    }
     let settings = state.settings();
 
     // 1) 取流地址（签名 + 清晰度择优）
@@ -230,27 +269,26 @@ async fn run_one(
         encrypted: play.encrypted,
         key_material: play.key_material,
         settings,
-        cancelled: &sched.cancel,
+        cancelled: cancel,
     };
 
     // 进度回调：在闭包内部取 queue，避免 guard 跨越 await
     let queue = state.queue();
     let task_id = task.id.clone();
-    let app = app.clone();
+    let events = state.events().clone();
     let on_progress = move |downloaded: u64, total: u64| {
         queue.update_progress(&task_id, downloaded, total);
         // 百分比只有 [`DownloadTask::percent`] 一个口径：调度器自己再算一遍
         // 的话，clamp 之类的修正迟早会只落在一处
         let percent = queue.get(&task_id).map(|t| t.percent()).unwrap_or(0.0);
-        let _ = app.emit(
-            names::DOWNLOAD_PROGRESS,
-            &super::events::ProgressEvent {
+        events.publish(ServiceEvent::DownloadProgress(
+            super::events::ProgressEvent {
                 id: task_id.clone(),
                 downloaded,
                 total,
                 percent,
             },
-        );
+        ));
     };
     let sink = ProgressSink {
         throttle: Arc::clone(&sched.throttle),
@@ -289,6 +327,29 @@ mod tests {
         let c = Arc::clone(&s);
         c.cancel.store(true, Ordering::SeqCst);
         assert!(s.is_cancelled(), "克隆应共享同一标志");
+    }
+
+    #[test]
+    fn cancel_task_survives_the_dispatch_window() {
+        // 停一个「已派发、未开跑」的任务：先建后置位，登记时不得被覆盖
+        let s = DownloadScheduler::new();
+        s.cancel_task("t1");
+        let flag = s
+            .flags
+            .lock()
+            .entry("t1".into())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone();
+        assert!(flag.load(Ordering::SeqCst), "登记不得把停止位覆盖掉");
+    }
+
+    #[test]
+    fn pause_all_cancels_in_flight_tasks() {
+        let s = DownloadScheduler::new();
+        let flag = Arc::new(AtomicBool::new(false));
+        s.flags.lock().insert("t".into(), Arc::clone(&flag));
+        s.pause_all();
+        assert!(flag.load(Ordering::SeqCst), "在途任务的取消位要被暂停置位");
     }
 
     #[test]

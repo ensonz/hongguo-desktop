@@ -15,16 +15,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 /// 存设置（立即生效，无需重启）。
 #[tauri::command]
 pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
-    let normalized = hongguo_service::settings_service::normalize(settings)?;
-
-    state.replace_settings(normalized.clone());
-    // 并发上限立即应用到调度器
-    state.queue().set_limit(normalized.max_concurrency);
-
-    // 落库
-    state.store.save_settings(&normalized)?;
-
-    Ok(normalized)
+    hongguo_service::settings_service::save(state.inner(), settings)
 }
 
 /// 测试代理连通性。

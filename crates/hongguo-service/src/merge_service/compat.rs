@@ -42,9 +42,9 @@ pub fn compat_merge(
     }
 
     let settings = state.settings();
-    let dir = settings.series_dir(output_name);
-    std::fs::create_dir_all(&dir).map_err(|e| AppError::Io(e.to_string()))?;
-    let output = dir.join(format!("{output_name} 合集.mp4"));
+    let output = super::output_file(&settings, output_name);
+    std::fs::create_dir_all(output.parent().expect("产物必有父目录"))
+        .map_err(|e| AppError::Io(e.to_string()))?;
     let total = inputs.len();
 
     // 逐集转码到缓存，再把缓存产物流复制拼接。

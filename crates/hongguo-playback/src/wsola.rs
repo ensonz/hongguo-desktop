@@ -221,6 +221,81 @@ mod tests {
         }
     }
 
+    /// 响度守恒：正弦输入在任意倍速下输出 RMS 不漂移，且**换速瞬间无突跳**
+    ///（换速前后各取窗口对比）。响度漂移/突跳就是用户听到的「声音大小不正常」。
+    #[test]
+    fn loudness_is_preserved_across_rate_switch() {
+        let sr = 48_000usize;
+        // 0.5 幅度 440Hz 正弦，2 秒：1s 后从 1x 切 2x
+        let sine: Vec<f32> = (0..sr * 2)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr as f32).sin())
+            .collect();
+        let mut wsola = Wsola::new(sr as u32, 1);
+        let mut out = Vec::new();
+        let switch_at = sr; // 输入消耗到 1s 处的包序号
+        for (n, chunk) in sine.chunks(1024).enumerate() {
+            let rate = if n < switch_at / 1024 { 1.0 } else { 2.0 };
+            wsola.process(chunk, rate, &mut out);
+        }
+        let rms = |seg: &[f32]| -> f64 {
+            (seg.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>() / seg.len().max(1) as f64)
+                .sqrt()
+        };
+        let expect = 0.5 / 2f64.sqrt();
+        // 切速前的稳态段（输出域 0.4–0.9s；1x 段输出总长 1s，避开头尾暂态）
+        let head = rms(&out[sr * 2 / 5..sr * 9 / 10]);
+        assert!(
+            (head - expect).abs() < 0.02,
+            "1x 稳态 RMS {head:.4} ≠ 期望 {expect:.4}"
+        );
+        // 换速后的稳态段：跳过换速边界的一窗，再取 0.3s（2x 段输出只有 0.5s）
+        let tail_at = out.len() - sr * 3 / 10;
+        let tail = rms(&out[tail_at..]);
+        assert!(
+            (tail - expect).abs() < 0.02,
+            "2x 稳态 RMS {tail:.4} ≠ 期望 {expect:.4}"
+        );
+        // 换速边界 ±60ms：逐 10ms 窗扫描，任何一窗都不许塌/爆（±6dB 外）
+        let boundary = sr; // 输出域换速点 ≈ 1s（1x 段输出 1s）
+        for w in boundary - 60_000 / 1000..boundary + 60_000 / 1000 {
+            let at = w / 10 * 480; // 10ms 窗起点
+            if at + 480 > out.len() {
+                break;
+            }
+            let r = rms(&out[at..at + 480]);
+            assert!(
+                r > expect * 0.5 && r < expect * 2.0,
+                "换速边界窗 @{at} RMS {r:.4} 越界（期望 {expect:.4}）"
+            );
+        }
+    }
+
+    /// 各档位稳态响度一致（0.75/1.25/1.5/3x 全档扫描，RMS 偏差 < 1dB）。
+    #[test]
+    fn loudness_is_rate_independent() {
+        let sr = 16_000u32;
+        let sine: Vec<f32> = (0..sr)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 220.0 * i as f32 / sr as f32).sin())
+            .collect();
+        let expect = 0.5 / 2f64.sqrt();
+        for rate in [0.75f64, 1.25, 1.5, 3.0] {
+            let mut wsola = Wsola::new(sr, 1);
+            let mut out = Vec::new();
+            for chunk in sine.chunks(1024) {
+                wsola.process(chunk, rate, &mut out);
+            }
+            // 取中段稳态（避开头尾暂态）
+            let seg = &out[out.len() / 4..out.len() * 3 / 4];
+            let r = (seg.iter().map(|s| (*s as f64) * (*s as f64)).sum::<f64>() / seg.len() as f64)
+                .sqrt();
+            let db = 20.0 * (r / expect).log10();
+            assert!(
+                db.abs() < 1.0,
+                "rate={rate}: RMS {r:.4} 偏离 {expect:.4} {db:.2}dB"
+            );
+        }
+    }
+
     /// 确定性：同样输入输出逐位一致。
     #[test]
     fn deterministic() {

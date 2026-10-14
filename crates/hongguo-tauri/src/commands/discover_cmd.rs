@@ -5,9 +5,17 @@ use tauri::State;
 use hongguo_api::discover::{
     BrowseFilters, FeedPage, SelectorRow, fetch_browse, fetch_browse_panel,
 };
-use hongguo_api::recommend::fetch_recommend_feed;
+use hongguo_api::recommend::{FeedTabMeta, fetch_feed_tabs, fetch_recommend_feed};
 use hongguo_common::AppResult;
 use hongguo_service::app_state::AppState;
+
+/// 拉首页顶栏 tab 列表（服务端下发 tab_type/标题/顺序，回落三件套在壳侧）。
+/// 关注 45 需登录才有数据面，显隐由壳按登录态过滤，这里原样透传。
+#[tauri::command]
+pub async fn recommend_tabs(state: State<'_, AppState>) -> AppResult<Vec<FeedTabMeta>> {
+    let env = state.api_env();
+    fetch_feed_tabs(&env).await
+}
 
 /// 拉找剧筛选面板（八行维度选项，选项表随服务端运营变化，不落死）。
 #[tauri::command]

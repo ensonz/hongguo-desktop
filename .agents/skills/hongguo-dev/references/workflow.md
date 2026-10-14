@@ -1,4 +1,6 @@
-# 开发流程（环境 / 命令 / 调试 / 提交 / 发版）
+# 开发流程（环境 / 命令 / 调试 / 提交 / 发版）——两壳共用
+
+Tauri 壳与 GPUI 壳共用的流程在本文件；壳专属部分：Tauri 的 WebView 调试与发版在本文件，GPUI 壳的全部（开发 / 界面规范 / 验收 / 已知坑）见 `references/gpui.md`。
 
 ## 环境准备
 
@@ -13,6 +15,8 @@ Makefile 是入口（`make help` 看全量）：
 | 命令                           | 作用                                                          |
 | ------------------------------ | ------------------------------------------------------------- |
 | `make dev`                     | `pnpm tauri dev`，Vite + Tauri 联调                           |
+| `make gpui`                    | 启动 GPUI 壳（与 Tauri dev 并存，数据根平级分离不撞库）       |
+| `make gpui-preview`            | GPUI 壳离屏预览矩阵出 PNG——界面改动的标准验收（见 `gpui.md`） |
 | `make build`                   | 前端产物（`tsc -b && vite build`）                            |
 | `make test` / `make test-rust` | vitest / cargo test                                           |
 | `make lint`                    | **质量闸门、一票否决**：ESLint + Prettier + cargo clippy×3    |
@@ -33,7 +37,7 @@ Makefile 是入口（`make help` 看全量）：
 
 ## 调试
 
-### WebView 前端（首选 CDP，详见 docs/webview-cdp-testing.md）
+### WebView 前端（Tauri 壳；首选 CDP，详见 docs/webview-cdp-testing.md）
 
 ```bash
 # 环境变量必须在 app 进程启动前设置（WebView2 由 app 派生，继承 env）
@@ -53,9 +57,13 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 - CDP 与 computer-use 分工：CDP 够用就 CDP（DOM/网络/求值可断言）；原生窗口装饰、系统对话框、无 CDP 的已运行实例才走 computer-use。
 - 已知坑：纯数字 search 参数会被 JSON.parse 成 number——新路由照抄 `/detail` 的 `validateSearch` 兜底；视频帧进不了截图（WebView 合成层），播放验证用 `requestVideoFrameCallback`。
 
+### GPUI 壳
+
+见 `references/gpui.md`（GPUI 壳规范的唯一归属）：`make gpui-preview` 离屏预览矩阵是界面改动的标准验收，运行中窗口取证走 `screenshot.rs`（HONGGUO_SHOT）。
+
 ### Rust 后端
 
-- `RUST_LOG=debug` 看日志；诊断快照见 `src-tauri/src/diagnostics.rs`。
+- `RUST_LOG=debug` 看日志；诊断快照见 `crates/hongguo-tauri/src/diagnostics.rs`。
 - 单测过滤：`cargo test --lib <模块路径>`（在仓库根跑）；e2e：`HONGGUO_E2E_DIR=<目录> cargo test --lib testing::media_pipeline_e2e -- --nocapture`。
 - 网络请求问题先读 `docs/hongguo-api-endpoints.md` 的坑清单（签名失效返回 200+0 字节、send_code type=1 vs 3731 等）。
 
@@ -68,16 +76,17 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 - **提交前的门禁命令必须裸跑确认退出码**——`pnpm x | tail && commit` 这类管道会吞掉失败，曾把坏状态带进提交。Windows 下写文件后有可见性延迟：写完等 1 秒再验证。
 - 每 commit 编译绿：前端 `pnpm typecheck && pnpm test && pnpm lint`；后端 `cargo check && cargo test`。阶段收尾跑 `make lint` 全闸门 + `pnpm build`。
 - 播放器（features/player）改动收尾做冒烟：首页→详情→起播→切集/清晰度→弹幕。
+- `crates/hongguo-gpui` 界面改动收尾：`make gpui-preview` 目检受影响场景（规范见 `references/gpui.md`）；动了场景矩阵/种子分发再跑 `cargo test -p hongguo-gpui --test preview_scenes`。
 
-## 发版
+## 发版（仅 Tauri 壳；GPUI 壳暂未入发布管线）
 
 1. **发版走 GitHub CI（release.yml），本地不跑 `make release`**——推 `vX.Y.Z` tag 即触发：三平台矩阵构建 + 上传安装包与 `.sig`，收尾组装 updater `latest.json` 与 SHA256SUMS。
-2. **每次发版先改版本号文件再提交、再打 tag**：`package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.toml` 三处同值，跑 `cargo update -p hongguo-desktop` 同步 Cargo.lock 一并提交（`chore(release): vX.Y.Z`）。CI 构建前还会把 tag 号写进 tauri.conf.json，版本号唯一来源是 tag。
+2. **每次发版先改版本号文件再提交、再打 tag**：`package.json` / `crates/hongguo-tauri-app/tauri.conf.json` / `crates/hongguo-tauri-app/Cargo.toml` 三处同值，跑 `cargo update -p hongguo-desktop` 同步 Cargo.lock 一并提交（`chore(release): vX.Y.Z`）。CI 构建前还会把 tag 号写进 tauri.conf.json，版本号唯一来源是 tag。
 3. **发版提交必须先补 `CHANGELOG.md` 对应 `## [x.y.z]` 段落**（✨ 新增 / ⚡ 优化 / 🐛 修复，格式见文件头）：CI 从这里提取该版本段落作 GitHub Release 说明和应用内更新弹窗内容，段落缺失流水线直接失败——更新内容必填，不写「优化体验若干」式空话。
 4. 流程：dev 验收 → 合入 main（--no-ff）→ 推 main → 在 main 打 tag 推送。
 5. updater 走 GitHub Releases（`endpoints` 指向 `latest.json`），Windows `installMode: quiet`，NSIS 用仓库自带模板 + installerHooks（`make nsis` 保持模板同步）。
 6. 改应用名/图标后：`make assets` 重新生成并**提交产物**（构建不依赖本机 Python/网络）。
-7. capabilities 是最小权限集（自绘标题栏的逐条 window 动作放行），新增窗口操作要同步 `src-tauri/capabilities/default.json`。
+7. capabilities 是最小权限集（自绘标题栏的逐条 window 动作放行），新增窗口操作要同步 `crates/hongguo-tauri-app/capabilities/default.json`。
 
 ## 工程背景（改构建配置前必知）
 

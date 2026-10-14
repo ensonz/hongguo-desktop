@@ -10,6 +10,7 @@ import { SkeletonRows } from '@/components/ui/skeletons';
 import { useNewCalendar } from '@/service/queries';
 import { useSessionState } from '@/hooks/use-scroll-restore';
 import { t, type MessageKey } from '@/locales';
+import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
 import { CalendarRow } from './calendar-row';
 
 /** 上新日历：日期条 + 当日上新列表（含未上线）。 */
@@ -47,7 +48,7 @@ export function NewCalendarView() {
           void cal.loadMore();
         }
       },
-      { rootMargin: '600px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     );
     observer.observe(el);
     return () => observer.disconnect();

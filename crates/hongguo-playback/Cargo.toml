@@ -16,7 +16,7 @@ authors.workspace = true
 hongguo-common = { path = "../hongguo-common" }
 # 样本表（demux）与参数集提取。
 hongguo-media = { path = "../hongguo-media" }
-hongguo-mp4 = { path = "../hongguo-mp4" }
+hongguo-video = { path = "../hongguo-video" }
 # 平台逐帧解码出口（macOS：VT 视频 + AudioToolbox AAC；Windows MF 是后续目标）。
 hongguo-media-platform = { path = "../hongguo-media-platform" }
 # 流数据面：serve() 进程内按 Range 取明文字节（ReaderDemand 驱动填充）。

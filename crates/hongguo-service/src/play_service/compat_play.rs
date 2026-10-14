@@ -12,6 +12,10 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
+use crate::app_state::AppState;
+use crate::events::ServiceEvent;
 use crate::transcode_service::cache;
 use hongguo_common::{AppError, AppResult};
 
@@ -136,6 +140,105 @@ pub enum CompatSource<'a> {
     LocalFile(&'a PathBuf),
     /// 未下载：整集取回 + 解密后的明文字节
     PlainBytes(Vec<u8>),
+}
+
+/// 兼容转码进度事件的阶段（前端 `compatProgressSchema` 镜像）。
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CompatPhase {
+    Downloading,
+    Transcoding,
+    Ready,
+}
+
+/// 兼容转码进度事件载荷（`compat-play-progress`）。
+///
+/// 与前端 `compatProgressSchema` 两端镜像，改字段同一 commit 改另一端。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompatProgressEvent {
+    /// 缓存键 `{series_id}:{vid_index}`
+    pub key: String,
+    pub percent: f64,
+    pub phase: CompatPhase,
+}
+
+/// 兜底转码的结果（前端直接消费）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompatPlayResult {
+    pub url: String,
+    pub cached: bool,
+    pub backend: String,
+    pub elapsed_ms: u128,
+}
+
+/// 把一集转成 H.264 供本机解不了的机器播放（编排自 tauri 命令平移）。
+///
+/// 播放器确认「有声音没画面」后调它；转好的产物落进兼容缓存，同一集只转一次。
+/// 已下载的走本地文件，没下载的现取现解；进度经事件总线（
+/// `compat-play-progress`）送达壳。
+pub async fn compat_for_playback(
+    state: &AppState,
+    series_id: &str,
+    vid_index: u32,
+    vid: Option<String>,
+) -> AppResult<CompatPlayResult> {
+    let key = format!("{series_id}:{vid_index}");
+    let events = state.events().clone();
+    let emit = |percent: f64, phase: CompatPhase| {
+        events.publish(ServiceEvent::CompatProgress(CompatProgressEvent {
+            key: key.clone(),
+            percent,
+            phase,
+        }));
+    };
+
+    // 优先用已下载的本地文件：不用再走网络，也不用等取流
+    let local: Option<PathBuf> = state
+        .queue()
+        .completed_path(series_id, vid_index)
+        .map(PathBuf::from);
+
+    let result = if let Some(p) = local {
+        ensure_compat(series_id, vid_index, CompatSource::LocalFile(&p), &|pct| {
+            emit(pct, CompatPhase::Transcoding)
+        })
+        .await
+    } else {
+        let Some(vid) = vid else {
+            return Err(AppError::InvalidArgs("既没有本地文件，也没有 vid".into()));
+        };
+        let settings = state.settings();
+        let env = state.api_env();
+        // 转码源必须保持全量候选：HEVC-only 的剧集兜底转码还要拿 HEVC 源
+        let play = hongguo_api::play_url::fetch_play_url(
+            &vid,
+            None,
+            hongguo_api::stream_pick::DecoderCapability::Full,
+            &env,
+        )
+        .await?;
+        // 取流占前 20%，转码占后 80%：两段都动，但用户看到的是一条连续的进度
+        emit(0.0, CompatPhase::Downloading);
+        let plain = crate::play_service::online::fetch_plain(&play, &settings).await?;
+        ensure_compat(
+            series_id,
+            vid_index,
+            CompatSource::PlainBytes(plain),
+            &|pct| emit(20.0 + pct * 0.8, CompatPhase::Transcoding),
+        )
+        .await
+    };
+
+    emit(100.0, CompatPhase::Ready);
+    let r = result?;
+    Ok(CompatPlayResult {
+        url: r.url,
+        cached: r.cached,
+        backend: r.backend,
+        elapsed_ms: r.elapsed_ms,
+    })
 }
 
 #[cfg(test)]

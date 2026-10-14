@@ -14,6 +14,8 @@ const RESERVATIONS = ['reservations'] as const;
 export const keys = {
   settings: ['settings'] as const,
   feed: (tab: string) => ['feed', tab] as const,
+  /** 首页顶栏 tab 列表（服务端下发；登录态变化时壳侧过滤，不换 key） */
+  feedTabs: ['feed-tabs'] as const,
   newDrama: (gender: number) => ['new-drama', gender] as const,
   seriesEpisodes: (id: string) => ['series-episodes', id] as const,
   seriesProgress: (id: string) => ['series-progress', id] as const,

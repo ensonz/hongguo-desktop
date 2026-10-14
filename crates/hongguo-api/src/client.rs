@@ -17,10 +17,26 @@ use reqwest::Proxy;
 use hongguo_common::{AppError, AppResult};
 
 /// 重试次数。
-pub const MAX_RETRIES: u32 = 3;
+const MAX_RETRIES: u32 = 3;
+
+/// reading 系（lq 域）统一 origin。轻签名头族（榜单/搜索/弹幕/剧评）与
+/// 取流 `multi_video_model/player/v1` 都在这台机上——2026-10-08 抓包：
+/// 真实 App 的取流请求打的是 lq 域，sinfonlineb 域的 player/preload 均
+/// 回 200+0 字节（2026-10-14 探针实测）。
+pub const LQ_API_ORIGIN: &str = "https://api5-normal-lq.fqnovel.com";
 
 /// 重试间隔基数，按 `2s * (i + 1)` 递增，与现版一致。
 const RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
+
+/// CDN 取流重试次数（hgplayer 取流 worker `it()` 口径：**失败重试 3 次，
+/// 退避 300ms×(第几次)**——CDN 抖动是常态）。本文件的 Range 自愈与
+/// service 的在线填充两侧同源，改这里一处。
+pub const STREAM_RETRY_ATTEMPTS: u32 = 3;
+
+/// 第 `attempt`（0 基）次失败后的退避时长（`it()` 口径）。
+pub fn stream_retry_backoff(attempt: u32) -> Duration {
+    Duration::from_millis(300 * (attempt as u64 + 1))
+}
 
 /// 按配置构造 HTTP client。
 ///
@@ -69,7 +85,7 @@ impl ApiEnv {
     /// 未登录的默认环境：静态兜底设备档案 + 默认 origin。
     ///
     /// 测试基线专用（生产走登录态 / 注册档案）。不 `#[cfg(test)]` 门控：下游
-    /// crate（本仓 src-tauri 的 service 测试）要用，而依赖 crate 对下游以非
+    /// crate（本仓 crates/hongguo-service 的测试）要用，而依赖 crate 对下游以非
     /// test 方式编译，门控项会消失。
     pub fn anonymous(proxy: hongguo_common::model::ProxyConfig) -> Self {
         Self {
@@ -88,17 +104,7 @@ impl ApiEnv {
 /// - `body`：请求体字节。`Some` 走 POST，`None` 走 GET
 /// - `env`：代理 / 设备 / 会话
 pub async fn api_call(pathname: &str, body: Option<Vec<u8>>, env: &ApiEnv) -> AppResult<Vec<u8>> {
-    api_call_at(hongguo_signer::API_ORIGIN, pathname, body, env).await
-}
-
-/// 同 [`api_call`]，但 origin 可指定（passport / 设备注册走别的域名）。
-pub async fn api_call_at(
-    origin: &str,
-    pathname: &str,
-    body: Option<Vec<u8>>,
-    env: &ApiEnv,
-) -> AppResult<Vec<u8>> {
-    api_call_full(origin, pathname, body, &[], env).await
+    api_call_full(hongguo_signer::API_ORIGIN, pathname, body, &[], env).await
 }
 
 /// 全参数形态：origin + 业务 query + body。reading 系接口是混合参数
@@ -125,6 +131,30 @@ pub async fn api_call_full_with_headers(
     api_call_full_response(origin, pathname, body, biz_query, extra_headers, env)
         .await
         .map(|r| r.bytes)
+}
+
+/// 单次发送、空响应不重试不报错（回空 body）。批量取流预取专用：
+/// 2026-10-14 起批量形态恒回 200+0（服务端不再发货），它是「发了即回」
+/// 的常态而非故障——重试只会让每次切剧白等 6 秒。hgplayer 同款一次即回。
+pub async fn api_call_once_allow_empty(
+    origin: &str,
+    pathname: &str,
+    body: Option<Vec<u8>>,
+    biz_query: &[(String, String)],
+    env: &ApiEnv,
+) -> AppResult<Vec<u8>> {
+    let client = build_client(&env.proxy)?;
+    let resp = send_once(
+        &client,
+        origin,
+        pathname,
+        body.as_deref(),
+        biz_query,
+        &[],
+        env,
+    )
+    .await?;
+    Ok(resp.bytes)
 }
 
 /// 响应体 + Set-Cookie（passport 登录捕获会话用，其余调用走
@@ -178,13 +208,17 @@ pub fn gzip_bytes(raw: &[u8]) -> AppResult<Vec<u8>> {
 /// `x-ss-dp + x-reading-request + lc`（多带签名头也能过）。
 /// `x-reading-request` 形如 `{ticket_ms}-{random u32}`。
 pub fn reading_headers() -> Vec<(String, String)> {
+    /// x-ss-dp：红果 App 的 aid（与 docs 抓包对齐）。
+    const READING_DP: &str = "8662";
+    /// lc：reading 系固定头（抓包值 101，语义上游未公开）。
+    const LC: &str = "101";
     let ticket_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
     vec![
-        ("x-ss-dp".into(), "8662".into()),
-        ("lc".into(), "101".into()),
+        ("x-ss-dp".into(), READING_DP.into()),
+        ("lc".into(), LC.into()),
         (
             "x-reading-request".into(),
             format!("{ticket_ms}-{}", rand::random::<u32>()),
@@ -217,7 +251,14 @@ pub async fn api_call_full_response(
         .await
         {
             Ok(resp) if !resp.bytes.is_empty() => return Ok(resp),
-            Ok(_) => last_err = "接口返回空响应（签名可能失效）".to_string(),
+            Ok(_) => {
+                log::warn!(
+                    "[Api] 空响应：{origin}{pathname}（biz_query={} 项，body={} 字节）",
+                    biz_query.len(),
+                    body.as_deref().map(|b| b.len()).unwrap_or(0)
+                );
+                last_err = "接口返回空响应（签名可能失效）".to_string();
+            }
             Err(e) => last_err = e.to_string(),
         }
         if attempt + 1 < MAX_RETRIES {
@@ -318,11 +359,10 @@ pub async fn probe_video_len(client: &reqwest::Client, url: &str) -> AppResult<u
         .ok_or_else(|| AppError::Network(format!("Content-Range 无法解析总长: {cr}")))
 }
 
-/// 取直链的一段密文 `[start, end]`（闭区间，按字节计）。
+/// 取直链的一段密文 `[start, end]`（闭区间，按字节计；`Range: bytes=start-end`）。
 ///
 /// 与 [`get_video_stream`] 同一套头（裸 UA 优先、403 补 Referer）。
 /// 非 206 一律按不支持 Range 报错，交给调用方回落。
-/// 取一段密文（`Range: bytes=start-end`，含两端）。
 ///
 /// 对齐 hgplayer 取流 worker 的 `it()`：
 /// - **失败重试 3 次，退避 300ms×(第几次)**——CDN 抖动是常态；
@@ -337,14 +377,14 @@ pub async fn get_video_range(
     end: u64,
 ) -> AppResult<Vec<u8>> {
     let mut last_err = None;
-    for attempt in 0..3 {
+    for attempt in 0..STREAM_RETRY_ATTEMPTS {
         match get_video_range_once(client, url, start, end).await {
             Ok(bytes) => return Ok(bytes),
             Err(e) => {
                 log::warn!("[CDN] Range {start}-{end} 第 {} 次失败: {e}", attempt + 1);
                 last_err = Some(e);
-                if attempt + 1 < 3 {
-                    tokio::time::sleep(std::time::Duration::from_millis(300 * (attempt + 1))).await;
+                if attempt + 1 < STREAM_RETRY_ATTEMPTS {
+                    tokio::time::sleep(stream_retry_backoff(attempt)).await;
                 }
             }
         }

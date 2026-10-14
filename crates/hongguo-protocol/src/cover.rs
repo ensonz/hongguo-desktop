@@ -125,11 +125,12 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
         return Ok((bytes, ext, ct));
     }
 
-    // 1) 平台级：WIC（HEIF/HEVC 扩展在则走系统解码器；扩展没有会缓存
-    //    「不可用」，本进程内不再尝试，「重新检测」清缓存）
-    #[cfg(target_os = "windows")]
+    // 1) 平台级：封面静图解码（Windows 走 WIC——HEIF/HEVC 扩展在则用系统
+    //    解码器，扩展没有会缓存「不可用」，本进程内不再尝试，「重新检测」
+    //    清缓存；其余平台本层不可用直接返回 None 掉级——同一签名，公共
+    //    调用方不需要平台分支）
     if let Some(result) =
-        hongguo_media_platform::platform::wic::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
+        hongguo_media_platform::platform::cover::heic_to_jpeg(bytes_of(&mut downloaded, remote)?)
     {
         match result {
             Ok(bytes) => return Ok((bytes, JPEG_KIND.0, JPEG_KIND.1)),
@@ -144,24 +145,31 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
         // respond 写盘路径，这里当时漏了同一刀）
         ensure_cache_dir()?;
         let tmp = cache_tmp(remote);
-        let out = std::process::Command::new(ffmpeg)
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                // 网络输入 10 秒读超时（微秒）：CDN 抖动不该把 <img> 挂死
-                "-rw_timeout",
-                "10000000",
-                "-i",
-                remote,
-                "-frames:v",
-                "1",
-                "-update",
-                "1",
-                "-f",
-                "image2",
-            ])
-            .arg(&tmp)
+        let mut cmd = std::process::Command::new(ffmpeg);
+        cmd.args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            // 网络输入 10 秒读超时（微秒）：CDN 抖动不该把 <img> 挂死
+            "-rw_timeout",
+            "10000000",
+            "-i",
+            remote,
+            "-frames:v",
+            "1",
+            "-update",
+            "1",
+            "-f",
+            "image2",
+        ])
+        .arg(&tmp);
+        // HEIC 封面转码在首页加载期就会跑：GUI 进程里控制面子进程会闪黑窗
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        let out = cmd
             .output()
             .map_err(|e| format!("启动 ffmpeg 失败: {e}"))?;
         if out.status.success() {
@@ -204,6 +212,9 @@ fn bytes_of<'a>(slot: &'a mut Option<Vec<u8>>, remote: &str) -> Result<&'a [u8],
     Ok(slot.as_deref().expect("刚填充过"))
 }
 
+/// 封面下载超时（秒）：封面链路对延迟敏感，超时即放弃走占位图。
+const DOWNLOAD_TIMEOUT_SECS: u64 = 15;
+
 /// 同步 GET。worker 线程上没有 runtime：借用 DB 线程同款 current_thread
 /// 内联 runtime 跑一段 async（reqwest 本身是异步 API）。
 fn http_get(remote: &str) -> Result<Vec<u8>, String> {
@@ -214,7 +225,7 @@ fn http_get(remote: &str) -> Result<Vec<u8>, String> {
     rt.block_on(async {
         let resp = reqwest::Client::builder()
             .user_agent("Mozilla/5.0")
-            .timeout(std::time::Duration::from_secs(15))
+            .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
             .build()
             .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?
             .get(remote)

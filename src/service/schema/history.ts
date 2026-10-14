@@ -41,7 +41,7 @@ export const storageSeriesUsageSchema = z.object({
 });
 
 /** 单处缓存的占用（Rust `storage_service::cache::CachePart`）。 */
-export const cachePartSchema = z.object({
+const cachePartSchema = z.object({
   files: z.number().int().nonnegative(),
   bytes: z.number().nonnegative(),
 });

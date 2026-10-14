@@ -1,4 +1,4 @@
-//! 启动时装配数据：旧档迁移、设置装载、崩溃恢复。
+//! 启动时装配数据：设置装载、崩溃恢复。
 
 use tauri::Manager;
 
@@ -7,19 +7,12 @@ use hongguo_service::app_state::AppState;
 /// 装配持久化状态。
 ///
 /// 数据库本体在 `run()` 构造 `AppState` 时就已打开（文件库），
-/// 这里负责的是：data.json 一次性迁移 → 设置装载归一化 →
-/// 上次中断的合并任务标失败 → 下载队列恢复。
+/// 这里负责的是：设置装载归一化 → 上次中断的合并任务标失败 →
+/// 下载队列恢复。
 pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let state = app.state::<AppState>();
 
-    // 1) 旧 data.json → hongguo.db（已迁移过则是空操作）
-    match hongguo_store::json_migrate::run(&state.store, &hongguo_store::paths::data_file()) {
-        Ok(hongguo_store::json_migrate::MigrationOutcome::Migrated { .. }) => {}
-        Ok(_) => {}
-        Err(e) => return Err(tauri::Error::Anyhow(e.into())),
-    }
-
-    // 2) 设置装载。启动时读出来的设置必须过一遍归一化：
+    // 1) 设置装载。启动时读出来的设置必须过一遍归一化：
     // 老版本可能存了越界的并发数
     let stored = state
         .store
@@ -31,7 +24,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let limit = settings.max_concurrency;
     state.replace_settings(settings);
 
-    // 3) 合并在后台线程上跑，进程退出时线程直接没了。启动时还标着 running 的
+    // 2) 合并在后台线程上跑，进程退出时线程直接没了。启动时还标着 running 的
     // 一定是上次没跑完的：留着会让 UI 上一条「合并中」永远转不完，
     // 而实际早就没人跑了。标成失败让用户看到真实结果。
     let mut interrupted = 0usize;
@@ -54,7 +47,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
         log::info!("[Store] {interrupted} 个合并任务因上次退出被中断，已标为失败");
     }
 
-    // 4) 下载队列恢复：running 视为中断，改回 pending 续跑（语义在 queue 层）
+    // 3) 下载队列恢复：running 视为中断，改回 pending 续跑（语义在 queue 层）
     let tasks = state
         .store
         .tasks()

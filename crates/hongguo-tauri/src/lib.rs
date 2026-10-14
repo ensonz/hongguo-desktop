@@ -2,7 +2,7 @@
 //!
 //! 插件注册、全局状态注入、自定义协议挂载、command 挂载——Tauri 应用的
 //! 全部装配在这里；[`prepare`] 产出装好的 `Builder`，`build(generate_context!)`
-//! 与 `.run()` 留在 `src-tauri`（`generate_context` 必须与 tauri.conf.json
+//! 与 `.run()` 留在 `crates/hongguo-tauri-app`（`generate_context` 必须与 tauri.conf.json
 //! 同 crate，见 `docs/architecture-refactor.md` §8 第 5 条）。
 //!
 //! GPUI 壳（将来的 `hongguo-gpui`）**不消费本 crate**——它直接构造
@@ -11,6 +11,7 @@
 pub mod bootstrap;
 pub mod commands;
 mod diagnostics;
+mod events;
 mod protocol;
 #[cfg(test)]
 mod testing;
@@ -57,12 +58,13 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
 
     builder
         .setup(|app| {
-            // 启动装配的顺序即依赖顺序：
-            // 先建应用状态（含数据库），再从磁盘补回丢失的任务记录，然后把
-            // 待跑任务推入调度，最后探测转码能力。
+            // 启动装配的顺序即依赖顺序：先建应用状态（含数据库），装载设置
+            // 与下载队列，把待跑任务推入调度。设备健康复检 / 磁盘补登记 /
+            // 转码探测不拦启动，各自在 init 里后台化（见 bootstrap/mod.rs）。
             app.manage(build_app_state());
             bootstrap::store::init(app.handle())?;
             bootstrap::device::init(app.handle())?;
+            bootstrap::events::init(app.handle())?;
             bootstrap::rescan::init(app.handle())?;
             bootstrap::downloader::init(app.handle())?;
             bootstrap::transcoder::init()?;
@@ -83,6 +85,9 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
                 // 恒 visible），前端拿不到——Rust 侧在 Resized 里查
                 // is_minimized，状态翻转才 emit（避免每次 resize 都发）
                 let minimized = std::sync::atomic::AtomicBool::new(false);
+                // 兜底显示用的副本先克隆：win/ready 都要 move 进下面的事件闭包
+                let fallback_ready = ready.clone();
+                let fallback_window = win.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event
                         && ready.load(Ordering::Acquire)
@@ -102,6 +107,18 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
                         }
                     }
                 });
+
+                // 兜底显示：窗口改由 mark_window_ready（前端挂载）亮出后，
+                // 前端崩溃/加载失败会让它永远藏着——超时强制亮出。宁可亮出
+                // 一个白屏（能关、能被单实例二次启动拉回），不能无窗可关。
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    if !fallback_ready.load(Ordering::Acquire) {
+                        log::warn!("[Window] 前端 10s 未就绪，兜底显示窗口");
+                        let _ = fallback_window.show();
+                        let _ = fallback_window.set_focus();
+                    }
+                });
             }
             Ok(())
         })
@@ -112,10 +129,10 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::app_cmd::open_external_page,
             commands::app_cmd::mark_window_ready,
             commands::app_cmd::exit_app,
-            commands::app_cmd::enter_mini_screen,
-            commands::app_cmd::exit_mini_screen,
-            commands::app_cmd::set_always_on_top,
-            commands::app_cmd::set_incognito,
+            commands::window_cmd::enter_mini_screen,
+            commands::window_cmd::exit_mini_screen,
+            commands::window_cmd::set_always_on_top,
+            commands::incognito_cmd::set_incognito,
             // 设置
             commands::settings_cmd::get_settings,
             commands::settings_cmd::save_settings,
@@ -126,6 +143,7 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::series_cmd::related_series,
             commands::series_cmd::series_meta,
             // 发现（首页推荐流 / 找剧筛选浏览）
+            commands::discover_cmd::recommend_tabs,
             commands::discover_cmd::recommend_feed,
             commands::discover_cmd::browse_panel,
             commands::discover_cmd::browse_page,

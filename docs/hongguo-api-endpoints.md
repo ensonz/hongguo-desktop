@@ -28,6 +28,15 @@ host_abi=arm64-v8a, _rticket={ms}, sim_region, msToken...`
 send_code 的 `type=1` 能发码但被服务端按"换绑"场景处理（目标号已绑定其它
 账号时报 1001），`type=3731` 才是短信登录发码场景（2026-10-04 实测）。
 
+⚠️ **取流端点形态（2026-10-14 探针实测 + 2026-10-08 抓包）**：
+`multi_video_model/player/v1` 必须打 **lq 域**（真实 App 的形态）；
+sinfonlineb 域与 `preload/v1` 路径均回 **200 + 0 字节**（服务端判签名
+失效的形态，与参数无关——同一 body 换 lq+player 即回完整 video_model）。
+body 逐值对齐抓包：`dr_scene:"player"` + biz_param 含
+`disable_video_relate_book:false`。另：该端点按设备/维度的**限频**存在，
+静态兜底设备被共享消耗时同样回 200+0——排障先分辨「形态错」与「限频」
+（换一个长时间未打该端点的环境对照）。
+
 ## 1. 排行榜（内容 tab × 子榜 × 筛选面板）
 
 ```

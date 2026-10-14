@@ -688,8 +688,19 @@ fn the_installed_ffmpeg_is_actually_used_by_the_transcode_path() {
         backend.transcode_with
     );
     let cap = hongguo_media_platform::capability::probe::detect();
-    assert!(cap.has_ffmpeg);
-    assert_eq!(cap.h264_hw_encoder, encoder.hardware);
+    if cap.platform_encoder {
+        // 平台层可用＝分流已定：ffmpeg 整层不探（探测严格按优先级，高优先
+        // 级可用就不看下一级），两个 ffmpeg 字段恒 false 是预期
+        assert!(
+            !cap.has_ffmpeg && !cap.h264_hw_encoder,
+            "平台编码层可用时 ffmpeg 兜底层应整层跳过，实际 has_ffmpeg={} hw={}",
+            cap.has_ffmpeg,
+            cap.h264_hw_encoder
+        );
+    } else {
+        assert_eq!(cap.has_ffmpeg, ffmpeg::ffmpeg_path().is_some());
+        assert_eq!(cap.h264_hw_encoder, encoder.hardware);
+    }
     println!(
         "[e2e] 后端 = {}（硬件={}），能力 = hasFfmpeg:{} hw:{}",
         backend.transcode_with, encoder.hardware, cap.has_ffmpeg, cap.h264_hw_encoder

@@ -10,6 +10,7 @@ use parking_lot::RwLock;
 
 use crate::download_service::queue::DownloadQueue;
 use crate::download_service::scheduler::DownloadScheduler;
+use crate::events::ServiceEvents;
 use hongguo_common::model::settings::Settings;
 use hongguo_store::Store;
 
@@ -33,6 +34,8 @@ pub struct AppStateInner {
     /// 下载队列
     pub queue: RwLock<Arc<DownloadQueue>>,
     scheduler: RwLock<Arc<DownloadScheduler>>,
+    /// 业务事件总线（下载/取流/登录事件；壳订阅适配各自的事件机制）
+    events: ServiceEvents,
 }
 
 /// 对外暴露的句柄类型。`Arc` 的 `Default` 由 std 提供，此处只需给内层实现。
@@ -56,6 +59,7 @@ impl AppStateInner {
             login_mfa: RwLock::new(None),
             queue: RwLock::new(Arc::new(DownloadQueue::new())),
             scheduler: RwLock::new(Arc::new(DownloadScheduler::new())),
+            events: ServiceEvents::new(),
         }
     }
 }
@@ -82,6 +86,11 @@ impl AppStateInner {
     /// 取调度器句柄。
     pub fn scheduler(&self) -> Arc<DownloadScheduler> {
         self.scheduler.read().clone()
+    }
+
+    /// 事件总线句柄（发布走 `publish`，壳在装配期 `subscribe`）。
+    pub fn events(&self) -> &ServiceEvents {
+        &self.events
     }
 
     /// 取当前设置快照。

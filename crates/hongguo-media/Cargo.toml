@@ -11,7 +11,7 @@ authors.workspace = true
 # 共用底座：统一错误 + 领域模型。
 hongguo-common = { path = "../hongguo-common" }
 # MP4 容器解析（样本表 / 时序 / box 游走）——本 crate 只做编解码，不碰解密。
-hongguo-mp4 = { path = "../hongguo-mp4" }
+hongguo-video = { path = "../hongguo-video" }
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
 # H.264 封装（muxide，走根 manifest 的 [patch.crates-io] 补丁修 B 帧流表）
@@ -25,6 +25,6 @@ jpeg-encoder = "0.6"
 sysinfo = { version = "0.39.6", default-features = false, features = ["disk"] }
 
 [dev-dependencies]
-# 本 crate 的测试要造 MP4 样本与比对序列化产物，开启 hongguo-mp4 的测试辅助模块。
-hongguo-mp4 = { path = "../hongguo-mp4", features = ["test-support"] }
+# 本 crate 的测试要造 MP4 样本与比对序列化产物，开启 hongguo-video 的测试辅助模块。
+hongguo-video = { path = "../hongguo-video", features = ["test-support"] }
 serde_json = "1"

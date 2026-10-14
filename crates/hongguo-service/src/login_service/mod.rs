@@ -6,4 +6,5 @@
 pub mod account;
 pub mod csrf;
 pub mod events;
+pub mod flow;
 pub mod polling;

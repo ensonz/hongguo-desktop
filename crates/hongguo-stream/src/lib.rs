@@ -31,7 +31,7 @@
 //! 正是为了掐掉「协议层回头找服务层要缓存」那条反向边（`serve` 曾经直接调
 //! `service::play_service::online::cache()`，与 service 用本层类型构成双向耦合）。
 //!
-//! 不依赖 tauri / 协议壳 / 服务层；依赖只有 [`hongguo_mp4`]（稀疏缓冲与解密计划）
+//! 不依赖 tauri / 协议壳 / 服务层；依赖只有 [`hongguo_video`]（稀疏缓冲与解密计划）
 //! 与 `hongguo-common`（档位模型）。
 
 mod cache;
@@ -40,7 +40,7 @@ mod progressive;
 pub mod range;
 
 pub use cache::StreamCache;
-pub use progressive::{ProgressiveStream, ReaderDemand, serve};
+pub use progressive::{ProgressiveStream, ReaderDemand, serve, serve_cancellable};
 
 use std::sync::OnceLock;
 

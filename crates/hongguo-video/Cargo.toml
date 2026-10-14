@@ -1,0 +1,23 @@
+[package]
+name = "hongguo-video"
+description = "红果桌面版 MP4 解析与 CENC 解密：box 解析 / 样本表 / 流式解密 / 密钥派生"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# 共用底座：AppError / AppResult。
+hongguo-common = { path = "../hongguo-common" }
+aes = "0.9"
+ctr = "0.10"
+base64 = "0.23"
+log = "0.4"
+parking_lot = "0.12"
+
+[features]
+# 测试辅助模块（fixtures / streaming_tests）：下游 crate 的测试要用它构造 MP4
+# 样本，而依赖 crate 对下游以非 test 方式编译——用 feature 显式开启，避免测试
+# 代码常驻生产构建。下游在 [dev-dependencies] 里带此 feature。
+test-support = []

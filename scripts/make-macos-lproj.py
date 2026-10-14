@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT_ROOT = ROOT / "src-tauri" / "i18n"
+OUT_ROOT = ROOT / "crates" / "hongguo-tauri-app" / "i18n"
 
 # 各系统语言下的应用名。key 是 lproj 的 BCP-47 语言标识。
 # 与 productName（Hongguo，也是二进制/包目录名）有意区分：显示名可以

@@ -14,9 +14,7 @@ use std::collections::HashSet;
 
 use parking_lot::Mutex;
 
-use hongguo_api::client::ApiEnv;
-use hongguo_common::model::Settings;
-use hongguo_store::Store;
+use crate::app_state::AppState;
 
 /// 会话账本：处理过的 `{series_id}:{vid_index}`（预转过或查过无需转）。
 static HANDLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -26,13 +24,7 @@ static HANDLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 /// 门控按序：有 HEVC 解码直接回；账本里有过直接回；档案里查不到下一集
 /// 的 vid 直接回（起播它时 resolve_play 会自行解析）。通过门控才起后台
 /// 任务，不挡当前起播响应。
-pub fn schedule_next_episode(
-    store: Store,
-    settings: Settings,
-    env: ApiEnv,
-    series_id: &str,
-    next_vid_index: u32,
-) {
+pub fn schedule_next_episode(state: AppState, series_id: &str, next_vid_index: u32) {
     if hongguo_media_platform::capability::playback::hevc_playable() {
         return;
     }
@@ -45,14 +37,14 @@ pub fn schedule_next_episode(
         }
         set.insert(key.clone());
     }
-    let Some(vid) = super::local::episode_vid(&store, series_id, next_vid_index) else {
+    let Some(vid) = super::local::episode_vid(&state.store, series_id, next_vid_index) else {
         HANDLED.lock().get_or_insert_with(HashSet::new).remove(&key);
         return;
     };
     log::info!("[CompatPrefetch] 检查第 {next_vid_index} 集是否需要预转");
     let series_id = series_id.to_string();
-    tauri::async_runtime::spawn(async move {
-        match check_and_prefetch(&settings, &env, &series_id, next_vid_index, &vid).await {
+    crate::runtime::spawn(async move {
+        match check_and_prefetch(&state, &series_id, next_vid_index, &vid).await {
             Ok(true) => log::info!("[CompatPrefetch] 第 {next_vid_index} 集预转完成"),
             Ok(false) => log::info!("[CompatPrefetch] 第 {next_vid_index} 集原生可播，无需预转"),
             Err(e) => log::warn!("[CompatPrefetch] 第 {next_vid_index} 集预转失败（忽略）: {e}"),
@@ -62,25 +54,26 @@ pub fn schedule_next_episode(
 
 /// 返回 `true` = 预转完成；`false` = 下一集原生可播，无需预转。
 async fn check_and_prefetch(
-    settings: &Settings,
-    env: &ApiEnv,
+    state: &AppState,
     series_id: &str,
     vid_index: u32,
     vid: &str,
 ) -> hongguo_common::AppResult<bool> {
     use hongguo_api::stream_pick::DecoderCapability;
 
+    let env = state.api_env();
     // NoHevc 视角看下一集：有可选流（h264/未知编码）就不用转
     let probe =
-        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::NoHevc, env).await?;
+        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::NoHevc, &env).await?;
     if !probe.definitions.is_empty() {
         return Ok(false);
     }
     log::info!("[CompatPrefetch] 第 {vid_index} 集 HEVC-only，后台预转兼容产物");
     // Full 取流拿 HEVC 源（转码源必须全量候选，见计划文档非目标）
     let play =
-        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::Full, env).await?;
-    let plain = super::online::fetch_plain(&play, settings).await?;
+        hongguo_api::play_url::fetch_play_url(vid, None, DecoderCapability::Full, &env).await?;
+    let settings = state.settings();
+    let plain = super::online::fetch_plain(&play, &settings).await?;
     super::compat_play::ensure_compat(
         series_id,
         vid_index,

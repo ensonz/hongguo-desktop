@@ -7,7 +7,12 @@
 //! - 有 ffmpeg 但只有软件编码器 → 中速
 //! - 都没有 → 纯 Rust 软解，慢
 //!
-//! 探测会真的试编一帧，耗时一到两秒，所以结果全局缓存；点「重新检测」时丢弃缓存重探。
+//! 成本分层：平台层是纯原生 API（MFTEnumEx / VT 会话），毫秒级；`has_ffmpeg`
+//! 只要一次 `ffmpeg -version`；ffmpeg 侧「真硬件」要 `-encoders` + 逐个试编
+//! 一帧（一到两秒的子进程链）。分流第一级是平台层（[`selected_backend`]），
+//! 它可用时 ffmpeg 硬编结论对设置页标签和实际链路都无发言权——probe 因此
+//! 跳过试编层（见 [`probe`]），平台层不可用（ffmpeg 升级为兜底决定者）或
+//! 用户点「重新检测」前的兜底路径才付这笔钱。结果全局缓存。
 
 use parking_lot::RwLock;
 
@@ -70,13 +75,24 @@ fn redetect_platform() {
 fn redetect_platform() {}
 
 fn probe() -> DecodeCapability {
-    let has_ffmpeg = crate::ffmpeg::ffmpeg_path().is_some();
-    // 「是不是硬件」由编码器自己报，**不能拿「不是 libx264」当硬件**：
-    // h264_mf 默认走软件 MediaFoundation，把它算成硬件会让用户以为在用显卡。
-    let hardware = crate::ffmpeg::h264_encoder().is_some_and(|e| e.hardware);
+    // 严格按分流优先级探测：平台层（纯原生 API，毫秒级）先探；它可用时
+    // ffmpeg 整层不探——链路不会用它（selected_backend 直接走平台），装
+    // ffmpeg 没有任何收益，设置页安装指引也按同一条件隐藏（「装上后转码
+    // 自动改走它」在那档机器上是假话）。平台层不可用，ffmpeg 升级为链路
+    // 兜底与指引的决定者，才付探测的钱（-version 约 50ms；真硬件还要
+    // -encoders + 试编）。转码若在运行期回落 ffmpeg，h264_encoder() 的
+    // 惰性缓存会在那一刻自己探，与本缓存无关。
+    let (has_ffmpeg, h264_hw) = if platform_available() {
+        (false, false)
+    } else {
+        (
+            crate::ffmpeg::ffmpeg_path().is_some(),
+            crate::ffmpeg::h264_encoder().is_some_and(|e| e.hardware),
+        )
+    };
     DecodeCapability {
         has_ffmpeg,
-        h264_hw_encoder: hardware,
+        h264_hw_encoder: h264_hw,
         platform_encoder: crate::platform::encoder_available(),
         platform_hw_encoder: crate::platform::h264_hw_encoder_available(),
     }
@@ -114,6 +130,16 @@ pub fn scaling_available() -> bool {
 /// 预热探测（启动时调用，避免首次转码时的额外延迟）。
 pub fn warm_up() {
     let c = detect();
+    if c.platform_encoder {
+        // 平台层可用＝分流已定（selected_backend 直接走平台），ffmpeg 整层
+        // 都没探（probe 有意跳过）。日志不能再调 backend_info()——它内部
+        // 就是 ffmpeg_path()+h264_encoder()，会把省掉的探测全触发回来。
+        log::info!(
+            "[Media] 平台编码层可用（硬件={}）→ 分流已定，ffmpeg 兜底层不探测",
+            c.platform_hw_encoder
+        );
+        return;
+    }
     let backend = crate::ffmpeg::backend_info();
     log::info!(
         "[Media] ffmpeg={} 编码器={} 硬件={} 平台={} → {}",

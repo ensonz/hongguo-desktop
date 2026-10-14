@@ -23,6 +23,7 @@ import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
+import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
 import { t, tf, type MessageKey } from '@/locales';
 import type { WatchHistoryItem } from '@/service/schema';
 
@@ -97,7 +98,7 @@ export function HistoryPage() {
           setVisibleCount((n) => (n < shown.length ? n + 40 : n));
         }
       },
-      { rootMargin: '600px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     );
     observer.observe(el);
     return () => observer.disconnect();

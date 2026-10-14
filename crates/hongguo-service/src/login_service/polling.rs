@@ -1,10 +1,8 @@
 //! MFA 后台轮询：回复短信后自动重登并发状态事件。
 
-use tauri::Emitter;
-
 use super::account::{account_from_login, complete_login};
 use super::csrf::with_csrf;
-use super::events::{LOGIN_MFA_STATE, LoginMfaStateEvent};
+use super::events::LoginMfaStateEvent;
 use crate::app_state::AppState;
 use hongguo_api::login::{self, LoginOutcome, MfaContext, MfaFlow, UpsmsState};
 
@@ -32,8 +30,9 @@ pub fn mfa_tips(ctx: &MfaContext) -> String {
 ///
 /// 成功即自动重登、落库并发 `login-mfa-state` 事件（success/failed）；
 /// 每轮先校验流程指纹（用户重新发起登录会替换流程，旧循环自行退出）。
-pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
-    tauri::async_runtime::spawn(async move {
+/// 后台任务走共用任务运行时（任意线程可调，见 [`crate::runtime`]）。
+pub fn spawn_mfa_polling(state: AppState) {
+    crate::runtime::spawn(async move {
         let deadline = std::time::Instant::now() + MFA_TIMEOUT;
         let mut round: u32 = 0;
         loop {
@@ -41,7 +40,7 @@ pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
                 *state.login_mfa.write() = None;
                 log::warn!("[Login] MFA 5 分钟未确认，超时退出");
                 emit(
-                    &app,
+                    &state,
                     LoginMfaStateEvent::Failed {
                         message_kind: "settings.loginMfaTimeout".into(),
                         message: String::new(),
@@ -71,7 +70,7 @@ pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
                                 account_from_login(flow.mobile.clone(), cookies, &user, token);
                             if let Err(e) = complete_login(&state, account) {
                                 emit(
-                                    &app,
+                                    &state,
                                     LoginMfaStateEvent::Failed {
                                         message_kind: e.i18n_key().into(),
                                         message: e.to_string(),
@@ -84,7 +83,7 @@ pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
                                 user.name,
                                 user.user_id
                             );
-                            emit(&app, LoginMfaStateEvent::Success { name: user.name });
+                            emit(&state, LoginMfaStateEvent::Success { name: user.name });
                             return;
                         }
                         Ok(LoginOutcome::Mfa(next)) => {
@@ -95,7 +94,7 @@ pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
                                 code: flow.code.clone(),
                             });
                             emit(
-                                &app,
+                                &state,
                                 LoginMfaStateEvent::Waiting {
                                     server_tip: mfa_tips(&next),
                                 },
@@ -104,7 +103,7 @@ pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
                         Err(e) => {
                             *state.login_mfa.write() = None;
                             emit(
-                                &app,
+                                &state,
                                 LoginMfaStateEvent::Failed {
                                     message_kind: e.i18n_key().into(),
                                     message: e.to_string(),
@@ -137,7 +136,9 @@ pub fn spawn_mfa_polling(app: tauri::AppHandle, state: AppState) {
     });
 }
 
-/// 发一个 MFA 状态事件（前端不在场发不出去，无害）。
-fn emit(app: &tauri::AppHandle, event: LoginMfaStateEvent) {
-    let _ = app.emit(LOGIN_MFA_STATE, event);
+/// 发一个 MFA 状态事件（无订阅方时静默丢弃，无害）。
+fn emit(state: &AppState, event: LoginMfaStateEvent) {
+    state
+        .events()
+        .publish(crate::events::ServiceEvent::LoginMfa(event));
 }

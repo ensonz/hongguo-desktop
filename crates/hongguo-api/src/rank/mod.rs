@@ -129,7 +129,12 @@ fn dedup_rank_page(items: &mut Vec<RankItem>, session_id: &str) {
         std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>,
     > = std::sync::OnceLock::new();
     const RANK_SEEN_SESSIONS: usize = 32;
-    let mut map = SEEN.get_or_init(std::sync::Mutex::default).lock().unwrap();
+    // 中毒锁恢复而非 unwrap：污染只是去重缓存失效，不该让整条榜单请求陪葬
+    // （app_cmd.rs 既有纪律）
+    let mut map = SEEN
+        .get_or_init(std::sync::Mutex::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     if !map.contains_key(session_id) && map.len() >= RANK_SEEN_SESSIONS {
         map.clear();
     }

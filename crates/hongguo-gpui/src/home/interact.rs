@@ -1,0 +1,407 @@
+//! 互动：集级公开计数、mget 最近互动、点赞/收藏/分享与右缘互动栏渲染。
+
+use std::sync::Arc;
+
+use gpui_kit::component::v_flex;
+use gpui_kit::prelude::*;
+use gpui_kit::{ElementId, div};
+use hongguo_api::interact::{InteractionItem, collect_series, digg_video, fetch_interaction_state};
+
+use super::NowPlaying;
+use crate::bridge;
+
+/// 互动栏 item 的展示参数（[`super::HomeView::rail_item`] 收拢散参用）。
+struct RailItem {
+    icon: gpui_kit::component::Icon,
+    count: i64,
+    active: bool,
+    /// 激活态着色（红心/黄星）；未激活恒纯白（抖音系贴画面右缘形态）。
+    active_color: gpui_kit::Rgba,
+    /// 无计数项的文案（分享 → 「分享」）。
+    label: Option<&'static str>,
+    /// 悬停 tooltip（悬停变手型 + 提示）。
+    tooltip: &'static str,
+}
+
+impl super::HomeView {
+    /// 集级公开计数（剧集档案 detail 下发）：从本地档案读当前集的
+    /// 评论数/点赞数（匿名可见的装饰性计数，阻塞池读 store）。
+    pub(super) fn load_episode_counts(&mut self, now: &NowPlaying, cx: &mut Context<Self>) {
+        let state = Arc::clone(&self.state);
+        let (sid, vid_index) = (now.series_id.clone(), now.vid_index);
+        self.ep_comment_count = 0;
+        self.ep_digg_count = 0;
+        let rx = bridge::spawn(async move {
+            tokio::task::spawn_blocking(move || {
+                state
+                    .store
+                    .series_by_id(&sid)
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.episodes.into_iter().find(|e| e.vid_index == vid_index))
+                    .map(|e| (e.comment_count, e.digg_count))
+            })
+            .await
+            .expect("阻塞池 join")
+        });
+        cx.spawn(async move |this, cx| {
+            let counts = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                if let Some((comment_count, digg_count)) = counts {
+                    // info 常驻：点赞数不显示类问题的第一现场（档案里有没有
+                    // 这两个计数，一行钉死）
+                    log::info!(
+                        "[Home] 集级公开计数（{}#{}）：评论={} 点赞={}",
+                        view.now
+                            .as_ref()
+                            .map(|n| n.series_id.as_str())
+                            .unwrap_or("?"),
+                        view.now.as_ref().map(|n| n.vid_index).unwrap_or(0),
+                        comment_count,
+                        digg_count
+                    );
+                    view.ep_comment_count = comment_count;
+                    view.ep_digg_count = digg_count;
+                } else {
+                    log::warn!("[Home] 集级公开计数：档案里找不到当前集");
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// mget 最近互动（登录后才有「已赞/已追」红标；匿名/失败静默空表）。
+    pub(super) fn load_interact_state(&mut self, cx: &mut Context<Self>) {
+        if self.interact_loaded {
+            return;
+        }
+        self.interact_loaded = true;
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            fetch_interaction_state(&env)
+                .await
+                .map(|s| s.items)
+                .unwrap_or_default()
+        });
+        cx.spawn(async move |this, cx| {
+            let items = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, _| {
+                view.interact_items = Arc::new(items);
+            });
+        })
+        .detach();
+    }
+
+    /// 点赞当前集（裸 vid 为点赞对象）：乐观翻转 + 计数 ±1，失败回滚。
+    fn toggle_digg(&mut self, cx: &mut Context<Self>) {
+        if !self.logged_in() {
+            log::info!("[Home] 点赞需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        let bare_vid = now.vid.clone();
+        if bare_vid.is_empty() || self.digg_pending {
+            return;
+        }
+        // 当前态：mget 命中优先，否则按未赞
+        let digged = self
+            .interact_items
+            .iter()
+            .find(|i| i.vid == bare_vid)
+            .map(|i| i.user_digg)
+            .unwrap_or(false);
+        let next = !digged;
+        self.digg_pending = true;
+        // 乐观：互动列表覆盖 + 计数 ±1
+        let mut items = (*self.interact_items).clone();
+        if let Some(hit) = items.iter_mut().find(|i| i.vid == bare_vid) {
+            hit.user_digg = next;
+            hit.digged_count += if next { 1 } else { -1 };
+        } else {
+            items.push(InteractionItem {
+                vid: bare_vid.clone(),
+                series_id: now.series_id.clone(),
+                user_digg: next,
+                digged_count: if next { 1 } else { 0 },
+                followed: false,
+                followed_cnt: 0,
+                ..Default::default()
+            });
+        }
+        self.interact_items = Arc::new(items);
+        self.ep_digg_count += if next { 1 } else { -1 };
+        let sid = now.series_id.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            digg_video(&bare_vid, &sid, next, &env).await.map(|_| next)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.digg_pending = false;
+                if let Err(e) = result {
+                    // 失败回滚（下次重试）
+                    log::warn!("[Home] 点赞失败: {e}");
+                    view.load_interact_state(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 收藏/取消收藏当前剧（乐观翻转 + 收藏计数 ±1，失败回滚）。
+    fn toggle_collect(&mut self, cx: &mut Context<Self>) {
+        if !self.logged_in() {
+            log::info!("[Home] 收藏需要登录（settings 里没有账号），已忽略");
+            return;
+        }
+        let Some(now) = self.now.clone() else {
+            return;
+        };
+        if self.collect_pending {
+            return;
+        }
+        let collected = self
+            .interact_items
+            .iter()
+            .find(|i| i.series_id == now.series_id)
+            .map(|i| i.followed)
+            .unwrap_or(false);
+        let next = !collected;
+        self.collect_pending = true;
+        let mut items = (*self.interact_items).clone();
+        if let Some(hit) = items.iter_mut().find(|i| i.series_id == now.series_id) {
+            hit.followed = next;
+            hit.followed_cnt += if next { 1 } else { -1 };
+        } else {
+            items.push(InteractionItem {
+                series_id: now.series_id.clone(),
+                followed: next,
+                followed_cnt: if next { 1 } else { 0 },
+                ..Default::default()
+            });
+        }
+        self.interact_items = Arc::new(items);
+        self.follow_count += if next { 1 } else { -1 };
+        let sid = now.series_id.clone();
+        let state = Arc::clone(&self.state);
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            collect_series(&sid, next, &env).await.map(|_| next)
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update(cx, |view, cx| {
+                view.collect_pending = false;
+                if let Err(e) = result {
+                    log::warn!("[Home] 收藏失败: {e}");
+                    view.load_interact_state(cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 分享：剧名 + 详情链接复制进剪贴板。
+    fn share_series(&mut self, cx: &mut Context<Self>) {
+        let Some(now) = &self.now else {
+            return;
+        };
+        let text = format!(
+            "{} https://hongguoduanju.com/detail?series_id={}",
+            now.title, now.series_id
+        );
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(text));
+    }
+
+    /// 互动栏当前集/剧的命中（mget 列表里才有「已互动」态）。
+    fn interact_hit(&self) -> (bool, bool) {
+        let Some(now) = &self.now else {
+            return (false, false);
+        };
+        let bare_vid = now.vid.split(':').next().unwrap_or("");
+        let digged = self
+            .interact_items
+            .iter()
+            .find(|i| i.vid == bare_vid)
+            .map(|i| i.user_digg)
+            .unwrap_or(false);
+        let collected = self
+            .interact_items
+            .iter()
+            .find(|i| i.series_id == now.series_id)
+            .map(|i| i.followed)
+            .unwrap_or(false);
+        (digged, collected)
+    }
+
+    /// 互动栏右缘竖排（Tauri interaction-rail 对齐：收藏→评论→点赞→分享，
+    /// icon 上计数下，激活态红心/黄星，显隐跟随控制条）。
+    pub(super) fn render_interaction_rail(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+        let (digged, collected) = self.interact_hit();
+        // 计数优先档案公开计数（匿名可见）；mget 命中值兜底
+        let digg_count = if self.ep_digg_count > 0 {
+            self.ep_digg_count
+        } else {
+            self.interact_items
+                .iter()
+                .find(|i| i.vid == self.now.as_ref().map(|n| n.vid.clone()).unwrap_or_default())
+                .map(|i| i.digged_count)
+                .unwrap_or(0)
+        };
+        let collect_count = if self.follow_count > 0 {
+            self.follow_count
+        } else {
+            self.interact_items
+                .iter()
+                .find(|i| {
+                    Some(i.series_id.as_str()) == self.now.as_ref().map(|n| n.series_id.as_str())
+                })
+                .map(|i| i.followed_cnt)
+                .unwrap_or(0)
+        };
+        let comment_count = self.ep_comment_count;
+
+        // 单个互动项：icon 上、计数下，激活态换色（抖音系右栏单元）。
+        // helper 收 cx.listener 的产物即可，避免闭包里再借 cx。
+        // 红色是 hgplayer 皮肤（硬红线 11 的播放器豁免）。
+        v_flex()
+            .absolute()
+            .right_2()
+            .bottom_24()
+            .items_center()
+            .gap_4()
+            // 滚轮拦下（Tauri interaction-rail data-wheel-block 同款）：
+            // 悬在互动键上滚不切剧
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .child(self.rail_item(
+                "collect",
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Star),
+                    count: collect_count,
+                    active: collected,
+                    active_color: gpui_kit::rgba(0xfacc15ff),
+                    label: None,
+                    tooltip: "收藏",
+                },
+                cx,
+                cx.listener(|this, _, _, cx| this.toggle_collect(cx)),
+            ))
+            .child(self.rail_item(
+                "comments",
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(
+                        gpui_kit::assets::IconName::MessageCircleMore,
+                    ),
+                    count: comment_count,
+                    active: false,
+                    active_color: gpui_kit::rgba(0xffffffff),
+                    label: None,
+                    tooltip: "评论",
+                },
+                cx,
+                cx.listener(|this, _, _, cx| this.toggle_comments_panel(cx)),
+            ))
+            .child(self.rail_item(
+                "digg",
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Heart),
+                    count: digg_count,
+                    active: digged,
+                    active_color: gpui_kit::rgba(0xef4444ff),
+                    label: None,
+                    tooltip: "点赞",
+                },
+                cx,
+                cx.listener(|this, _, _, cx| this.toggle_digg(cx)),
+            ))
+            .child(self.rail_item(
+                "share",
+                RailItem {
+                    icon: gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Forward),
+                    count: 0,
+                    active: false,
+                    active_color: gpui_kit::rgba(0xffffffff),
+                    label: Some("分享"),
+                    tooltip: "分享",
+                },
+                cx,
+                cx.listener(|this, _, _, cx| this.share_series(cx)),
+            ))
+            .into_any_element()
+    }
+
+    /// 互动栏单个 item（icon 上、计数下；`label` 给无计数项的文案——分享
+    /// 显示「分享」二字，Tauri 同款）。
+    fn rail_item(
+        &self,
+        id: &'static str,
+        item: RailItem,
+        cx: &Context<Self>,
+        on_click: impl Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App) + 'static,
+    ) -> gpui_kit::AnyElement {
+        let RailItem {
+            icon,
+            count,
+            active,
+            active_color,
+            label,
+            tooltip,
+        } = item;
+        let tooltip = tooltip.to_string();
+        div()
+            .id(ElementId::from(format!("rail-{id}")))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_0p5()
+            .cursor_pointer()
+            .text_color(if active {
+                active_color
+            } else {
+                gpui_kit::rgb(0xffffff)
+            })
+            .tooltip(move |window, cx| {
+                gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            })
+            // 互动栏悬浮在画面之上，而 gpui 对重叠 bounds 的兄弟分支都会派发
+            // 鼠标事件——不拦的话点互动键会同时触发「点画面暂停」
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_mouse_up(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|_, _, _, cx| cx.stop_propagation()),
+            )
+            .on_click(on_click)
+            .child(icon.size_7().text_color(if active {
+                active_color
+            } else {
+                gpui_kit::rgb(0xffffff)
+            }))
+            .children((count > 0).then(|| {
+                div()
+                    .text_xs()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .text_color(gpui_kit::rgb(0xffffff))
+                    .child(Self::fmt_count(count))
+            }))
+            .children(label.map(|t| {
+                div()
+                    .text_xs()
+                    .font_weight(gpui_kit::FontWeight::MEDIUM)
+                    .text_color(gpui_kit::rgb(0xffffff))
+                    .child(t)
+            }))
+            .into_any_element()
+    }
+}

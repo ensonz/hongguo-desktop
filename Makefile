@@ -1,7 +1,7 @@
 # 红果桌面版 —— 构建任务
 # 用法：make help / make dev / make test
 
-.PHONY: help dev build test test-rust lint fmt typecheck clean release assets nsis
+.PHONY: help dev build test test-rust lint fmt typecheck clean release assets nsis gpui gpui-preview
 
 help:
 	@echo "dev        启动开发模式（Vite + Tauri）"
@@ -15,6 +15,8 @@ help:
 	@echo "assets     重新生成图标与名称本地化（改名/换图后跑，离线）"
 	@echo "nsis      同步 Windows 安装器模板（升级 Tauri 后跑，需联网）"
 	@echo "clean      清理构建产物"
+	@echo "gpui       启动 GPUI 壳"
+	@echo "gpui-preview 离屏渲染 UI 预览矩阵到 /tmp/hongguo-gpui-preview"
 
 dev:
 	pnpm tauri dev
@@ -24,6 +26,12 @@ dev:
 # 同时开两个壳会撞库锁，后启动者按重试口径等 1s 后仍锁着就退出。
 gpui:
 	cargo run -p hongguo-gpui
+
+# 离屏 UI 预览（screenshot feature）：无头渲染真实壳代码 + 假数据快照，
+# 逐场景存 PNG——各功能菜单的视觉验收依据。机制与边界见
+# crates/hongguo-gpui/src/preview/mod.rs 头注释。
+gpui-preview:
+	cargo run -p hongguo-gpui --features screenshot -- --render-preview /tmp/hongguo-gpui-preview
 
 build:
 	pnpm build

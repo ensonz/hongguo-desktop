@@ -103,13 +103,10 @@ impl ProxyConfig {
 pub enum NamingTemplate {
     /// `{series_title} {vid_index}`
     #[default]
-    #[serde(alias = "TitleIndex")]
     TitleIndex,
     /// `{series_title} {vid_index} {ep_title}`
-    #[serde(alias = "TitleIndexEpisode")]
     TitleIndexEpisode,
     /// 仅剧名
-    #[serde(alias = "OnlyTitle")]
     OnlyTitle,
 }
 
@@ -185,25 +182,23 @@ pub struct AccountState {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// 下载根目录
-    #[serde(alias = "download_dir")]
     pub download_dir: String,
     /// 命名模板
     #[serde(default)]
     pub naming: NamingTemplate,
     /// 最大并发数（1–10）
-    #[serde(alias = "max_concurrency")]
     pub max_concurrency: usize,
     /// 代理
     #[serde(default)]
     pub proxy: ProxyConfig,
     /// 看完自动删
-    #[serde(default, alias = "auto_delete_after_play")]
+    #[serde(default)]
     pub auto_delete_after_play: bool,
     /// 播完自动下一集
-    #[serde(default = "default_true", alias = "auto_next_episode")]
+    #[serde(default = "default_true")]
     pub auto_next_episode: bool,
     /// 最小化自动暂停，恢复窗口后继续播（对齐 hgplayer）
-    #[serde(default = "default_true", alias = "pause_on_minimize")]
+    #[serde(default = "default_true")]
     pub pause_on_minimize: bool,
     /// 主题：auto / light / dark（默认 dark——黑色是应用的默认观感）
     #[serde(default = "default_theme")]
@@ -377,25 +372,6 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
-    }
-
-    #[test]
-    fn reads_legacy_snake_case_data_file() {
-        // Electron 版 data.json 的真实形状：一个字段都不能丢
-        let json = r#"{"download_dir":"C:\\Users\\me\\Downloads","naming":"TitleIndex","max_concurrency":5,"proxy":{"mode":{"mode":"manual"},"url":"http://127.0.0.1:1080"},"compat_mode":false,"auto_delete_after_play":true,"auto_next_episode":false,"theme":"dark"}"#;
-        let s: Settings = serde_json::from_str(json).unwrap();
-        assert_eq!(s.download_dir, "C:\\Users\\me\\Downloads");
-        assert_eq!(s.naming, NamingTemplate::TitleIndex);
-        assert_eq!(s.max_concurrency, 5);
-        assert_eq!(s.proxy.mode, ProxyMode::Manual);
-        assert_eq!(s.proxy.url, "http://127.0.0.1:1080");
-        assert!(s.auto_delete_after_play);
-        assert!(!s.auto_next_episode);
-        assert_eq!(s.theme, "dark");
-        // 旧文件里的 compat_mode 属于已下线的播放兜底，忽略即可，
-        // 不能因为字段没了就把整个 data.json 判成损坏
-        let back = serde_json::to_value(&s).unwrap();
-        assert!(back.get("compatMode").is_none());
     }
 
     #[test]

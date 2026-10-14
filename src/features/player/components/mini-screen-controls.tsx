@@ -135,7 +135,7 @@ export function MiniScreenControls({
       onClick={(e) => e.stopPropagation()}
       onMouseEnter={onControlsEnter}
       onMouseLeave={onControlsLeave}
-      className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-black/75 to-transparent px-3 pt-6 pb-1.5 text-white"
+      className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pt-6 pb-1.5 text-white"
     >
       {/* 剧名/集数/简介贴着进度条上方（第三方小屏同款三行形态），宽度
           收敛 + 截断（小屏 480 宽，长剧名长简介都不挡画面） */}
@@ -165,7 +165,9 @@ export function MiniScreenControls({
         onScrubStart={() => undefined}
         onScrubEnd={() => undefined}
       />
-      <div className="flex items-center gap-1">
+      {/* 倍速紧贴时长（用户口径）：一行固定内容更短，窗口才压得进 360 的
+          下限；时长 nowrap——极窄下宁可溢出 1px 也不折行把控制条顶高 */}
+      <div className="flex items-center gap-0.5">
         <MiniButton label={paused ? t('player.play') : t('player.pause')} onClick={togglePlay}>
           {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
         </MiniButton>
@@ -179,13 +181,13 @@ export function MiniScreenControls({
         >
           <SkipForward className="size-4" />
         </MiniButton>
-        <span className="ml-1 font-mono text-[10px] text-white/85 tabular-nums">
+        <span className="whitespace-nowrap font-mono text-[10px] text-white/85 tabular-nums">
           {formatDuration(current)} / {formatDuration(duration)}
         </span>
-        <div className="ml-auto flex items-center gap-1">
-          <MiniButton label={t('player.playbackRate')} onClick={cycleRate}>
-            <span className="font-mono text-[10px]">{rate}x</span>
-          </MiniButton>
+        <MiniButton label={t('player.playbackRate')} onClick={cycleRate}>
+          <span className="font-mono text-[10px]">{rate}x</span>
+        </MiniButton>
+        <div className="ml-auto flex items-center gap-0.5">
           <MiniButton
             label={t('player.mute')}
             onClick={() => {

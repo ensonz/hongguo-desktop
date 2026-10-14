@@ -1,0 +1,102 @@
+//! 探测与进程级缓存：平台硬编 H.264 编码器可用性（[`HW_ENCODER`] 缓存，
+//! 实编一帧才算数的 [`probe_reports_hardware`]）与 HEVC 解码 MFT 在位
+//! 探测（[`hevc_decoder_present`]，WebView2 能否解 HEVC 的判据）；
+//! [`MF_VERSION`] 是会话线程初始化用的 mfapi 版本号。
+
+use parking_lot::RwLock;
+
+use windows::Win32::Media::MediaFoundation::*;
+
+use hongguo_common::AppResult;
+
+use super::decoder::Nv12Frame;
+use super::encoder::{Encoder, EncoderKind};
+use super::mft::{enum_activates, run_on_mf_thread, type_info};
+
+/// mfapi.h：`MF_SDK_VERSION << 16 | MF_API_VERSION`（0x2 << 16 | 0x70）。
+pub(super) const MF_VERSION: u32 = 0x20070;
+
+static HW_ENCODER: RwLock<Option<bool>> = RwLock::new(None);
+
+/// 平台硬编 H.264 编码器是否可用（探测结果缓存）。
+pub fn h264_hw_encoder_available() -> bool {
+    let mut slot = HW_ENCODER.write();
+    if slot.is_none() {
+        *slot = Some(probe_h264_hw_encoder());
+    }
+    slot.unwrap_or(false)
+}
+
+/// 丢弃探测缓存。
+pub fn clear_probe_cache() {
+    *HW_ENCODER.write() = None;
+}
+
+fn probe_h264_hw_encoder() -> bool {
+    match run_on_mf_thread(probe_reports_hardware) {
+        Ok(hw) => hw,
+        Err(e) => {
+            log::warn!("[Platform/mf] 平台硬编探测失败，按不可用处理: {e}");
+            false
+        }
+    }
+}
+
+/// HEVC 解码 MFT 是否在位（廉价探测：只枚举不试编，缓存由调用方管）。
+///
+/// 这是「WebView2 能否解 HEVC」的判据：Chromium/WebView2 的 HEVC 解码走
+/// Media Foundation，解码 MFT 来自系统「HEVC 视频扩展」，不在位则一律黑屏。
+/// 复用平台会话线程（进程级 COM/MF 初始化），枚举本身毫秒级。
+pub fn hevc_decoder_present() -> bool {
+    match run_on_mf_thread(|| {
+        enum_activates(
+            MFT_CATEGORY_VIDEO_DECODER,
+            MFT_ENUM_FLAG_SYNCMFT
+                | MFT_ENUM_FLAG_ASYNCMFT
+                | MFT_ENUM_FLAG_HARDWARE
+                | MFT_ENUM_FLAG_SORTANDFILTER,
+            Some(&type_info(MFMediaType_Video, MFVideoFormat_HEVC)),
+            Some(&type_info(MFMediaType_Video, MFVideoFormat_NV12)),
+        )
+        .map(|decoders| !decoders.is_empty())
+    }) {
+        Ok(present) => present,
+        Err(e) => {
+            log::warn!("[Platform/mf] HEVC 解码 MFT 枚举失败，按不可用处理: {e}");
+            false
+        }
+    }
+}
+
+/// 探测：① HEVC 解码 MFT 在位（缺它平台层没有意义）；② 硬件编码 MFT 不止
+/// 枚举得到，还要真实建会话实编一帧并**产出输出样本**。
+fn probe_reports_hardware() -> AppResult<bool> {
+    let decoders = enum_activates(
+        MFT_CATEGORY_VIDEO_DECODER,
+        MFT_ENUM_FLAG_SYNCMFT
+            | MFT_ENUM_FLAG_ASYNCMFT
+            | MFT_ENUM_FLAG_HARDWARE
+            | MFT_ENUM_FLAG_SORTANDFILTER,
+        Some(&type_info(MFMediaType_Video, MFVideoFormat_HEVC)),
+        Some(&type_info(MFMediaType_Video, MFVideoFormat_NV12)),
+    )?;
+    if decoders.is_empty() {
+        return Ok(false);
+    }
+
+    let mut encoder = Encoder::new(256, 256, 30, 1, 1_000_000, EncoderKind::Hardware)?;
+    encoder.encode(
+        Nv12Frame {
+            data: vec![0x80; 256 * 256 * 3 / 2],
+            stride: 256,
+            width: 256,
+            height: 256,
+            pts_100ns: 0,
+            dur_100ns: 333_333,
+        },
+        0.0,
+        1.0 / 30.0,
+    )?;
+    encoder.finish()?;
+    Ok(!encoder.take_units()?.is_empty())
+}

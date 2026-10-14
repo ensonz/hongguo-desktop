@@ -23,8 +23,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use hongguo_common::{AppError, AppResult};
-use hongguo_mp4::r#box::find_box;
-use hongguo_mp4::sample_table::TrackInfo;
+use hongguo_video::r#box::find_box;
+use hongguo_video::sample_table::TrackInfo;
 
 /// VisualSampleEntry 载荷长度（ISO/IEC 14496-15）：
 /// reserved(6) + data_ref_idx(2) + pre_defined(2) + reserved(2) + pre_defined[3](12)
@@ -230,7 +230,7 @@ fn find_hvc_c_in(data: &[u8], track: &TrackInfo) -> AppResult<(u64, u64)> {
     //
     // sample entry 的扩展区（hvcC / avcC / sinf）位于 VisualSampleEntry 载荷的
     // 78 字节之后——加密轨的 format 是 `encv`，但这部分布局与普通轨一致。
-    for b in hongguo_mp4::r#box::parse_boxes(data, stsd.start + 8, stsd.start + stsd.size) {
+    for b in hongguo_video::r#box::parse_boxes(data, stsd.start + 8, stsd.start + stsd.size) {
         let entry_end = b.start + b.size;
         let inner = b.start + VISUAL_SAMPLE_ENTRY_PAYLOAD;
         if inner + 8 > entry_end {

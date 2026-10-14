@@ -283,10 +283,6 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hg-mux-scale-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("scale.mp4");
-        let _fmt = crate::transcode::audio::AudioFormat {
-            sample_rate: 44100,
-            channels: 2,
-        };
         let opts = TranscodeOptions::default();
         let fmt = crate::transcode::audio::AudioFormat {
             sample_rate: 44100,

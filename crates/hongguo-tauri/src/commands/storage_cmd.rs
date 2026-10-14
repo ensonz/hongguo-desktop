@@ -39,9 +39,7 @@ pub fn get_storage_series(state: State<'_, AppState>) -> Vec<StorageSeriesUsage>
 /// 剧集档案保留，之后仍可在线播放或重新下载。
 #[tauri::command]
 pub fn delete_series_files(state: State<'_, AppState>, series_id: String) -> AppResult<usize> {
-    let n = cleanup::delete_series(&state, &series_id)?;
-    after_cleanup(&state)?;
-    Ok(n)
+    cleanup::delete_series(&state, &series_id)
 }
 
 /// 删除单集文件。
@@ -51,20 +49,11 @@ pub fn delete_episode_file(
     series_id: String,
     vid_index: u32,
 ) -> AppResult<bool> {
-    let ok = cleanup::delete_episode(&state, &series_id, vid_index)?;
-    after_cleanup(&state)?;
-    Ok(ok)
+    cleanup::delete_episode(&state, &series_id, vid_index)
 }
 
 /// 删除全部已下载。
 #[tauri::command]
 pub fn delete_all_downloaded(state: State<'_, AppState>) -> AppResult<usize> {
-    let n = cleanup::delete_all(&state)?;
-    after_cleanup(&state)?;
-    Ok(n)
-}
-
-/// 清理后同步任务状态并落盘。
-fn after_cleanup(state: &State<'_, AppState>) -> AppResult<()> {
-    hongguo_service::download_service::persist_tasks(&state.store, &state.queue(), "Storage")
+    cleanup::delete_all(&state)
 }

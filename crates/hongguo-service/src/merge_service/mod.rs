@@ -9,6 +9,7 @@ pub mod guard;
 pub mod prepare;
 pub mod progress;
 pub mod quick;
+pub mod start;
 
 use std::path::{Path, PathBuf};
 
@@ -31,6 +32,17 @@ pub fn done_inputs(state: &AppState, series_id: &str) -> Vec<(u32, PathBuf)> {
             .filter(|(_, p)| p.exists())
             .collect::<Vec<_>>(),
     )
+}
+
+/// 合并产物路径：`<剧名目录>/<剧名> 合集.mp4`。quick/compat 两条链同一
+/// 份构造——这串路径同时是 guard 的去重键，两处各写一份迟早漂成两个键。
+pub(crate) fn output_file(
+    settings: &hongguo_common::model::Settings,
+    output_name: &str,
+) -> PathBuf {
+    settings
+        .series_dir(output_name)
+        .join(format!("{output_name} 合集.mp4"))
 }
 
 /// 可合并的剧列表，按可合并集数倒序。

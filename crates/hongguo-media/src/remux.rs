@@ -267,13 +267,13 @@ fn read_header_boxes(path: &Path) -> AppResult<(Vec<u8>, Vec<u8>)> {
 
 // 真实短剧文件的端到端验证曾挂在 `remux/` 下，但它同时要平台硬编、ffmpeg 与
 // 服务层（compat_play），三边都不属于本 crate——已随 3b 迁到壳里的
-// `src-tauri/src/testing/media_pipeline_e2e.rs`。
+// `crates/hongguo-tauri/src/testing/media_pipeline_e2e.rs`。
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hongguo_mp4::fixtures::{TrackPlan, mp4_with_samples};
-    use hongguo_mp4::sample_table::collect_tracks;
+    use hongguo_video::fixtures::{TrackPlan, mp4_with_samples};
+    use hongguo_video::sample_table::collect_tracks;
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-remux-{tag}-{}", std::process::id()));

@@ -17,7 +17,10 @@ members = [
     "crates/hongguo-gpui",
     "crates/hongguo-media",
     "crates/hongguo-media-platform",
-    "crates/hongguo-mp4",
+    "crates/hongguo-media-platform-api",
+    "crates/hongguo-media-platform-macos",
+    "crates/hongguo-media-platform-windows",
+    "crates/hongguo-video",
     "crates/hongguo-playback",
     "crates/hongguo-protocol",
     "crates/hongguo-service",
@@ -25,7 +28,7 @@ members = [
     "crates/hongguo-store",
     "crates/hongguo-stream",
     "crates/hongguo-tauri",
-    "src-tauri",
+    "crates/hongguo-tauri-app",
 ]
 # vendor/ 由 [patch.crates-io] 的 path 引用。位于 workspace 目录树内、被
 # path/patch 引用的包会被 Cargo 自动收成 member；若不排除，门禁会去 lint
@@ -35,7 +38,7 @@ exclude = ["vendor/*"]
 # 各 crate 共享的 package 字段：发版只改这里一处（另需改 package.json 与
 # tauri.conf.json），成员用 `xxx.workspace = true` 继承。
 [workspace.package]
-version = "0.4.4"
+version = "0.4.5"
 edition = "2024"
 # MSRV 跟随当前 stable 工具链（1.99）。应用不是库，MSRV 只影响依赖解析。
 rust-version = "1.99"
@@ -104,3 +107,12 @@ strip = true
 # 不这么配就只能全局降级或强制 release，那会把真实断言一起埋掉。
 [profile.dev.package.rusty_h265-accel]
 debug-assertions = false
+
+# 上屏热路径在 dev 也要求全速：NV12→RGBA 逐像素色彩变换（nv12_rgba）是
+# Windows 播放路径每帧必经的纯计算循环，debug 未优化下 1080p 全尺寸一帧
+# ~120ms——窗口化尚可（视口缩放后像素少），全屏即触发死亡螺旋：事件任务
+# 被转换拖死、帧通道满载（每条事件背一帧 NV12）、内存高企、画面冻在切换
+# 间隙的封面上。只优化这个纯 Rust crate（无平台依赖、不靠 debug 断言兜
+# 正确性），实测回到毫秒级；编译代价一次性几十秒。
+[profile.dev.package.hongguo-media]
+opt-level = 3

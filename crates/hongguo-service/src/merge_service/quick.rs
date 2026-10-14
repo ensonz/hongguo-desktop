@@ -36,8 +36,7 @@ pub fn quick_merge(
     }
 
     let settings = state.settings();
-    let dir = settings.series_dir(output_name);
-    let output = dir.join(format!("{output_name} 合集.mp4"));
+    let output = super::output_file(&settings, output_name);
 
     let total = inputs.len();
     on_progress(0.0, total, task);
@@ -64,7 +63,7 @@ fn ensure_codec_consistent(inputs: &[(u32, PathBuf)]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hongguo_mp4::fixtures::{TrackSpec, mp4};
+    use hongguo_video::fixtures::{TrackSpec, mp4};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("hg-quick-{tag}-{}", std::process::id()));

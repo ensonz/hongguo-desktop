@@ -26,12 +26,19 @@ import {
 } from '@/service/queries';
 import { app as appApi } from '@/service/commands';
 import { formatBytes } from '@/utils/format';
+import { isMac } from '@/utils/platform';
 import { t, tf } from '@/locales';
 import type { DecodeCapability, Settings } from '@/service/schema';
 import { UpdateCard } from '@/features/update/update-card';
 import { AccountCard } from './account-card';
 import { ShortcutCard } from './shortcut-card';
 import { ToggleRow } from './toggle-row';
+
+/** ffmpeg 安装路径随平台：Windows 走 winget + gyan 构建，macOS 走
+ *  Homebrew + 官方下载页（官方页列有各 mac 构建源）。 */
+const FFMPEG_INSTALL = isMac()
+  ? { cmd: 'brew install ffmpeg', page: 'https://ffmpeg.org/download.html' }
+  : { cmd: 'winget install Gyan.FFmpeg', page: 'https://www.gyan.dev/ffmpeg/builds/' };
 
 /** 设置页：目录 / 命名 / 并发 / 代理 / 播放 / 存储。 */
 export function SettingsPage() {
@@ -261,21 +268,23 @@ export function SettingsPage() {
               {tf('settings.redetectDone', { backend: backendLabel(capability) })}
             </p>
           )}
-          {/* 没装 ffmpeg 时给一条可照抄的安装路径：说清楚「不装也能用，只是慢」，
-              再把命令和下载页都递到手边 */}
-          {capability && !capability.hasFfmpeg && (
+          {/* 平台编码层不可用（ffmpeg 是兜底决定者）且确实没装时，才给一条
+              可照抄的安装路径。平台可用的机器分流不会走 ffmpeg——装了也不
+              改道，文案「装上后转码自动改走它」在那档机器上是假话，指引
+              随探测分层一并隐藏（探测严格按优先级，见 capability/probe.rs） */}
+          {capability && !capability.platformEncoder && !capability.hasFfmpeg && (
             <div className="bg-muted/50 flex flex-col gap-2 rounded-md p-3 text-xs">
               <p>{t('settings.ffmpegInstallHint')}</p>
               <div className="flex flex-wrap items-center gap-2">
                 <code className="bg-background rounded px-2 py-1 font-mono">
-                  winget install Gyan.FFmpeg
+                  {FFMPEG_INSTALL.cmd}
                 </code>
                 <Button
                   size="sm"
                   variant="ghost"
                   onClick={() => {
                     void navigator.clipboard
-                      .writeText('winget install Gyan.FFmpeg')
+                      .writeText(FFMPEG_INSTALL.cmd)
                       .then(() => toast.success(t('settings.commandCopied')))
                       .catch(() => toast.error(t('settings.copyFailed')));
                   }}
@@ -288,7 +297,7 @@ export function SettingsPage() {
                   variant="ghost"
                   onClick={() =>
                     void appApi
-                      .openExternalPage('https://www.gyan.dev/ffmpeg/builds/')
+                      .openExternalPage(FFMPEG_INSTALL.page)
                       .catch((e: Error) => toast.error(e.message))
                   }
                 >

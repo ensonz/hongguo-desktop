@@ -28,6 +28,7 @@ import {
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
 import { readLastTarget } from '@/utils/playback-prefs';
+import { STREAM_SCHEME } from '@/utils/scheme';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import { useIncognitoMode } from './incognito';
@@ -473,7 +474,7 @@ export function PlayerView({
     // （裁决矩阵见 recovery-policy）。本地文件/转码产物坏了重试也是白搭，
     // 直接报错。在线的失败把 <video> 撤下来，换成封面 + 明确错误 + 重试
     // 按钮，不再是一根小小的报错条挂在冻结画面上。
-    const online = playSrc?.includes('hongguo-stream') ?? false;
+    const online = playSrc?.includes(STREAM_SCHEME) ?? false;
     if (online && !compatSrc && !compat) {
       const kind = classifyMediaError(me?.code);
       const action = recoveryAction(kind, failuresOf());
@@ -566,7 +567,13 @@ export function PlayerView({
                    <video> 按固有纵横比撑大（1100 宽 → 1956 高），舞台裁切后
                    表现为「画面放大、控件全被顶出窗口」（mac 长期已知 bug）。
                    绝对定位把盒子钉死在舞台内，object-contain 只管留黑边。 */
-                  className="absolute inset-0 size-full object-contain"
+                  className={cn(
+                    'absolute inset-0 size-full',
+                    // 小屏 object-cover：迷你窗是固定 16:9，竖版/异比例源用
+                    // contain 会留大片黑边（用户实测截图）——小窗里裁切比
+                    // 黑边可取；大屏保留 contain（换剧的过场不裁内容）
+                    miniScreen ? 'object-cover' : 'object-contain',
+                  )}
                   autoPlay
                   onLoadedMetadata={handleLoadedMetadata}
                   onPlay={() => {
@@ -659,7 +666,6 @@ export function PlayerView({
                 {/* 沉浸流评论区：右侧滑出（💬 触发）；进小屏时已收起 */}
                 {commentPanelOpen && !miniScreen && (
                   <CommentPanel
-                    seriesId={seriesId}
                     vid={currentVid ? `${currentVid}:${seriesId}` : ''}
                     onClose={() => setCommentPanelOpen(false)}
                   />

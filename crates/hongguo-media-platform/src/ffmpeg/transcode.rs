@@ -42,10 +42,17 @@ pub fn transcode_with_ffmpeg(req: &TranscodeRequest<'_>, encoder: &Encoder) -> A
 
     let args = build_args(req, encoder, &temp);
 
-    let mut child = Command::new(ffmpeg)
-        .args(&args)
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(&args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // 转码是长跑，但 GUI 进程里控制面子进程照样闪黑窗（对齐 probe 侧）
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(super::probe::CREATE_NO_WINDOW);
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Media(format!("启动 ffmpeg 失败: {e}")))?;
 

@@ -1,8 +1,5 @@
 //! 播放地址解析：本地成品优先，其次在线流。
 
-use tauri::State;
-
-use super::online::PlayRuntime;
 use super::{online, position};
 use crate::app_state::AppState;
 use hongguo_common::model::{PlayRequest, PlayResponse};
@@ -13,12 +10,8 @@ use hongguo_store::Store;
 ///
 /// `preferOnline` 只在**本地没有这一集**时才起作用：已经下好的文件永远走
 /// `hongguo-local://`，没必要重新下一遍。
-pub async fn resolve_play(
-    runtime: &PlayRuntime,
-    state: &State<'_, AppState>,
-    request: &PlayRequest,
-) -> AppResult<PlayResponse> {
-    let resume_at = position::load(state, &request.series_id, request.vid_index);
+pub async fn resolve_play(state: &AppState, request: &PlayRequest) -> AppResult<PlayResponse> {
+    let resume_at = position::load(state, &request.series_id, request.vid_index)?;
     // 本地文件只有一版，谈不上切清晰度：菜单会拿到空列表而自动隐藏
     let local_response = |url: String, online: bool| PlayResponse {
         url,
@@ -82,33 +75,19 @@ pub async fn resolve_play(
 
     // 进度事件的 key 用前端认的 `{seriesId}:{vidIndex}` 形态
     let progress_key = format!("{}:{}", request.series_id, request.vid_index);
-    match online::prepare(
-        runtime,
-        &vid,
-        &progress_key,
-        request.definition,
-        state.settings(),
-        &state.api_env(),
-    )
-    .await
-    {
+    match online::prepare(state, &vid, &progress_key, request.definition).await {
         Ok(prepared) => {
             // 无 HEVC 机器的连播预转：下一集若是 HEVC-only，后台先转好，
             // 连播到它时兜底直接命中缓存（门控/去重在 compat_prefetch 内）。
             crate::play_service::compat_prefetch::schedule_next_episode(
-                state.store.clone(),
-                state.settings(),
-                state.api_env(),
+                state.clone(),
                 &request.series_id,
                 request.vid_index + 1,
             );
             // 连播下一集的**流**预取：集间切换此前完全裸奔，自动连播每集
             // 都冷走取流表+探针链（实测 1.4s）——切剧预取只救得了「换一部剧」。
             online::schedule_next_episode_prefetch(
-                runtime,
-                &state.store,
-                state.settings(),
-                state.api_env(),
+                state.clone(),
                 &request.series_id,
                 request.vid_index + 1,
             );

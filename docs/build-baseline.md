@@ -37,7 +37,7 @@ cargo clean && cargo build --workspace
 | --- | --- | --- | --- | --- |
 | B1 | `src-tauri/src/media/transcode.rs` | 1.4 s | **18.6 s** | `hongguo-desktop` |
 | B2 | `crates/hongguo-store/src/paths.rs` | 1.7 s | 18.4 s | `hongguo-store`, `hongguo-desktop` |
-| B3 | `crates/hongguo-mp4/src/lib.rs` | 1.5 s | 17.8 s | `hongguo-mp4`, `hongguo-desktop` |
+| B3 | `crates/hongguo-video/src/lib.rs` | 1.5 s | 17.8 s | `hongguo-video`, `hongguo-desktop` |
 
 ### 读数结论（重要，别误读）
 
@@ -170,4 +170,21 @@ $env:PATH = $env:PATH + ';C:\Program Files\Git\usr\bin'
 
 长期修法（未做，留待评估）：给 `make lint` 的交叉两条命令加一层「确保 `true` 可解析」
 的前置检查，或改用 `--config env.CC_...` 指向占位脚本。
+
+## 7. 二期复测（2026-10-13：平台四 crate + service 去 Tauri 化）
+
+- 形态变化：`hongguo-media-platform` 拆为「契约（`-api`）+ 双平台实现
+  （`-macos`/`-windows`）+ 门面」；`hongguo-service` 摘除 tauri 依赖
+  （自持共用任务运行时与事件总线，见 `architecture-refactor.md` §16）。
+- workspace 成员：13 → **16** 个 crate（入口 crate 并入后 17 个成员全部位于 `crates/`）。新增的三个
+  平台 crate 由 `--workspace` 自动覆盖，Makefile/CI 的排除清单未动。
+- 体量（`rg --files crates` 过滤 `.rs` + 逐文件行数实测）：**304 个 `.rs` /
+  57,856 行**（含 gpui 壳与其测试）。
+- 增量手感（Windows 宿主、温 target，本期实测）：
+  - 改 service 后 `cargo check --workspace --all-targets` ≈ 3–7 s；
+  - 改平台门面/实现（含 gpui 依赖链）≈ 5–8 s；
+  - 单次提交门禁（githooks：三目标 clippy + 全量测试 + eslint）≈ 4–5 分钟。
+- 说明：以上为温缓存的增量口径；clean build 的绝对基线待下次发版窗口按 §1 口径
+  复测。二期为纯结构移动 + 内部机制替换，发布产物行为不变（唯一有意变更：下载
+  「停止」统一为真实取消）。
 

@@ -27,26 +27,21 @@ impl TaskStatus {
 
 /// 一个下载任务（对应一集）。
 ///
-/// 落盘沿用 Electron 版的 snake_case 键名（见 [`crate::model::series`]），
-/// 发给前端时转 camelCase（前端 `downloadTaskSchema`）。
+/// 发给前端是 camelCase（前端 `downloadTaskSchema`）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
     pub id: String,
-    #[serde(alias = "series_id")]
     pub series_id: String,
-    #[serde(alias = "series_title")]
     pub series_title: String,
-    #[serde(alias = "vid_index")]
     pub vid_index: u32,
     pub vid: String,
-    #[serde(default, alias = "ep_title")]
     pub ep_title: String,
     /// 成品路径
-    #[serde(default, alias = "file_path")]
+    #[serde(default)]
     pub file_path: String,
     /// 下载中的临时路径（`.enc.tmp`），解密成功后才改名
-    #[serde(default, alias = "temp_path")]
+    #[serde(default)]
     pub temp_path: String,
     pub status: TaskStatus,
     #[serde(default)]
@@ -55,9 +50,9 @@ pub struct DownloadTask {
     pub total: u64,
     #[serde(default)]
     pub error: String,
-    #[serde(default, alias = "created_at")]
+    #[serde(default)]
     pub created_at: i64,
-    #[serde(default, alias = "updated_at")]
+    #[serde(default)]
     pub updated_at: i64,
 }
 
@@ -227,17 +222,6 @@ mod tests {
         let json = serde_json::to_string(&t).unwrap();
         let back: DownloadTask = serde_json::from_str(&json).unwrap();
         assert_eq!(t, back);
-    }
-
-    #[test]
-    fn task_reads_legacy_snake_case_data_file() {
-        let json = r#"{"id":"a","series_id":"1","series_title":"剧","vid_index":3,"vid":"v3","ep_title":"第三集","file_path":"a.mp4","temp_path":"a.tmp","status":"completed","downloaded":10,"total":10,"error":"","created_at":1,"updated_at":2}"#;
-        let t: DownloadTask = serde_json::from_str(json).unwrap();
-        assert_eq!(t.series_id, "1");
-        assert_eq!(t.vid_index, 3);
-        assert_eq!(t.ep_title, "第三集");
-        assert_eq!(t.file_path, "a.mp4");
-        assert_eq!(t.status, TaskStatus::Completed);
     }
 
     #[test]

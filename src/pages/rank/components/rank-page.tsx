@@ -10,6 +10,7 @@ import { TopBarTab, TopBarTabsPortal } from '@/components/layout/top-bar-tabs';
 import { useRank } from '@/service/queries';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { t } from '@/locales';
+import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
 import { FilterPanelButton } from './filter-panel-button';
 import { RankRow } from './rank-row';
 import { normalizeTabs } from './normalize-tabs';
@@ -75,7 +76,7 @@ export function RankPage() {
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) rank.loadMore();
       },
-      { rootMargin: '600px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     );
     observer.observe(el);
     return () => observer.disconnect();

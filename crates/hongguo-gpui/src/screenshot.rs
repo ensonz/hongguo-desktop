@@ -14,16 +14,46 @@ use std::time::Duration;
 use gpui_kit::{AnyWindowHandle, App};
 
 /// 环境变量起点火：设了 `HONGGUO_SHOT` 就按节奏抓若干张。
-pub(crate) fn install(window: AnyWindowHandle, cx: &mut App) {
+/// `feed` 是壳根的 HomeView 实体（HONGGUO_SHOT_PAUSE 取证暂停用）。
+pub(crate) fn install(
+    window: AnyWindowHandle,
+    feed: gpui_kit::Entity<crate::shell::Shell>,
+    cx: &mut App,
+) {
     let Ok(path) = std::env::var("HONGGUO_SHOT") else {
         return;
     };
     let count = env_usize("HONGGUO_SHOT_COUNT", 6);
     let interval = Duration::from_millis(env_usize("HONGGUO_SHOT_INTERVAL_MS", 1500) as u64);
     let start_delay = Duration::from_millis(env_usize("HONGGUO_SHOT_START_MS", 8_000) as u64);
+    // HONGGUO_SHOT_PAUSE=1：抓帧前暂停播放并把控制条/互动栏的可见窗拉长
+    // ——控制条 3s 自隐、互动栏随它显隐，无人值守抓帧永远抓不到 UI；
+    // 要验 UI 视觉（图标/布局）就开这个。
+    let pause_ui = std::env::var("HONGGUO_SHOT_PAUSE").is_ok();
+    // HONGGUO_SHOT_PANEL=downloads：抓帧前打开下载面板（验任务行 UI）；
+    // =picker：打开选集浮层系列剧 tab（验季卡片/预约按钮）。
+    let panel = std::env::var("HONGGUO_SHOT_PANEL").unwrap_or_default();
 
     cx.spawn(async move |cx| {
         cx.background_executor().timer(start_delay).await;
+        if pause_ui {
+            feed.update(cx, |shell, cx| shell.debug_pause_player(cx));
+        }
+        match panel.as_str() {
+            "downloads" => {
+                feed.update(cx, |shell, cx| shell.debug_open_downloads(cx));
+            }
+            "picker" => {
+                feed.update(cx, |shell, cx| shell.debug_open_picker(cx));
+            }
+            "comments" => {
+                feed.update(cx, |shell, cx| shell.debug_open_comments(cx));
+            }
+            "login" => {
+                feed.update(cx, |shell, cx| shell.debug_open_login(cx));
+            }
+            _ => {}
+        }
         for i in 1..=count {
             let shot = window.update(cx, |_, window, cx| {
                 // 必须先强制重绘：窗口被遮挡/失焦时 AppKit 会暂停绘制，

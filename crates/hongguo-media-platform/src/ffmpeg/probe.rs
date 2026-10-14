@@ -128,11 +128,15 @@ fn find_in_winget() -> Option<PathBuf> {
     None
 }
 
+/// GUI 进程拉起控制面子进程会闪黑窗：Windows 侧一律 CREATE_NO_WINDOW
+/// （启动预热就会跑 `-version` / `-encoders` / 试编一帧）。
+#[cfg(target_os = "windows")]
+pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// 尝试执行 `ffmpeg -version`，成功则返回其路径。
 #[cfg(target_os = "windows")]
 fn probe_command(name: &str) -> Option<PathBuf> {
     use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let out = Command::new(name)
         .arg("-version")
         .creation_flags(CREATE_NO_WINDOW)
@@ -267,7 +271,13 @@ fn try_encoder(ffmpeg: &PathBuf, encoder: &'static str, force_hardware: bool) ->
 
 /// 执行 ffmpeg，成功返回 stdout。
 fn run(ffmpeg: &PathBuf, args: &[&str]) -> Option<String> {
-    let out = Command::new(ffmpeg).args(args).output().ok()?;
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    let mut cmd = Command::new(ffmpeg);
+    cmd.args(args);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let out = cmd.output().ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).to_string())

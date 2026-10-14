@@ -13,7 +13,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Heart, Loader2, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import type { InfiniteData } from '@tanstack/react-query';
 import {
   useAccount,
   useReviewDigg,
@@ -22,16 +21,23 @@ import {
   useSendReviewReply,
   useSeriesComments,
 } from '@/service/queries';
+import {
+  appendReply,
+  bumpReplyCount,
+  removeComment,
+  removeReply,
+} from '@/service/queries/comment-cache';
 import { dedupBy, keys } from '@/service/queries/common';
 import { interact } from '@/service/commands';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import { formatCountPrecise } from '@/utils/format';
+import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmojiText } from '@/components/common/emoji/emoji-text';
 import { ReplyThread } from '@/components/common/reply-thread';
 import { EmojiSendBox } from '@/components/common/emoji/emoji-send-box';
-import type { CommentPage, ReplyItem, ReplyPage } from '@/service/schema';
+import type { ReplyItem } from '@/service/schema';
 import { ReviewComposer } from './review-composer';
 
 /** 十分制评分 → 5 星展示（"7" → 3.5 星；半星用填充比例表达）。 */
@@ -47,9 +53,9 @@ function ScoreStars({ score }: { score: string }) {
           className={cn(
             'size-3',
             s <= filled
-              ? 'fill-amber-400 text-amber-400'
+              ? 'fill-star text-star'
               : s === filled + 1 && half
-                ? 'fill-amber-400/50 text-amber-400'
+                ? 'fill-star/50 text-star'
                 : 'text-muted-foreground/40',
           )}
         />
@@ -132,7 +138,7 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
           void fetchNextPage();
         }
       },
-      { rootMargin: '160px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -172,45 +178,8 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
         onSuccess: (reply) => {
           // 服务端回显的完整回复对象直接进缓存（头像/昵称/uid/时间齐全），
           // 父剧评 replyCount +1
-          queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
-            keys.reviewReplies(seriesId, reviewId),
-            (prev) => {
-              if (!prev) {
-                return {
-                  pages: [{ items: [reply], total: 1, hasMore: false, nextCursor: '' }],
-                  pageParams: [''],
-                };
-              }
-              const [first, ...rest] = prev.pages;
-              if (!first) return prev;
-              return {
-                ...prev,
-                pages: [
-                  {
-                    ...first,
-                    items: first.items.some((r) => r.replyId === reply.replyId)
-                      ? first.items
-                      : [...first.items, reply],
-                    total: first.total + 1,
-                  },
-                  ...rest,
-                ],
-              };
-            },
-          );
-          queryClient.setQueryData<InfiniteData<CommentPage, string>>(
-            keys.seriesComments(seriesId),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p) => ({
-                  ...p,
-                  items: p.items.map((c) =>
-                    c.commentId === reviewId ? { ...c, replyCount: c.replyCount + 1 } : c,
-                  ),
-                })),
-              },
-          );
+          appendReply(queryClient, keys.reviewReplies(seriesId, reviewId), reply);
+          bumpReplyCount(queryClient, keys.seriesComments(seriesId), reviewId, 1);
           setReplyText('');
           setReplyTarget(null);
           setReplyToReply(null);
@@ -240,47 +209,11 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
       .then(() => {
         if (target.serviceId === 4 && target.parentId) {
           // 回复：回复缓存摘除 + total-1，父剧评 replyCount-1——与发送
-          // 成功的 +1 对称；此前漏了计数，「展开 N 条」与实际条数对不上
-          queryClient.setQueryData<InfiniteData<ReplyPage, string>>(
-            keys.reviewReplies(seriesId, target.parentId),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p, i) => ({
-                  ...p,
-                  total: i === 0 ? Math.max(0, p.total - 1) : p.total,
-                  items: p.items.filter((r) => r.replyId !== target.id),
-                })),
-              },
-          );
-          queryClient.setQueryData<InfiniteData<CommentPage, string>>(
-            keys.seriesComments(seriesId),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p) => ({
-                  ...p,
-                  items: p.items.map((c) =>
-                    c.commentId === target.parentId
-                      ? { ...c, replyCount: Math.max(0, c.replyCount - 1) }
-                      : c,
-                  ),
-                })),
-              },
-          );
+          // 成功的 +1 对称
+          removeReply(queryClient, keys.reviewReplies(seriesId, target.parentId), target.id);
+          bumpReplyCount(queryClient, keys.seriesComments(seriesId), target.parentId, -1);
         } else {
-          queryClient.setQueryData<InfiniteData<CommentPage, string>>(
-            keys.seriesComments(seriesId),
-            (prev) =>
-              prev && {
-                ...prev,
-                pages: prev.pages.map((p, i) => ({
-                  ...p,
-                  total: i === 0 ? Math.max(0, p.total - 1) : p.total,
-                  items: p.items.filter((c) => c.commentId !== target.id),
-                })),
-              },
-          );
+          removeComment(queryClient, keys.seriesComments(seriesId), target.id);
           if (replyTarget === target.id) setReplyTarget(null);
         }
         toast.success(t('common.deleted'));
@@ -365,11 +298,11 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
                       onClick={() => onDigg(c.commentId, !isLiked)}
                       className={cn(
                         'hover:text-foreground flex cursor-pointer items-center gap-1',
-                        isLiked && 'text-red-500',
+                        isLiked && 'text-hot',
                       )}
                       title={t('detail.like')}
                     >
-                      <Heart className={cn('size-3.5', isLiked && 'fill-red-500 text-red-500')} />
+                      <Heart className={cn('size-3.5', isLiked && 'fill-hot text-hot')} />
                       {c.diggCount > 0 && <span className="tabular-nums">{c.diggCount}</span>}
                     </button>
                     <button
@@ -387,7 +320,7 @@ export function ReviewList({ seriesId }: { seriesId: string }) {
                       <button
                         type="button"
                         onClick={() => setDeleteTarget({ id: c.commentId, serviceId: 2 })}
-                        className="cursor-pointer hover:text-red-500"
+                        className="hover:text-destructive cursor-pointer"
                       >
                         {t('common.delete')}
                       </button>

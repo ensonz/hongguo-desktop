@@ -30,7 +30,7 @@ NSIS 在 Windows 上默认按 ANSI 读脚本，含中文的 `.nsh` **必须** UT
 ## 与 installer.nsi 的分工
 
 - 本文件：名字表 + 钩子宏（产品相关，改名只动这里）
-- `src-tauri/nsis/installer.nsi`：官方模板 + 本地化补丁，由
+- `crates/hongguo-tauri-app/nsis/installer.nsi`：官方模板 + 本地化补丁，由
   `scripts/sync-nsis-template.py` 生成（把写死的 `${PRODUCTNAME}.lnk` 换成
   `$AppShortcutName.lnk`，并在 un.onInit 里读回安装时记录的名字）
 
@@ -43,7 +43,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "src-tauri" / "nsis" / "installer-hooks.nsh"
+OUT = ROOT / "crates" / "hongguo-tauri-app" / "nsis" / "installer-hooks.nsh"
 
 # 安装器的语言列表（tauri.conf.json > bundle.windows.nsis.languages）。
 # LangString 只能为**已插入**的语言定义：给列表外的语言定义 LangString 会牵出

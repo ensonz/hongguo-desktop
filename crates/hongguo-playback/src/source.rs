@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use hongguo_common::{AppError, AppResult};
-use hongguo_mp4::sample_table::TrackInfo;
+use hongguo_video::sample_table::TrackInfo;
 
 /// 单次 serve 拉取的窗口大小（对齐填充的分块口径）。
 const WINDOW: u64 = 1024 * 1024;
@@ -34,7 +34,14 @@ pub(crate) async fn open_stream(vid: &str, definition: u32) -> AppResult<StreamM
             break;
         }
         let want = WINDOW.min(total - cursor);
-        let chunk = read_range(vid, definition, cursor, cursor + want - 1).await?;
+        let chunk = read_range(
+            vid.to_string(),
+            definition,
+            cursor,
+            cursor + want - 1,
+            || false,
+        )
+        .await?;
         if chunk.is_empty() {
             break;
         }
@@ -73,7 +80,7 @@ pub(crate) async fn open_stream(vid: &str, definition: u32) -> AppResult<StreamM
 
 /// 文件总长：`bytes=0-0` 的 Content-Range 尾段。
 async fn probe_total(vid: &str, definition: u32) -> AppResult<u64> {
-    let (_, headers, _) = read_range_raw(vid, definition, 0, 0).await?;
+    let (_, headers, _) = read_range_raw(vid.to_string(), definition, 0, 0, || false).await?;
     let cr = headers
         .iter()
         .find(|(k, _)| k == "Content-Range")
@@ -109,7 +116,24 @@ impl SampleSource {
         self.samples.len()
     }
 
-    pub(crate) async fn read(&mut self, idx: usize) -> AppResult<Vec<u8>> {
+    /// 读样本 idx 的字节；`cancelled` 命中时，等待中的 serve 会被尽快唤醒
+    /// 退场（注销读者登记），本调用以错误返回。
+    ///
+    /// seek 之后还堵在旧位置上的读取必须主动让路——干等旧数据的话，填充
+    /// 调度器会先满足旧需求（FIFO），新位置的 seek 就绪被白白拖后一个区间。
+    pub(crate) async fn read_cancellable(
+        &mut self,
+        idx: usize,
+        cancelled: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> AppResult<Vec<u8>> {
+        self.read_inner(idx, cancelled).await
+    }
+
+    async fn read_inner(
+        &mut self,
+        idx: usize,
+        cancelled: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> AppResult<Vec<u8>> {
         let (offset, size) = *self
             .samples
             .get(idx)
@@ -120,7 +144,14 @@ impl SampleSource {
         let end = offset + size; // 开区间
         if !(offset >= self.buf_at && end <= self.buf_at + self.buf.len() as u64) {
             self.buf_at = offset;
-            self.buf = read_range(&self.vid, self.definition, offset, offset + WINDOW - 1).await?;
+            self.buf = read_range(
+                self.vid.clone(),
+                self.definition,
+                offset,
+                offset + WINDOW - 1,
+                cancelled,
+            )
+            .await?;
         }
         let start = (offset - self.buf_at) as usize;
         self.buf
@@ -130,9 +161,16 @@ impl SampleSource {
     }
 }
 
-/// 取一段明文字节（serve 阻塞，放阻塞池）。
-async fn read_range(vid: &str, definition: u32, start: u64, end: u64) -> AppResult<Vec<u8>> {
-    let (status, _, body) = read_range_raw(vid, definition, start, end).await?;
+/// 取一段明文字节（serve 阻塞，放阻塞池；`cancelled` 透传给 serve，
+/// seek 重定位时等待中的请求能尽快退场并注销读者登记）。
+async fn read_range(
+    vid: String,
+    definition: u32,
+    start: u64,
+    end: u64,
+    cancelled: impl Fn() -> bool + Send + Sync + 'static,
+) -> AppResult<Vec<u8>> {
+    let (status, _, body) = read_range_raw(vid, definition, start, end, cancelled).await?;
     if (200..300).contains(&status) {
         Ok(body)
     } else {
@@ -143,15 +181,15 @@ async fn read_range(vid: &str, definition: u32, start: u64, end: u64) -> AppResu
 }
 
 async fn read_range_raw(
-    vid: &str,
+    vid: String,
     definition: u32,
     start: u64,
     end: u64,
+    cancelled: impl Fn() -> bool + Send + Sync + 'static,
 ) -> AppResult<hongguo_stream::range::ProtocolResponse> {
-    let vid = vid.to_string();
     let header = format!("bytes={start}-{end}");
     tokio::task::spawn_blocking(move || {
-        hongguo_stream::serve(&vid, definition, Some(&header))
+        hongguo_stream::serve_cancellable(&vid, definition, Some(&header), cancelled)
             .map_err(|e| AppError::Media(format!("取流失败: {e}")))
     })
     .await

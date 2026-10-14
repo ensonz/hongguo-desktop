@@ -9,6 +9,13 @@ use std::path::{Path, PathBuf};
 use hongguo_common::model::ProxyConfig;
 use hongguo_common::{AppError, AppResult};
 
+/// 本机 HEVC 播放能力（选流模式的裁决输入，见
+/// `hongguo_api::stream_pick::DecoderCapability`）。壳层统一从这里取，
+/// 不直接依赖平台层。
+pub fn hevc_playable() -> bool {
+    hongguo_media_platform::capability::playback::hevc_playable()
+}
+
 /// HEVC 视频扩展 appx 的下载直链与期望 SHA-256。
 ///
 /// 链接是维护者 Gitee 仓库根目录的仓库内直链（国内直连友好；原 pixeldrain
@@ -28,7 +35,7 @@ pub async fn install_hevc_extension(proxy: ProxyConfig) -> AppResult<bool> {
 
     // PowerShell 会话可能跑几秒，扔阻塞线程池，不占 async 工作线程
     let install_path = path.clone();
-    let installed = tauri::async_runtime::spawn_blocking(move || verify_and_install(&install_path))
+    let installed = crate::runtime::spawn_blocking(move || verify_and_install(&install_path))
         .await
         .map_err(|e| AppError::Media(format!("HEVC 扩展安装任务异常: {e}")))?;
     // 成败都清临时文件；安装失败时错误向上抛给前端展示
