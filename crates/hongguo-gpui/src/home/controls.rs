@@ -250,6 +250,7 @@ impl super::HomeView {
             dm_density: self.dm_density,
             dm_area: self.dm_area,
             incognito: self.incognito,
+            keys: self.shortcut_keys.clone(),
         };
         bridge::spawn(async move {
             let path = hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);

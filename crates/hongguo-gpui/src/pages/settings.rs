@@ -41,6 +41,72 @@ use crate::pages::card;
 #[derive(Debug, Clone)]
 pub(crate) enum SettingsEvent {
     Login,
+    /// 快捷键映射变更：壳转给首页播放器（值同时已落盘）。
+    ShortcutKeys(crate::playback_prefs::ShortcutKeys),
+}
+
+/// 可自定义的播放器动作（与 Tauri ShortcutAction 同集）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShortcutAction {
+    PlayPause,
+    SeekBack,
+    SeekForward,
+    StepPrev,
+    StepNext,
+}
+
+impl ShortcutAction {
+    const ALL: [ShortcutAction; 5] = [
+        ShortcutAction::PlayPause,
+        ShortcutAction::SeekBack,
+        ShortcutAction::SeekForward,
+        ShortcutAction::StepPrev,
+        ShortcutAction::StepNext,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            ShortcutAction::PlayPause => "播放 / 暂停",
+            ShortcutAction::SeekBack => "快退 5 秒",
+            ShortcutAction::SeekForward => "快进 5 秒",
+            ShortcutAction::StepPrev => "上一集 / 上一部",
+            ShortcutAction::StepNext => "下一集 / 下一部",
+        }
+    }
+
+    fn get(self, keys: &crate::playback_prefs::ShortcutKeys) -> &str {
+        match self {
+            ShortcutAction::PlayPause => &keys.play_pause,
+            ShortcutAction::SeekBack => &keys.seek_back,
+            ShortcutAction::SeekForward => &keys.seek_forward,
+            ShortcutAction::StepPrev => &keys.step_prev,
+            ShortcutAction::StepNext => &keys.step_next,
+        }
+    }
+
+    fn set(self, keys: &mut crate::playback_prefs::ShortcutKeys, value: String) {
+        match self {
+            ShortcutAction::PlayPause => keys.play_pause = value,
+            ShortcutAction::SeekBack => keys.seek_back = value,
+            ShortcutAction::SeekForward => keys.seek_forward = value,
+            ShortcutAction::StepPrev => keys.step_prev = value,
+            ShortcutAction::StepNext => keys.step_next = value,
+        }
+    }
+}
+
+/// GPUI keystroke 键名 → 可读标签（Tauri shortcutKeyLabel 同款）。
+fn shortcut_key_label(key: &str) -> String {
+    match key {
+        "space" => "空格".to_string(),
+        "left" => "←".to_string(),
+        "right" => "→".to_string(),
+        "up" => "↑".to_string(),
+        "down" => "↓".to_string(),
+        "escape" => "Esc".to_string(),
+        other if other.chars().count() == 1 => other.to_uppercase(),
+        other => other.to_string(),
+    }
 }
 
 const NAMING_LABELS: [&str; 3] = ["剧名 集数", "剧名 集数 标题", "仅剧名"];
@@ -67,6 +133,12 @@ pub(crate) struct SettingsView {
     test_result: Option<ProxyTestResult>,
     saving: bool,
     account_avatar: Option<Arc<RenderImage>>,
+    /// 快捷键映射（设置页与播放器共用一份；改动即存即生效）。
+    shortcut_keys: crate::playback_prefs::ShortcutKeys,
+    /// 正在捕获按键的动作（Esc 取消；纯修饰键忽略）。
+    capturing: Option<ShortcutAction>,
+    /// 捕获焦点锚：进入捕获态后由根元素接管键盘。
+    keys_focus: gpui_kit::FocusHandle,
 }
 
 fn naming_index(naming: NamingTemplate) -> usize {
@@ -196,6 +268,9 @@ impl SettingsView {
             test_result: None,
             saving: false,
             account_avatar: None,
+            shortcut_keys: crate::playback_prefs::ShortcutKeys::default(),
+            capturing: None,
+            keys_focus: cx.focus_handle(),
         }
     }
 
@@ -237,6 +312,11 @@ impl SettingsView {
                 view.usage = Some(usage);
                 view.cache_usage = Some(cache_usage);
                 view.capability = Some(capability);
+                // 快捷键映射从偏好文件带上（与播放器同一份）
+                let prefs_path = hongguo_store::paths::data_dir()
+                    .join(crate::playback_prefs::FILE_NAME);
+                view.shortcut_keys =
+                    crate::playback_prefs::load_from(&prefs_path).keys;
                 // 表单初值跟随服务端
                 let settings = view.state.settings();
                 let dir = settings.download_dir.clone();
@@ -482,6 +562,137 @@ impl SettingsView {
                 }
             }
         }
+    }
+
+    /// 捕获态按键处理（仅捕获中生效；Esc 取消，纯修饰键忽略，
+    /// 重复键当场拦截——Tauri ShortcutCard 同口径）。
+    fn on_capture_key(
+        &mut self,
+        ev: &gpui_kit::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(action) = self.capturing else {
+            return;
+        };
+        let key = ev.keystroke.key.to_lowercase();
+        if key == "escape" {
+            self.capturing = None;
+            cx.notify();
+            return;
+        }
+        if matches!(
+            key.as_str(),
+            "shift" | "control" | "alt" | "meta" | "platform" | "fn" | "capslock"
+        ) {
+            return;
+        }
+        if let Some(owner) = ShortcutAction::ALL
+            .iter()
+            .find(|a| **a != action && a.get(&self.shortcut_keys) == key)
+        {
+            window.push_notification(
+                Notification::error(format!(
+                    "「{}」已被其他动作占用",
+                    shortcut_key_label(&key)
+                )),
+                cx,
+            );
+            // 冲突时保留捕获态（换一个键再试），与 Tauri 的「当场拦截」同效
+            let _ = owner;
+            cx.notify();
+            return;
+        }
+        action.set(&mut self.shortcut_keys, key);
+        self.capturing = None;
+        self.persist_shortcut_keys(cx);
+        cx.emit(SettingsEvent::ShortcutKeys(self.shortcut_keys.clone()));
+        cx.notify();
+    }
+
+    /// 快捷键落盘（读-改-写：保留播放偏好其余字段不被覆盖）。
+    fn persist_shortcut_keys(&self, cx: &Context<Self>) {
+        let keys = self.shortcut_keys.clone();
+        crate::bridge::spawn(async move {
+            tokio::task::spawn_blocking(move || {
+                let path = hongguo_store::paths::data_dir()
+                    .join(crate::playback_prefs::FILE_NAME);
+                let mut prefs = crate::playback_prefs::load_from(&path);
+                prefs.keys = keys;
+                crate::playback_prefs::save_to(&path, &prefs);
+            })
+            .await
+            .expect("阻塞池 join")
+        });
+        let _ = cx;
+    }
+
+    fn render_shortcut_card(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let theme = cx.theme();
+        card(cx)
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_base()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .child("播放器快捷键"),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("settings-keys-reset")
+                            .label("恢复默认")
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.shortcut_keys =
+                                    crate::playback_prefs::ShortcutKeys::default();
+                                this.capturing = None;
+                                this.persist_shortcut_keys(cx);
+                                cx.emit(SettingsEvent::ShortcutKeys(
+                                    this.shortcut_keys.clone(),
+                                ));
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child("点击按键后按下新键完成设置，Esc 取消。播放中的 Esc 固定用于退出选中。"),
+            )
+            .children(ShortcutAction::ALL.map(|action| {
+                let capturing = self.capturing == Some(action);
+                let label = if capturing {
+                    "按下新按键…".to_string()
+                } else {
+                    shortcut_key_label(action.get(&self.shortcut_keys))
+                };
+                let button = Button::new(format!("settings-key-{}", action.label()))
+                    .label(label)
+                    .outline()
+                    .small();
+                let button = if capturing {
+                    button.text_color(theme.primary)
+                } else {
+                    button
+                };
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .py_1()
+                    .child(div().text_sm().child(action.label()))
+                    .child(button.on_click(cx.listener(move |this, _, window, cx| {
+                        this.capturing = Some(action);
+                        window.focus(&this.keys_focus, cx);
+                        cx.notify();
+                    })))
+            }))
+            .into_any_element()
     }
 
     fn redetected_line(&self) -> Option<String> {
@@ -967,6 +1178,7 @@ impl gpui_kit::Render for SettingsView {
                 .child(self.render_proxy_card(cx))
                 .child(separator(cx))
                 .child(self.render_playback_card(cx))
+                .child(self.render_shortcut_card(cx))
                 .child(self.render_storage_card(cx))
                 .child(self.render_update_card(cx))
                 .child(
@@ -989,6 +1201,14 @@ impl gpui_kit::Render for SettingsView {
             .overflow_y_scroll()
             .bg(theme.background)
             .text_color(theme.foreground)
+            // 捕获态键盘归属：焦点锚在根元素上，捕获中接管按键
+            .track_focus(&self.keys_focus)
+            .key_context("SettingsKeys")
+            .on_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                if this.capturing.is_some() {
+                    this.on_capture_key(ev, window, cx);
+                }
+            }))
             .child(body)
     }
 }

@@ -231,6 +231,11 @@ impl Shell {
                     .update(cx, |home, cx| home.toggle_login_panel(cx));
                 cx.notify();
             }
+            SettingsEvent::ShortcutKeys(keys) => {
+                let keys = keys.clone();
+                this.feed
+                    .update(cx, |home, cx| home.reload_shortcut_keys(keys, cx));
+            }
         })
         .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
