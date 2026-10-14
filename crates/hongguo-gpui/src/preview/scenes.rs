@@ -150,6 +150,31 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "rank-empty",
             font_scale: 1.,
         },
+        // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
+        PreviewCase {
+            name: "detail-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "detail",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "detail-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "detail",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "detail-related-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "detail-related",
+            font_scale: 1.,
+        },
         // —— 小屏（480×270 播放器形态，侧栏藏掉）——
         PreviewCase {
             name: "mini-light",

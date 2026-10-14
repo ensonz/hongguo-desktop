@@ -1,5 +1,36 @@
 //! 展示格式化：相对时间、计数、时间与倍速文案（与 Tauri 版口径一致）。
 
+/// 相对时间（评论时间戳）。分层与 Tauri `utils/relative-time.ts` 同口径
+/// （hgplayer：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 30 天内 /
+/// M月D日）——此前自创「N 个月前/N 年前」与前端漂移。技术栈不同不共享
+/// 实现，改分层两边同步。crate 级自由函数：首页评论面板与详情页剧评共用。
+pub(crate) fn relative_time(ts_ms: i64) -> String {
+    if ts_ms <= 0 {
+        return String::new();
+    }
+    let secs = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+        - ts_ms / 1000)
+        .max(0);
+    match secs {
+        0..=59 => "刚刚".to_string(),
+        60..=3_599 => format!("{}分钟前", secs / 60),
+        3_600..=86_399 => format!("{}小时前", secs / 3_600),
+        86_400..=172_799 => "昨天".to_string(),
+        172_800..=2_591_999 => format!("{}天前", secs / 86_400),
+        _ => {
+            use chrono::{Datelike, TimeZone};
+            let dt = chrono::Local
+                .timestamp_millis_opt(ts_ms)
+                .single()
+                .unwrap_or_else(chrono::Local::now);
+            format!("{}月{}日", dt.month(), dt.day())
+        }
+    }
+}
+
 impl super::HomeView {
     /// `m:ss`（与 Tauri 版时间格式一致）。
     pub(super) fn fmt_secs(secs: f64) -> String {
@@ -13,37 +44,6 @@ impl super::HomeView {
             format!("{}x", rate as i64)
         } else {
             format!("{rate}x")
-        }
-    }
-
-    /// 相对时间（评论时间戳）。分层与 Tauri `utils/relative-time.ts` 同口径
-    /// （hgplayer：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 30 天内 /
-    /// M月D日）——此前自创「N 个月前/N 年前」与前端漂移。技术栈不同不共享
-    /// 实现，改分层两边同步。
-    pub(super) fn relative_time(ts_ms: i64) -> String {
-        if ts_ms <= 0 {
-            return String::new();
-        }
-        let secs = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
-            - ts_ms / 1000)
-            .max(0);
-        match secs {
-            0..=59 => "刚刚".to_string(),
-            60..=3_599 => format!("{}分钟前", secs / 60),
-            3_600..=86_399 => format!("{}小时前", secs / 3_600),
-            86_400..=172_799 => "昨天".to_string(),
-            172_800..=2_591_999 => format!("{}天前", secs / 86_400),
-            _ => {
-                use chrono::{Datelike, TimeZone};
-                let dt = chrono::Local
-                    .timestamp_millis_opt(ts_ms)
-                    .single()
-                    .unwrap_or_else(chrono::Local::now);
-                format!("{}月{}日", dt.month(), dt.day())
-            }
         }
     }
 

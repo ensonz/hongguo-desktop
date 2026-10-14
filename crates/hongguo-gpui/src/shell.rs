@@ -255,6 +255,21 @@ impl Shell {
             self.rank.update(cx, |rank, cx| {
                 rank.debug_preview_seed(scene == "rank-empty", cx)
             });
+        } else if scene.starts_with("detail") {
+            // 详情页场景：确保实体在（不走网络 load，直接灌种子）
+            self.dest = Dest::Detail;
+            if self.detail.is_none() {
+                let v = cx.new(|cx| DetailView::new(self.state.clone(), cx));
+                cx.subscribe(&v, |this, _, event: &DetailEvent, cx| {
+                    this.on_detail_event(event.clone(), cx);
+                })
+                .detach();
+                self.detail = Some(v);
+            }
+            if let Some(detail) = &self.detail {
+                detail.update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+            }
+            self.detail_series = Some("7100000".into());
         } else {
             self.dest = Dest::Home;
             self.feed
