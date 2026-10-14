@@ -10,9 +10,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
-use gpui_kit::component::Disableable;
 use gpui_kit::component::h_flex;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::v_flex;
@@ -25,6 +24,7 @@ use hongguo_api::interact::InteractionItem;
 use hongguo_service::app_state::AppStateInner;
 
 use crate::bridge;
+use crate::pages::list_common::{BatchBar, decode_cover, fetch_series_visual, pick_dot, search_box};
 
 /// 点赞页发往壳的事件（壳订阅后切目的地/起播）。
 #[derive(Debug, Clone)]
@@ -151,51 +151,19 @@ impl LikedView {
             if key.is_empty() || !self.covers_pending.insert(key.clone()) {
                 continue;
             }
-            let state = Arc::clone(&self.state);
-            let series_id = item.series_id.clone();
-            let rx = bridge::spawn(async move {
-                let env = state.api_env();
-                let meta = hongguo_service::series_service::resolver::resolve_series(
-                    &series_id, &env,
-                )
-                .await
-                .ok();
-                let title = meta.as_ref().map(|s| s.title.clone()).unwrap_or_default();
-                let cover = meta
-                    .as_ref()
-                    .map(|s| s.cover.clone())
-                    .filter(|c| !c.is_empty());
-                let bytes = match cover {
-                    Some(url) => {
-                        tokio::task::spawn_blocking(move || {
-                            hongguo_protocol::cover::acquire_renderable(&url)
-                                .map(|(bytes, _ct)| bytes)
-                        })
-                        .await
-                        .expect("阻塞池 join")
-                        .ok()
-                    }
-                    None => None,
-                };
-                (series_id, title, bytes)
-            });
+            let rx = fetch_series_visual(Arc::clone(&self.state), item.series_id.clone());
             cx.spawn(async move |this, cx| {
-                let (series_id, title, bytes) = rx.await.expect("tokio 桥不会丢弃发送端");
+                let visual = rx.await.expect("tokio 桥不会丢弃发送端");
                 this.update(cx, |view, cx| {
-                    view.covers_pending.remove(&series_id);
-                    if !title.is_empty() {
-                        view.titles.insert(series_id.clone(), title);
+                    view.covers_pending.remove(&visual.series_id);
+                    if !visual.title.is_empty() {
+                        view.titles
+                            .insert(visual.series_id.clone(), visual.title);
                     }
-                    if let Some(bytes) = bytes {
-                        match image::load_from_memory(&bytes) {
-                            Ok(decoded) => {
-                                view.covers.insert(
-                                    series_id.clone(),
-                                    Arc::new(crate::image_upload::render_image(decoded.to_rgba8())),
-                                );
-                            }
-                            Err(e) => log::warn!("[Liked/Cover] 解码失败: {e}"),
-                        }
+                    if let Some(bytes) = &visual.cover
+                        && let Some(image) = decode_cover(bytes)
+                    {
+                        view.covers.insert(visual.series_id.clone(), image);
                     }
                     cx.notify();
                 })
@@ -343,26 +311,13 @@ impl LikedView {
     // —— 渲染 ——
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme();
         h_flex()
             .w_full()
             .items_center()
             .justify_end()
             .gap_2()
             .child(
-                // 搜索框（Tauri ListSearch：放大镜内嵌 + w-60 + h-8）
-                div()
-                    .relative()
-                    .w(gpui_kit::px(240.0))
-                    .child(Input::new(&self.search).pl_8())
-                    .child(
-                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Search)
-                            .small()
-                            .absolute()
-                            .left_2p5()
-                            .top(gpui_kit::px(9.0))
-                            .text_color(theme.muted_foreground),
-                    ),
+                search_box(&self.search, cx),
             )
             .child(
                 Button::new("liked-manage")
@@ -531,37 +486,14 @@ impl LikedView {
                     ),
             )
             // 管理态：左上选择圆钮（Tauri PickDot 同款）
-            .children((managing).then(|| {
+            .children(managing.then(|| {
                 let vid = item.vid.clone();
-                div()
-                    .absolute()
-                    .top_2()
-                    .left_2()
-                    .id(ElementId::from(format!("liked-pick-{}", item.vid)))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size_5()
-                    .rounded_full()
-                    .border_2()
-                    .when(picked, |s| {
-                        s.bg(theme.primary)
-                            .border_color(theme.primary)
-                            .text_color(theme.primary_foreground)
-                    })
-                    .when(!picked, |s| s.border_color(theme.muted_foreground))
-                    .cursor_pointer()
-                    .on_click({
-                        let vid = vid.clone();
-                        cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.toggle_selected(&vid, cx);
-                        })
-                    })
-                    .children(picked.then(|| {
-                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Check)
-                            .small()
-                    }))
+                div().absolute().top_2().left_2().child(pick_dot(
+                    ElementId::from(format!("liked-pick-{}", item.vid)),
+                    picked,
+                    cx.listener(move |this, _, _, cx| this.toggle_selected(&vid, cx)),
+                    cx,
+                ))
             }))
             // 悬浮：右上「取消赞」（Tauri 同位置；管理态不出）
             .children((hovered && !managing).then(|| {
@@ -587,61 +519,27 @@ impl LikedView {
 
     /// 吸底批量条（Tauri BatchBar：全选 / 计数 / 批量取消赞 + 确认）。
     fn render_batch_bar(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme();
         let total = self.visible_items(cx).len();
-        let count = self.selected.len();
-        let all_picked = total > 0 && count >= total;
-        h_flex()
-            .w_full()
-            .flex_shrink_0()
-            .items_center()
-            .gap_3()
-            .border_t_1()
-            .border_color(theme.border)
-            .bg(theme.background)
-            .px_4()
-            .py_3()
-            .child(
-                Button::new("liked-select-all")
-                    .icon(gpui_kit::assets::IconName::ListChecks)
-                    .label(if all_picked { "取消全选" } else { "全选" })
-                    .ghost()
-                    .small()
-                    .disabled(total == 0)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if all_picked {
-                            this.selected.clear();
-                        } else {
-                            let vids: Vec<String> = this
-                                .visible_items(cx)
-                                .iter()
-                                .map(|i| i.vid.clone())
-                                .collect();
-                            for vid in vids {
-                                this.selected.insert(vid);
-                            }
-                        }
-                        cx.notify();
-                    })),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(SharedString::from(format!("已选 {count} 项"))),
-            )
-            .child(div().flex_1())
-            .child(
-                Button::new("liked-batch-undo")
-                    .icon(gpui_kit::assets::IconName::Trash)
-                    .label(if self.deleting { "删除中…" } else { "取消赞" })
-                    .danger()
-                    .small()
-                    .disabled(count == 0 || self.deleting)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.confirm_batch_undo(window, cx);
-                    })),
-            )
+        BatchBar::new(self.selected.len(), total, self.deleting, "取消赞")
+            .on_toggle_all(cx.listener(|this, _, _, cx| {
+                let total = this.visible_items(cx).len();
+                if total > 0 && this.selected.len() >= total {
+                    this.selected.clear();
+                } else {
+                    let vids: Vec<String> = this
+                        .visible_items(cx)
+                        .iter()
+                        .map(|i| i.vid.clone())
+                        .collect();
+                    for vid in vids {
+                        this.selected.insert(vid);
+                    }
+                }
+                cx.notify();
+            }))
+            .on_delete(cx.listener(|this, _, window, cx| {
+                this.confirm_batch_undo(window, cx);
+            }))
             .into_any_element()
     }
 
