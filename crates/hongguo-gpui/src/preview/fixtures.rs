@@ -11,7 +11,10 @@ use gpui_kit::RenderImage;
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
 use hongguo_api::rank::RankItem;
-use hongguo_common::model::{DownloadTask, TaskStatus, VideoDefinition};
+use hongguo_common::model::{
+    DownloadTask, MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask, TaskStatus,
+    VideoDefinition,
+};
 use hongguo_service::storage_service::usage::{StorageSeriesUsage, StorageUsage};
 
 /// 磁盘清理页：总占用快照（3 部剧、7 个文件，合计约 2.4 GB）。
@@ -45,6 +48,68 @@ pub(crate) fn storage_series() -> Vec<StorageSeriesUsage> {
             files: 2,
         },
     ]
+}
+
+/// 一键合并页：下拉候选（3 部剧，集数与体积对齐 storage 假数据量级）。
+pub(crate) fn merge_candidates() -> Vec<MergeCandidate> {
+    vec![
+        MergeCandidate {
+            series_id: SERIES[0].0.into(),
+            series_title: SERIES[0].1.into(),
+            episode_count: 5,
+            total_size: 1_492_000_000,
+        },
+        MergeCandidate {
+            series_id: SERIES[1].0.into(),
+            series_title: SERIES[1].1.into(),
+            episode_count: 3,
+            total_size: 736_000_000,
+        },
+        MergeCandidate {
+            series_id: SERIES[3].0.into(),
+            series_title: SERIES[3].1.into(),
+            episode_count: 2,
+            total_size: 214_000_000,
+        },
+    ]
+}
+
+/// 一键合并页：一条合并中（42%）+ 一条已完成（有产物路径），id 固定
+/// 保证预览确定性。
+pub(crate) fn merge_tasks() -> Vec<MergeTask> {
+    let mut running = MergeTask::new(
+        SERIES[0].0,
+        SERIES[0].1,
+        &format!("{} 合集", SERIES[0].1),
+        MergeMode::Compat,
+    );
+    running.id = "merge-running".into();
+    running.status = MergeStatus::Running;
+    running.episode_count = 5;
+    running.percent = 42.0;
+    let mut done = MergeTask::new(
+        SERIES[1].0,
+        SERIES[1].1,
+        &format!("{} 合集", SERIES[1].1),
+        MergeMode::Quick,
+    );
+    done.id = "merge-done".into();
+    done.episode_count = 3;
+    done.mark_completed("/预览目录/红果短剧/重生之千金归来 合集.mp4", 731_000_000);
+    vec![running, done]
+}
+
+/// 一键合并页：预检通过（5 集 / 预计 1.4 GB / 磁盘富余，无 warning）。
+pub(crate) fn merge_preflight() -> MergePreflight {
+    MergePreflight {
+        ok: true,
+        episode_count: 5,
+        estimated_size: 1_492_000_000,
+        free_space: Some(128_000_000_000),
+        codec_consistent: true,
+        codec_mismatch_episode: None,
+        warnings: Vec::new(),
+    }
 }
 
 /// 剧目池：(series_id, 剧名, 热度文案)。在播剧取第一条，其余铺满三个

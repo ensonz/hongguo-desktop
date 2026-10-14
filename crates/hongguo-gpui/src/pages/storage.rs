@@ -16,12 +16,13 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Sizable, WindowExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ElementId, Entity, SharedString, Window, div};
+use gpui_kit::{ElementId, Entity, SharedString, Window, div};
 use hongguo_service::app_state::AppStateInner;
 use hongguo_service::storage_service::usage::{StorageSeriesUsage, StorageUsage};
 
 use crate::bridge;
 use crate::home::fmt::format_bytes;
+use crate::pages::card;
 
 pub(crate) struct StorageView {
     state: Arc<AppStateInner>,
@@ -116,10 +117,7 @@ impl StorageView {
     fn delete_all_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match hongguo_service::storage_service::cleanup::delete_all(&self.state) {
             Ok(n) => {
-                window.push_notification(
-                    Notification::success(format!("已删除 {n} 个文件")),
-                    cx,
-                );
+                window.push_notification(Notification::success(format!("已删除 {n} 个文件")), cx);
                 self.load(cx);
             }
             Err(e) => {
@@ -148,22 +146,9 @@ impl StorageView {
         });
     }
 
-    /// 页面卡面（Tauri Card：圆角 12 + 边框 + 卡面底色 + p-6）。
-    fn card(cx: &App) -> gpui_kit::Div {
-        let theme = cx.theme();
-        v_flex()
-            .w_full()
-            .rounded(gpui_kit::px(12.0))
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.group_box)
-            .p_6()
-            .gap_4()
-    }
-
     fn render_usage_card(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme();
-        Self::card(cx)
+        card(cx)
             .child(
                 v_flex()
                     .gap_1p5()
@@ -172,9 +157,11 @@ impl StorageView {
                             .items_center()
                             .gap_2()
                             .child(
-                                gpui_kit::component::Icon::new(gpui_kit::assets::IconName::HardDrive)
-                                    .small()
-                                    .text_color(theme.muted_foreground),
+                                gpui_kit::component::Icon::new(
+                                    gpui_kit::assets::IconName::HardDrive,
+                                )
+                                .small()
+                                .text_color(theme.muted_foreground),
                             )
                             .child(
                                 div()
@@ -199,12 +186,15 @@ impl StorageView {
                         h_flex()
                             .items_center()
                             .gap_3()
-                            .child(div().text_2xl().font_weight(gpui_kit::FontWeight::SEMIBOLD).child(
-                                match &self.usage {
-                                    Some(u) => SharedString::from(format_bytes(u.bytes)),
-                                    None => SharedString::from("加载中…"),
-                                },
-                            ))
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                    .child(match &self.usage {
+                                        Some(u) => SharedString::from(format_bytes(u.bytes)),
+                                        None => SharedString::from("加载中…"),
+                                    }),
+                            )
                             .children(self.usage.as_ref().map(|u| {
                                 div()
                                     .text_sm()
@@ -286,7 +276,7 @@ impl StorageView {
             .iter()
             .filter(|s| kw.is_empty() || s.title.to_lowercase().contains(&kw))
             .collect();
-        Self::card(cx)
+        card(cx)
             .child(
                 div()
                     .text_base()

@@ -24,6 +24,7 @@ use hongguo_service::app_state::AppStateInner;
 use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
+use crate::pages::merge::MergeView;
 use crate::pages::rank::RankView;
 use crate::pages::storage::StorageView;
 
@@ -106,6 +107,7 @@ impl Dest {
             Dest::Home => Some(View::Home),
             Dest::Rank => Some(View::Rank),
             Dest::Storage => Some(View::Storage),
+            Dest::Merge => Some(View::Merge),
             Dest::Detail => Some(View::Detail),
             _ => None,
         }
@@ -117,6 +119,7 @@ enum View {
     Home,
     Rank,
     Storage,
+    Merge,
     Detail,
 }
 
@@ -128,6 +131,7 @@ pub struct Shell {
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
     storage: Entity<StorageView>,
+    merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
     /// 详情页当前加载的剧（同剧重复点击不重载）。
     detail_series: Option<String>,
@@ -138,6 +142,7 @@ impl Shell {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
         let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
+        let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
         cx.subscribe(&feed, |this, _, event: &HomeEvent, cx| match event {
             HomeEvent::OpenDetail(series_id) => this.open_detail(series_id.clone(), cx),
@@ -170,6 +175,7 @@ impl Shell {
             feed,
             rank,
             storage,
+            merge,
             detail: None,
             detail_series: None,
         }
@@ -283,6 +289,10 @@ impl Shell {
             self.dest = Dest::Storage;
             self.storage
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("merge") {
+            self.dest = Dest::Merge;
+            self.merge
+                .update(cx, |view, cx| view.debug_preview_seed(scene, window, cx));
         } else if scene.starts_with("detail") {
             // 详情页场景：确保实体在（不走网络 load，直接灌种子）
             self.dest = Dest::Detail;
@@ -358,6 +368,7 @@ impl Shell {
                     match dest {
                         Dest::Rank => this.rank.update(cx, RankView::load),
                         Dest::Storage => this.storage.update(cx, StorageView::load),
+                        Dest::Merge => this.merge.update(cx, MergeView::load),
                         _ => {}
                     }
                     cx.notify();
@@ -491,6 +502,7 @@ impl Shell {
             Some(View::Home) => self.feed.clone().into_any_element(),
             Some(View::Rank) => self.rank.clone().into_any_element(),
             Some(View::Storage) => self.storage.clone().into_any_element(),
+            Some(View::Merge) => self.merge.clone().into_any_element(),
             Some(View::Detail) => self
                 .detail
                 .as_ref()
