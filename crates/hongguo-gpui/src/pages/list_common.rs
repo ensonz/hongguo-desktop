@@ -179,6 +179,8 @@ impl RenderOnce for BatchBar {
 pub(crate) struct SeriesVisual {
     pub series_id: String,
     pub title: String,
+    /// 总集数（收藏卡片「共 N 集」行用）。
+    pub episode_count: u32,
     /// 封面原始字节（解码交给 [`decode_cover`]）。
     pub cover: Option<Vec<u8>>,
 }
@@ -207,12 +209,14 @@ pub(crate) fn fetch_series_visual(
                 SeriesVisual {
                     series_id,
                     title: s.title.clone(),
+                    episode_count: s.episode_count,
                     cover,
                 }
             }
             None => SeriesVisual {
                 series_id,
                 title: String::new(),
+                episode_count: 0,
                 cover: None,
             },
         }

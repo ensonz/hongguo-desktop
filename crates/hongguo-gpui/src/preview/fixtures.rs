@@ -10,7 +10,7 @@ use std::sync::Arc;
 use gpui_kit::RenderImage;
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
-use hongguo_api::interact::InteractionItem;
+use hongguo_api::interact::{BookshelfEntry, InteractionItem};
 use hongguo_api::rank::RankItem;
 use hongguo_common::model::{
     DownloadTask, MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask, TaskStatus,
@@ -126,6 +126,19 @@ pub(crate) fn liked_items() -> Vec<InteractionItem> {
             followed: false,
             followed_cnt: 0,
             series_title: (*title).into(),
+        })
+        .collect()
+}
+
+/// 收藏页：6 条书架条目（content_type 交替真人/漫剧，封面时间戳递减）。
+pub(crate) fn bookshelf_entries() -> Vec<BookshelfEntry> {
+    SERIES
+        .iter()
+        .enumerate()
+        .map(|(i, (sid, _, _))| BookshelfEntry {
+            series_id: (*sid).into(),
+            collect_time_ms: 1_760_000_000_000 - i as i64 * 86_400_000,
+            content_type: if i % 2 == 0 { 1 } else { 1004 },
         })
         .collect()
 }

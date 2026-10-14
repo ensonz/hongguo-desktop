@@ -233,6 +233,39 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "liked-manage",
             font_scale: 1.,
         },
+        // —— 收藏 ——
+        PreviewCase {
+            name: "collections-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "collections",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "collections-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "collections",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "collections-empty-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "collections-empty",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "collections-manage-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "collections-manage",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",
