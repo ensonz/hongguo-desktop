@@ -96,7 +96,7 @@ mod imp {
             ES_CONTINUOUS
         };
         let ok = unsafe { SetThreadExecutionState(flags) };
-        if ok.is_zero() {
+        if ok == 0 {
             log::warn!("[PlayActivity] SetThreadExecutionState 失败");
         }
     }
