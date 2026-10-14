@@ -1,8 +1,7 @@
 //! 剧集领域模型。
 //!
-//! ⚠️ 这两个结构既落盘（`data.json`，沿用 Electron 版的 snake_case 键名以便
-//! 平滑迁移）又走 IPC（前端 `schema.ts` 声明 camelCase）。所以字段一律
-//! `rename` 成 camelCase 发出，同时用 `alias` 兼容旧的 snake_case 落盘键。
+//! 字段一律 camelCase：落库整行存 JSON 列、走 IPC 都用同一形态
+//! （前端 `schema.ts` 同步声明 camelCase）。
 
 use serde::{Deserialize, Serialize};
 
@@ -10,12 +9,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Series {
-    #[serde(alias = "series_id")]
     pub series_id: String,
     pub title: String,
     #[serde(default)]
     pub cover: String,
-    #[serde(default, alias = "episode_count")]
+    #[serde(default)]
     pub episode_count: u32,
     /// 全剧收藏数（detail 响应 video_data.followed_cnt，右栏「☆ N」数据源；
     /// 旧档案缓存缺省 0 = 不显示）
@@ -36,7 +34,6 @@ pub struct Series {
 #[serde(rename_all = "camelCase")]
 pub struct Episode {
     /// 集号，从 1 开始
-    #[serde(alias = "vid_index")]
     pub vid_index: u32,
     /// 平台侧的 vid
     #[serde(default)]
@@ -44,7 +41,6 @@ pub struct Episode {
     #[serde(default)]
     pub title: String,
     /// 落盘后的文件名（不含扩展名）
-    #[serde(alias = "file_stem")]
     pub file_stem: String,
     /// 该集评论数（detail 响应公开计数，右栏「💬 N」数据源；旧档案缓存缺省 0）
     #[serde(default)]
@@ -81,21 +77,10 @@ mod tests {
 
     #[test]
     fn old_data_without_dismissed_still_parses() {
-        // 兼容旧版 data.json：没有 dismissed 字段
-        let json = r#"{"series_id":"1","title":"t"}"#;
+        // 库里的旧 JSON 行没有 dismissed 字段（该列后加）：default 补 false
+        let json = r#"{"seriesId":"1","title":"t"}"#;
         let s: Series = serde_json::from_str(json).unwrap();
         assert!(!s.dismissed);
-    }
-
-    #[test]
-    fn reads_legacy_snake_case_data_file() {
-        // Electron 版落盘就是 snake_case，迁移时必须能直接读
-        let json = r#"{"series_id":"1","title":"剧","episode_count":77,"episodes":[{"vid_index":1,"vid":"v1","title":"第1集","file_stem":"s001"}]}"#;
-        let s: Series = serde_json::from_str(json).unwrap();
-        assert_eq!(s.series_id, "1");
-        assert_eq!(s.episode_count, 77);
-        assert_eq!(s.episodes[0].vid_index, 1);
-        assert_eq!(s.episodes[0].file_stem, "s001");
     }
 
     #[test]

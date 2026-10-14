@@ -238,14 +238,6 @@ impl Store {
         let meta = meta.clone();
         self.exec(move |db| Box::pin(async move { entity::device_meta_set(db, &meta).await }))
     }
-
-    // ---------- 旧档迁移 ----------
-
-    /// 导入旧 data.json 内容（幂等）。详见 [`entity::import_legacy`]。
-    pub fn import_legacy(&self, legacy: &super::json_migrate::LegacyData) -> AppResult<()> {
-        let data = legacy.clone();
-        self.exec(move |db| Box::pin(async move { entity::import_legacy(db, &data).await }))
-    }
 }
 
 #[cfg(test)]

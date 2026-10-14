@@ -26,35 +26,31 @@ pub enum MergeStatus {
 
 /// 一个合并任务。
 ///
-/// 落盘在 `data.json.merge_tasks`，键名沿用 snake_case；发给前端转 camelCase
-/// （见 [`crate::model::series`] 关于双形态的说明）。
+/// 发给前端转 camelCase（前端 schema 同步声明）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MergeTask {
     pub id: String,
-    #[serde(alias = "series_id")]
     pub series_id: String,
-    #[serde(alias = "series_title")]
     pub series_title: String,
-    #[serde(alias = "output_name")]
     pub output_name: String,
     pub mode: MergeMode,
     pub status: MergeStatus,
     /// 参与合并的集数（按集号升序）
-    #[serde(default, alias = "episode_count")]
+    #[serde(default)]
     pub episode_count: usize,
     /// 输出路径
-    #[serde(default, alias = "output_path")]
+    #[serde(default)]
     pub output_path: String,
     /// 输出大小
-    #[serde(default, alias = "output_size")]
+    #[serde(default)]
     pub output_size: u64,
     /// 进度 0.0–100.0
     #[serde(default)]
     pub percent: f64,
     #[serde(default)]
     pub error: String,
-    #[serde(default, alias = "created_at")]
+    #[serde(default)]
     pub created_at: i64,
 }
 
@@ -179,15 +175,6 @@ mod tests {
         let json = serde_json::to_string(&t).unwrap();
         let back: MergeTask = serde_json::from_str(&json).unwrap();
         assert_eq!(t, back);
-    }
-
-    #[test]
-    fn merge_task_reads_legacy_snake_case_data_file() {
-        let json = r#"{"id":"a","series_id":"1","series_title":"剧","output_name":"out.mp4","mode":"quick","status":"pending","episode_count":3,"output_path":"","output_size":0,"percent":0,"error":"","created_at":1}"#;
-        let t: MergeTask = serde_json::from_str(json).unwrap();
-        assert_eq!(t.series_id, "1");
-        assert_eq!(t.output_name, "out.mp4");
-        assert_eq!(t.episode_count, 3);
     }
 
     #[test]
