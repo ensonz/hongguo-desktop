@@ -25,6 +25,7 @@ use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
 use crate::pages::merge::MergeView;
+use crate::pages::new_drama::{NewDramaEvent, NewDramaView};
 use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::collections::{CollectionEvent, CollectionView};
 use crate::pages::browse::{BrowseEvent, BrowseView};
@@ -108,22 +109,22 @@ impl Dest {
         }
     }
 
-    /// 已有真数据视图的目的地（其余给建设中空态）。
-    fn view(self) -> Option<View> {
+    /// 目的地 → 壳内视图（12 页 + 详情全部实现，无空态兜底）。
+    fn view(self) -> View {
         match self {
-            Dest::Home => Some(View::Home),
-            Dest::Rank => Some(View::Rank),
-            Dest::Browse => Some(View::Browse),
-            Dest::Liked => Some(View::Liked),
-            Dest::Collections => Some(View::Collections),
-            Dest::History => Some(View::History),
-            Dest::Reservations => Some(View::Reservations),
-            Dest::Tasks => Some(View::Tasks),
-            Dest::Settings => Some(View::Settings),
-            Dest::Storage => Some(View::Storage),
-            Dest::Merge => Some(View::Merge),
-            Dest::Detail => Some(View::Detail),
-            _ => None,
+            Dest::Home => View::Home,
+            Dest::Rank => View::Rank,
+            Dest::Browse => View::Browse,
+            Dest::New => View::New,
+            Dest::Liked => View::Liked,
+            Dest::Collections => View::Collections,
+            Dest::History => View::History,
+            Dest::Reservations => View::Reservations,
+            Dest::Tasks => View::Tasks,
+            Dest::Settings => View::Settings,
+            Dest::Storage => View::Storage,
+            Dest::Merge => View::Merge,
+            Dest::Detail => View::Detail,
         }
     }
 }
@@ -133,6 +134,7 @@ enum View {
     Home,
     Rank,
     Browse,
+    New,
     Liked,
     Collections,
     History,
@@ -152,6 +154,7 @@ pub struct Shell {
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
     browse: Entity<BrowseView>,
+    new_drama: Entity<NewDramaView>,
     liked: Entity<LikedView>,
     collections: Entity<CollectionView>,
     history: Entity<HistoryView>,
@@ -170,6 +173,7 @@ impl Shell {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
         let browse = cx.new(|cx| BrowseView::new(state.clone(), window, cx));
+        let new_drama = cx.new(|_cx| NewDramaView::new(state.clone()));
         let liked = cx.new(|cx| LikedView::new(state.clone(), window, cx));
         let collections = cx.new(|cx| CollectionView::new(state.clone(), window, cx));
         let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
@@ -200,6 +204,17 @@ impl Shell {
                 start_secs,
             } = event.clone();
             this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&new_drama, |this, _, event: &NewDramaEvent, cx| match event.clone() {
+            NewDramaEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => this.start_play(series_id, vid_index, start_secs, cx),
+            NewDramaEvent::OpenDetail { series_id, prefill } => {
+                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+            }
         })
         .detach();
         cx.subscribe(&collections, |this, _, event: &CollectionEvent, cx| {
@@ -279,6 +294,7 @@ impl Shell {
             feed,
             rank,
             browse,
+            new_drama,
             liked,
             collections,
             history,
@@ -456,6 +472,14 @@ impl Shell {
             self.dest = Dest::Browse;
             self.browse
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("new-calendar") {
+            self.dest = Dest::New;
+            self.new_drama
+                .update(cx, |view, cx| view.debug_preview_seed("new-calendar", cx));
+        } else if scene.starts_with("new") {
+            self.dest = Dest::New;
+            self.new_drama
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -535,6 +559,7 @@ impl Shell {
                     match dest {
                         Dest::Rank => this.rank.update(cx, RankView::load),
                         Dest::Browse => this.browse.update(cx, BrowseView::load),
+                        Dest::New => this.new_drama.update(cx, NewDramaView::load),
                         Dest::Liked => this.liked.update(cx, LikedView::load),
                         Dest::Collections => {
                             this.collections.update(cx, CollectionView::load)
@@ -655,48 +680,26 @@ impl Shell {
             .into_any_element()
     }
 
-    /// 未实现目的地的空态（本轮决策：全列出 + 建设中空态，页面逐个补）。
-    fn render_stub(&self, dest: Dest, cx: &Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme();
-        v_flex()
-            .flex_1()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                gpui_kit::component::Icon::new(dest.icon())
-                    .with_size(gpui_kit::px(40.0))
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(format!("「{}」页面建设中", dest.label())),
-            )
-            .into_any_element()
-    }
-
-    fn render_content(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+    fn render_content(&self, _cx: &Context<Self>) -> gpui_kit::AnyElement {
         match self.dest.view() {
-            Some(View::Home) => self.feed.clone().into_any_element(),
-            Some(View::Rank) => self.rank.clone().into_any_element(),
-            Some(View::Browse) => self.browse.clone().into_any_element(),
-            Some(View::Liked) => self.liked.clone().into_any_element(),
-            Some(View::Collections) => self.collections.clone().into_any_element(),
-            Some(View::History) => self.history.clone().into_any_element(),
-            Some(View::Reservations) => self.reservations.clone().into_any_element(),
-            Some(View::Tasks) => self.tasks.clone().into_any_element(),
-            Some(View::Settings) => self.settings_page.clone().into_any_element(),
-            Some(View::Storage) => self.storage.clone().into_any_element(),
-            Some(View::Merge) => self.merge.clone().into_any_element(),
-            Some(View::Detail) => self
+            View::Home => self.feed.clone().into_any_element(),
+            View::Rank => self.rank.clone().into_any_element(),
+            View::Browse => self.browse.clone().into_any_element(),
+            View::New => self.new_drama.clone().into_any_element(),
+            View::Liked => self.liked.clone().into_any_element(),
+            View::Collections => self.collections.clone().into_any_element(),
+            View::History => self.history.clone().into_any_element(),
+            View::Reservations => self.reservations.clone().into_any_element(),
+            View::Tasks => self.tasks.clone().into_any_element(),
+            View::Settings => self.settings_page.clone().into_any_element(),
+            View::Storage => self.storage.clone().into_any_element(),
+            View::Merge => self.merge.clone().into_any_element(),
+            View::Detail => self
                 .detail
                 .as_ref()
                 .expect("Detail 目的地必有实体")
                 .clone()
                 .into_any_element(),
-            None => self.render_stub(self.dest, cx),
         }
     }
 }

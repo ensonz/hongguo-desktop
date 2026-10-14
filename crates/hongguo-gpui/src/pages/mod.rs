@@ -9,6 +9,7 @@ pub(crate) mod browse;
 pub(crate) mod collections;
 pub(crate) mod history;
 pub(crate) mod merge;
+pub(crate) mod new_drama;
 pub(crate) mod liked;
 pub(crate) mod list_common;
 pub(crate) mod rank;

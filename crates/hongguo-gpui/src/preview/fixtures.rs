@@ -309,6 +309,59 @@ pub(crate) fn search_results() -> Vec<SearchResult> {
         .collect()
 }
 
+/// 新剧推荐：6 部新剧（封面 URL 用占位键，预览直接灌 covers）。
+pub(crate) fn new_drama_items() -> Vec<RankItem> {
+    SERIES
+        .iter()
+        .take(6)
+        .enumerate()
+        .map(|(i, (sid, title, _))| RankItem {
+            series_id: (*sid).into(),
+            title: (*title).into(),
+            cover: format!("new://cover-{i}"),
+            vid: String::new(),
+            rank: (i + 1) as u32,
+            sub_title: "都市·全80集".into(),
+            score: 8.6 - i as f64 * 0.2,
+            play_cnt: 0,
+            episode_cnt: 80 - i as u32 * 6,
+            rec_text: format!("{} 上新", 120 + i * 13),
+            secondary_infos: Vec::new(),
+            description: "战乱年代，一介孤女在渡口撑起商行。".into(),
+            tags: vec!["都市".into(), "逆袭".into()],
+            upcoming: i == 5,
+            reserved: false,
+            season: String::new(),
+        })
+        .collect()
+}
+
+/// 上新日历：当日条目（publish_time 落在 2026-10-14 本地，日期条筛得上）。
+pub(crate) fn calendar_items(count: usize) -> Vec<CalendarItem> {
+    // 2026-10-14 12:00 (+08:00) 的 UTC 毫秒
+    const BASE_MS: i64 = 1_791_950_400_000;
+    SERIES
+        .iter()
+        .take(count)
+        .enumerate()
+        .map(|(i, (sid, title, _))| CalendarItem {
+            series_id: (*sid).into(),
+            title: (*title).into(),
+            cover: format!("new-cal://cover-{i}"),
+            vid: String::new(),
+            score: 8.6 - i as f64 * 0.3,
+            play_cnt: 0,
+            episode_cnt: if i % 2 == 0 { 80 } else { 0 },
+            description: "战乱年代，一介孤女在渡口撑起商行，卷入朝堂风云。".into(),
+            category: "古装".into(),
+            rec_tags: vec![format!("{} 人预约", 12 + i * 7), "权谋".into()],
+            publish_time: BASE_MS + i as i64 * 3_600_000,
+            is_online: i % 2 == 0,
+            has_subscribed: false,
+        })
+        .collect()
+}
+
 /// 剧目池：(series_id, 剧名, 热度文案)。在播剧取第一条，其余铺满三个
 /// tab 源（沉浸流滚轮/切 tab 的数据面）。
 pub(crate) const SERIES: [(&str, &str, &str); 6] = [
