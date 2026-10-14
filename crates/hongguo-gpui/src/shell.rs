@@ -25,6 +25,7 @@ use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
 use crate::pages::merge::MergeView;
+use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::rank::RankView;
 use crate::pages::storage::StorageView;
 
@@ -106,6 +107,7 @@ impl Dest {
         match self {
             Dest::Home => Some(View::Home),
             Dest::Rank => Some(View::Rank),
+            Dest::Liked => Some(View::Liked),
             Dest::Storage => Some(View::Storage),
             Dest::Merge => Some(View::Merge),
             Dest::Detail => Some(View::Detail),
@@ -118,6 +120,7 @@ impl Dest {
 enum View {
     Home,
     Rank,
+    Liked,
     Storage,
     Merge,
     Detail,
@@ -130,6 +133,7 @@ pub struct Shell {
     sidebar_collapsed: bool,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
+    liked: Entity<LikedView>,
     storage: Entity<StorageView>,
     merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
@@ -141,11 +145,26 @@ impl Shell {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
+        let liked = cx.new(|cx| LikedView::new(state.clone(), window, cx));
         let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
         let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
         cx.subscribe(&feed, |this, _, event: &HomeEvent, cx| match event {
             HomeEvent::OpenDetail(series_id) => this.open_detail(series_id.clone(), cx),
+        })
+        .detach();
+        // 点赞卡「继续播放」：壳切回首页沉浸流起播（与详情页播放入口同通道）
+        cx.subscribe(&liked, |this, _, event: &LikedEvent, cx| {
+            let LikedEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.dest = Dest::Home;
+            this.feed.update(cx, |home, cx| {
+                home.play_from_detail(series_id, vid_index, start_secs, cx)
+            });
+            cx.notify();
         })
         .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
@@ -174,6 +193,7 @@ impl Shell {
             sidebar_collapsed: false,
             feed,
             rank,
+            liked,
             storage,
             merge,
             detail: None,
@@ -289,6 +309,10 @@ impl Shell {
             self.dest = Dest::Storage;
             self.storage
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("liked") {
+            self.dest = Dest::Liked;
+            self.liked
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -367,6 +391,7 @@ impl Shell {
                     this.dest = dest;
                     match dest {
                         Dest::Rank => this.rank.update(cx, RankView::load),
+                        Dest::Liked => this.liked.update(cx, LikedView::load),
                         Dest::Storage => this.storage.update(cx, StorageView::load),
                         Dest::Merge => this.merge.update(cx, MergeView::load),
                         _ => {}
@@ -501,6 +526,7 @@ impl Shell {
         match self.dest.view() {
             Some(View::Home) => self.feed.clone().into_any_element(),
             Some(View::Rank) => self.rank.clone().into_any_element(),
+            Some(View::Liked) => self.liked.clone().into_any_element(),
             Some(View::Storage) => self.storage.clone().into_any_element(),
             Some(View::Merge) => self.merge.clone().into_any_element(),
             Some(View::Detail) => self

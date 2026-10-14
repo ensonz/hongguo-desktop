@@ -6,6 +6,7 @@
 use gpui_kit::prelude::*;
 
 pub(crate) mod merge;
+pub(crate) mod liked;
 pub(crate) mod rank;
 pub(crate) mod storage;
 

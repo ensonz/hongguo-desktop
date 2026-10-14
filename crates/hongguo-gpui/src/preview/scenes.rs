@@ -200,6 +200,39 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "merge-empty",
             font_scale: 1.,
         },
+        // —— 点赞 ——
+        PreviewCase {
+            name: "liked-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "liked",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "liked-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "liked",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "liked-empty-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "liked-empty",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "liked-manage-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "liked-manage",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",

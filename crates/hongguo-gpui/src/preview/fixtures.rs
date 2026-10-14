@@ -10,6 +10,7 @@ use std::sync::Arc;
 use gpui_kit::RenderImage;
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
+use hongguo_api::interact::InteractionItem;
 use hongguo_api::rank::RankItem;
 use hongguo_common::model::{
     DownloadTask, MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask, TaskStatus,
@@ -110,6 +111,23 @@ pub(crate) fn merge_preflight() -> MergePreflight {
         codec_mismatch_episode: None,
         warnings: Vec::new(),
     }
+}
+
+/// 点赞页：6 条已赞条目（剧名/计数取 SERIES 池，vid 定序保证预览确定）。
+pub(crate) fn liked_items() -> Vec<InteractionItem> {
+    SERIES
+        .iter()
+        .enumerate()
+        .map(|(i, (sid, title, _))| InteractionItem {
+            vid: format!("video{i}"),
+            series_id: (*sid).into(),
+            user_digg: true,
+            digged_count: 5200 + i as i64 * 1379,
+            followed: false,
+            followed_cnt: 0,
+            series_title: (*title).into(),
+        })
+        .collect()
 }
 
 /// 剧目池：(series_id, 剧名, 热度文案)。在播剧取第一条，其余铺满三个
