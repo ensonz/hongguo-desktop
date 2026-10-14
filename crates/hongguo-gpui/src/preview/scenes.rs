@@ -332,6 +332,39 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "reservation-empty",
             font_scale: 1.,
         },
+        // —— 下载管理 ——
+        PreviewCase {
+            name: "tasks-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "tasks",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "tasks-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "tasks",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "tasks-empty-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "tasks-empty",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "tasks-manage-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "tasks-manage",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",

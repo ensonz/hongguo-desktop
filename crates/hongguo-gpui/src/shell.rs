@@ -31,6 +31,7 @@ use crate::pages::history::{HistoryEvent, HistoryView};
 use crate::pages::rank::RankView;
 use crate::pages::reservations::{ReservationEvent, ReservationView};
 use crate::pages::storage::StorageView;
+use crate::pages::tasks::TasksView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
 /// 播放不在列：它由各页「播放/继续播放」进入，首页本身就是沉浸流。
@@ -114,6 +115,7 @@ impl Dest {
             Dest::Collections => Some(View::Collections),
             Dest::History => Some(View::History),
             Dest::Reservations => Some(View::Reservations),
+            Dest::Tasks => Some(View::Tasks),
             Dest::Storage => Some(View::Storage),
             Dest::Merge => Some(View::Merge),
             Dest::Detail => Some(View::Detail),
@@ -130,6 +132,7 @@ enum View {
     Collections,
     History,
     Reservations,
+    Tasks,
     Storage,
     Merge,
     Detail,
@@ -146,6 +149,7 @@ pub struct Shell {
     collections: Entity<CollectionView>,
     history: Entity<HistoryView>,
     reservations: Entity<ReservationView>,
+    tasks: Entity<TasksView>,
     storage: Entity<StorageView>,
     merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
@@ -161,6 +165,7 @@ impl Shell {
         let collections = cx.new(|cx| CollectionView::new(state.clone(), window, cx));
         let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
         let reservations = cx.new(|cx| ReservationView::new(state.clone(), window, cx));
+        let tasks = cx.new(|cx| TasksView::new(state.clone(), cx));
         let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
         let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
@@ -244,6 +249,7 @@ impl Shell {
             collections,
             history,
             reservations,
+            tasks,
             storage,
             merge,
             detail: None,
@@ -403,6 +409,10 @@ impl Shell {
             self.dest = Dest::Reservations;
             self.reservations
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("tasks") {
+            self.dest = Dest::Tasks;
+            self.tasks
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -489,6 +499,7 @@ impl Shell {
                         Dest::Reservations => {
                             this.reservations.update(cx, ReservationView::load)
                         }
+                        Dest::Tasks => this.tasks.update(cx, TasksView::load),
                         Dest::Storage => this.storage.update(cx, StorageView::load),
                         Dest::Merge => this.merge.update(cx, MergeView::load),
                         _ => {}
@@ -627,6 +638,7 @@ impl Shell {
             Some(View::Collections) => self.collections.clone().into_any_element(),
             Some(View::History) => self.history.clone().into_any_element(),
             Some(View::Reservations) => self.reservations.clone().into_any_element(),
+            Some(View::Tasks) => self.tasks.clone().into_any_element(),
             Some(View::Storage) => self.storage.clone().into_any_element(),
             Some(View::Merge) => self.merge.clone().into_any_element(),
             Some(View::Detail) => self

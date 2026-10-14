@@ -13,6 +13,7 @@ pub(crate) mod list_common;
 pub(crate) mod rank;
 pub(crate) mod reservations;
 pub(crate) mod storage;
+pub(crate) mod tasks;
 
 /// 页面卡面：Tauri Card 的 GPUI 对齐形态（圆角 12 + 边框 + 卡面底色 +
 /// p-6），磁盘清理 / 一键合并 / 设置等设置型页面共用。
@@ -27,4 +28,29 @@ pub(crate) fn card(cx: &gpui_kit::App) -> gpui_kit::Div {
         .bg(theme.group_box)
         .p_6()
         .gap_4()
+}
+
+/// 在文件管理器中定位到文件（Tauri opener `reveal_item_in_dir` 同款；
+/// 一键合并的产物定位与下载管理的「打开文件夹」共用）。
+pub(crate) fn reveal_in_folder(path: &str) {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .spawn();
+    #[cfg(target_os = "windows")]
+    let result = {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{path}\""))
+            .spawn()
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let result: std::io::Result<std::process::Child> = {
+        log::warn!("[Shell] 打开文件夹在 {path} 所在平台未实现");
+        return;
+    };
+    if let Err(e) = result {
+        log::warn!("[Shell] 打开文件夹失败: {e}");
+    }
 }

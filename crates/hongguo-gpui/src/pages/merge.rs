@@ -585,7 +585,13 @@ impl MergeView {
                     .flex_shrink_0()
                     .items_center()
                     .gap_2()
-                    .child(Progress::new("merge-progress").value(task.percent as f32))
+                                    .child(
+                                        Progress::new(ElementId::from(format!(
+                                            "merge-progress-{}",
+                                            task.id
+                                        )))
+                                        .value(task.percent as f32),
+                                    )
                     .child(
                         div()
                             .w_9()
@@ -606,7 +612,7 @@ impl MergeView {
                             .ghost()
                             .small()
                             .tooltip("打开文件夹")
-                            .on_click(move |_, _, _| reveal_in_folder(&path))
+                            .on_click(move |_, _, _| crate::pages::reveal_in_folder(&path))
                     },
                 ),
             )
@@ -730,26 +736,3 @@ fn merge_warning_text(key: &str, mismatch_episode: Option<u32>) -> String {
     }
 }
 
-/// 在文件管理器中定位到产物文件（Tauri opener `reveal_item_in_dir` 同款）。
-fn reveal_in_folder(path: &str) {
-    #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open")
-        .arg("-R")
-        .arg(path)
-        .spawn();
-    #[cfg(target_os = "windows")]
-    let result = {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("explorer")
-            .raw_arg(format!("/select,\"{path}\""))
-            .spawn()
-    };
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let result: std::io::Result<std::process::Child> = {
-        log::warn!("[Merge] 打开文件夹在 {path} 所在平台未实现");
-        return;
-    };
-    if let Err(e) = result {
-        log::warn!("[Merge] 打开文件夹失败: {e}");
-    }
-}
