@@ -9,7 +9,8 @@ import type { FeedTab } from '@/service/schema';
  *  失效后的重置目标。 */
 export const RECOMMEND_TAB_TYPE = '16';
 
-/** 关注 tab：登录后才有数据面（游客态服务端不下发 bookstore_id），未登录隐藏。 */
+/** 关注 tab：一律不显示——追更由收藏页承载（既定决策），且其数据面要
+ *  登录（2026-10-15 抓包：游客态服务端不下发 bookstore_id）。 */
 const FOLLOW_TAB_TYPE = '45';
 
 /** 服务端列表到手前的回落三件套（抓包锁定：推荐16/漫剧36/真人剧39），标题走 i18n。 */
@@ -34,14 +35,14 @@ function fallbackLabel(id: string): string {
 /**
  * 服务端顶栏 → 渲染列表（纯函数）。
  *
- * 服务端列表保序直用；未登录隐藏关注（45 需登录才有数据面）；服务端
+ * 服务端列表保序直用；关注一律不显示（追更由收藏页承载）；服务端
  * 拉取前/失败/为空时回落本地三件套（i18n 标题）。
  */
-export function buildTabList(serverTabs: FeedTab[] | undefined, loggedIn: boolean): HomeTab[] {
+export function buildTabList(serverTabs: FeedTab[] | undefined): HomeTab[] {
   if (!serverTabs?.length) {
     return FALLBACK_TABS.map(({ id, labelKey }) => ({ id, label: t(labelKey) }));
   }
   return serverTabs
-    .filter((tab) => loggedIn || tab.tabType !== FOLLOW_TAB_TYPE)
+    .filter((tab) => tab.tabType !== FOLLOW_TAB_TYPE)
     .map((tab) => ({ id: tab.tabType, label: tab.title || fallbackLabel(tab.tabType) }));
 }

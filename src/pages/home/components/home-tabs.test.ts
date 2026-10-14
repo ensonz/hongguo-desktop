@@ -20,26 +20,25 @@ function serverTabs() {
 
 describe('buildTabList', () => {
   it('服务端列表保序直用，标题用服务端原文', () => {
-    const tabs = buildTabList(serverTabs(), true);
-    expect(tabs.map((t) => t.id)).toEqual(['45', '36', '39', '16']);
-    expect(tabs[0]?.label).toBe('关注');
+    const tabs = buildTabList(serverTabs());
+    expect(tabs.map((t) => t.id)).toEqual(['36', '39', '16']);
+    expect(tabs[0]?.label).toBe('漫剧');
   });
 
-  it('未登录隐藏关注 tab', () => {
-    const tabs = buildTabList(serverTabs(), false);
-    expect(tabs.map((t) => t.id)).toEqual(['36', '39', '16']);
+  it('关注 tab 一律不显示（追更由收藏页承载）', () => {
+    expect(buildTabList(serverTabs()).map((t) => t.id)).toEqual(['36', '39', '16']);
   });
 
   it('服务端标题为空时回落 i18n 名（已知 id）', () => {
-    const tabs = buildTabList([{ tabType: '16', title: '', bookstoreId: 'x' }], false);
+    const tabs = buildTabList([{ tabType: '16', title: '', bookstoreId: 'x' }]);
     expect(tabs).toEqual([{ id: '16', label: '推荐' }]);
   });
 
   it('拉取前/失败/空列表回落本地三件套（i18n 标题）', () => {
     for (const empty of [undefined, []]) {
-      expect(buildTabList(empty, false).map((t) => t.id)).toEqual(['16', '36', '39']);
+      expect(buildTabList(empty).map((t) => t.id)).toEqual(['16', '36', '39']);
     }
-    expect(buildTabList(undefined, false)[0]?.label).toBe('推荐');
+    expect(buildTabList(undefined)[0]?.label).toBe('推荐');
   });
 
   it('推荐 tab 常量即回落表首项（种子语义锚点）', () => {

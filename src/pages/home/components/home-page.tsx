@@ -35,9 +35,9 @@ import { BootSplash } from './boot-splash';
  *
  * 视频**铺满整页**，顶部居中是分类 tab 胶囊——列表由服务端下发
  * （bookmall/tab 响应 tab_item[]：tab_type/标题/顺序，拉取前/失败回落
- * 本地三件套；关注 45 登录后才显示），内容随服务端时间桶轮换。滚轮 / ↑↓
- * 在当前源内切上一部/下一部剧；剧名/集数/简介叠加在画面左下，鼠标静止
- * 3 秒连同互动栏一起淡出。
+ * 本地三件套；关注一律不显示，追更由收藏页承载），内容随服务端时间桶
+ * 轮换。滚轮 / ↑↓ 在当前源内切上一部/下一部剧；剧名/集数/简介叠加在
+ * 画面左下，鼠标静止 3 秒连同互动栏一起淡出。
  * （推荐 tab 头部已种入云端历史+书架，「你的内容」不缺位。）
  *
  * 切换要快：进入当前剧就预取相邻剧的分集档案；当前剧首帧一出画再预取
@@ -110,7 +110,7 @@ export function HomePage() {
   const { data: account } = useAccount();
   // 顶栏 tab 列表（服务端下发；拉取前/失败回落三件套，见 buildTabList）
   const { data: serverTabs } = useFeedTabs();
-  const homeTabs = useMemo(() => buildTabList(serverTabs, !!account), [serverTabs, account]);
+  const homeTabs = useMemo(() => buildTabList(serverTabs), [serverTabs]);
   // 服务端列表到手后校验持久化的选中 tab：被服务端撤掉（或登录态变化后
   // 失去数据面的关注）就重置回推荐 tab，别停在拉不到数据的死 tab 上。
   // 回落三件套期间不校验——持久化 id 可能是服务端新 tab，等真列表说话。

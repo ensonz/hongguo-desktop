@@ -238,7 +238,8 @@ impl super::HomeView {
     }
 
     /// 顶栏 tab 列表（服务端下发；拉取失败静默保留回落三件套，api 层已有
-    /// 日志）。关注 45 游客无数据面，未登录过滤（Tauri buildTabList 同口径）。
+    /// 日志）。关注 45 一律不显示——追更由收藏页承载（Tauri buildTabList
+    /// 同口径）。
     pub(super) fn load_tabs(&mut self, cx: &mut Context<Self>) {
         const FOLLOW_TAB_TYPE: &str = "45";
         let state = Arc::clone(&self.state);
@@ -252,10 +253,9 @@ impl super::HomeView {
                 return;
             };
             let _ = this.update(cx, |view, cx| {
-                let logged_in = view.logged_in();
                 let tabs: Vec<Source> = meta_tabs
                     .into_iter()
-                    .filter(|t| logged_in || t.tab_type != FOLLOW_TAB_TYPE)
+                    .filter(|t| t.tab_type != FOLLOW_TAB_TYPE)
                     .map(|t| {
                         view.tab_labels.insert(t.tab_type.clone(), t.title);
                         Source::new(&t.tab_type)
@@ -270,7 +270,7 @@ impl super::HomeView {
                     view.feeds.entry(s.clone()).or_default();
                     view.indexes.entry(s.clone()).or_insert(0);
                 }
-                // 当前选中的 tab 被服务端撤掉（或登录态变化失去数据面）：回推荐
+                // 当前选中的 tab 被服务端撤掉了：回推荐
                 if !tabs.contains(&view.active) {
                     view.active = Source::recommend();
                     view.load_feed(Source::recommend(), false, cx);
