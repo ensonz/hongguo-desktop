@@ -1,7 +1,8 @@
 //! 取流地址。
 //!
 //! 平台把每集的可用流放在 `video_model`（一个 **JSON 字符串**）里，需要二次解析；
-//! 挑哪一条由 [`super::stream_pick`] 决定。
+//! 挑哪一条由 [`super::stream_pick`] 决定。端点走单集
+//! `video_model/v1/`（lq 域），见 [`fetch_play_url`] 注释。
 //!
 //! ⚠️ 签名失败时服务端返回 **HTTP 200 + 0 字节**，不是错误码。
 //!    排查「接口没数据」时第一件事是看字节数，不是状态码。
@@ -36,16 +37,28 @@ pub struct PlayInfo {
 ///
 /// `cap` 决定选流模式：在线播放传本机探测结论（无 HEVC 扩展的机器自动
 /// 翻转到 h264）；转码源/下载选流传 `Full` 保持全量候选。
+///
+/// 端点走**单集** [`crate::params::SINGLE_MODEL_PATH`]（lq 域）：2026-10-14
+/// 抓包实锤批量形态 `multi_video_model/player/v1` 连 hgplayer 自己（全新
+/// 注册设备）都收 200+0，真实播放路径是批量空 → 回落单集。我们直接单集，
+/// 省一次注定为空的请求。
 pub async fn fetch_play_url(
     vid: &str,
     definition: Option<u32>,
     cap: super::stream_pick::DecoderCapability,
     env: &super::client::ApiEnv,
 ) -> AppResult<PlayInfo> {
-    let payload = serde_json::to_vec(&crate::params::model_payload(vid))
+    let payload = serde_json::to_vec(&crate::params::single_model_payload(vid))
         .map_err(|e| AppError::Signer(e.to_string()))?;
 
-    let bytes = crate::client::api_call(crate::params::MODEL_PATH, Some(payload), env).await?;
+    let bytes = crate::client::api_call_full(
+        crate::client::LQ_API_ORIGIN,
+        crate::params::SINGLE_MODEL_PATH,
+        Some(payload),
+        &[],
+        env,
+    )
+    .await?;
 
     let value: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::Media(format!("解析响应失败: {e}")))?;
@@ -53,14 +66,10 @@ pub async fn fetch_play_url(
     // 业务错误码：签名对了但参数/内容不对会走这里
     check_code(&value)?;
 
-    // data[vid].video_model 是 JSON 字符串
-    let item = value
-        .get("data")
-        .and_then(|d| d.get(vid))
-        .ok_or_else(|| AppError::Media(format!("响应里没有 {vid} 的数据")))?;
-
-    let model = item
-        .get("video_model")
+    // 单集响应：data.video_model 是 JSON 字符串（与批量形态的
+    // data[vid].video_model 同构，选流逻辑共用）
+    let model = value
+        .pointer("/data/video_model")
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::Media("缺少 video_model".into()))?;
 

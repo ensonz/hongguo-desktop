@@ -45,9 +45,10 @@ use crate::params::interaction::{
 };
 use hongguo_common::{AppError, AppResult};
 
-/// hgplayer 实测的 reading 系 API 主机（我们的视频接口走 sinfonlineb，
-/// commentapi 只在这个主机上存在）。
-pub const LQ_API_ORIGIN: &str = "https://api5-normal-lq.fqnovel.com";
+/// hgplayer 实测的 reading 系 API 主机（取流 multi_video_model/player/v1
+/// 也在这台机上，见 [`crate::client::LQ_API_ORIGIN`]；commentapi 只在
+/// 这个主机上存在）。
+pub const LQ_API_ORIGIN: &str = crate::client::LQ_API_ORIGIN;
 
 /// 一集最多拉多少个 30 秒窗口（2 小时封顶，防服务端 cursor 异常死循环）。
 const MAX_WINDOWS: usize = 240;

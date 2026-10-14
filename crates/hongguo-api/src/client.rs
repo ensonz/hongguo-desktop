@@ -19,6 +19,12 @@ use hongguo_common::{AppError, AppResult};
 /// 重试次数。
 const MAX_RETRIES: u32 = 3;
 
+/// reading 系（lq 域）统一 origin。轻签名头族（榜单/搜索/弹幕/剧评）与
+/// 取流 `multi_video_model/player/v1` 都在这台机上——2026-10-08 抓包：
+/// 真实 App 的取流请求打的是 lq 域，sinfonlineb 域的 player/preload 均
+/// 回 200+0 字节（2026-10-14 探针实测）。
+pub const LQ_API_ORIGIN: &str = "https://api5-normal-lq.fqnovel.com";
+
 /// 重试间隔基数，按 `2s * (i + 1)` 递增，与现版一致。
 const RETRY_BASE_DELAY: Duration = Duration::from_secs(2);
 
@@ -221,7 +227,14 @@ pub async fn api_call_full_response(
         .await
         {
             Ok(resp) if !resp.bytes.is_empty() => return Ok(resp),
-            Ok(_) => last_err = "接口返回空响应（签名可能失效）".to_string(),
+            Ok(_) => {
+                log::warn!(
+                    "[Api] 空响应：{origin}{pathname}（biz_query={} 项，body={} 字节）",
+                    biz_query.len(),
+                    body.as_deref().map(|b| b.len()).unwrap_or(0)
+                );
+                last_err = "接口返回空响应（签名可能失效）".to_string();
+            }
             Err(e) => last_err = e.to_string(),
         }
         if attempt + 1 < MAX_RETRIES {

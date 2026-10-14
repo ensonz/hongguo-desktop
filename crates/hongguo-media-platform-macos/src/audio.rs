@@ -123,8 +123,11 @@ impl AacDecoder {
         let st = unsafe { ffi::AudioConverterNew(&src, &dst, &mut converter) };
         if st != ffi::noErr {
             return Err(AppError::Media(format!(
-                "AudioConverterNew 失败: {}",
-                status_msg(st)
+                "AudioConverterNew 失败: {}（入参 ch={ch} sr={} asc={}B 首字节 {:02x?}）",
+                status_msg(st),
+                sample_rate,
+                asc.len(),
+                asc.iter().take(6).collect::<Vec<_>>()
             )));
         }
         // ASC 就是解码侧的 magic cookie

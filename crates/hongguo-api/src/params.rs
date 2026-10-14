@@ -74,7 +74,17 @@ pub mod interaction {
 pub const DETAIL_PATH: &str = "/novel/player/multi_video_detail/preload/v1";
 
 /// 清晰度列表（取流地址）接口路径。
-pub const MODEL_PATH: &str = "/novel/player/multi_video_model/preload/v1";
+///
+/// ⚠️ 必须打 **lq 域**（[`crate::client::LQ_API_ORIGIN]）。2026-10-14
+/// 抓包实锤：批量形态 `multi_video_model/player/v1` 对**全新注册的真机
+/// 设备**也回 200+0（hgplayer 自己 4 连空），真实播放走的是单集端点
+/// [`SINGLE_MODEL_PATH`]（hgplayer：批量空 → 回落单集 → CDN 直链）。
+pub const MODEL_PATH: &str = "/novel/player/multi_video_model/player/v1";
+
+/// 单集取流端点（hgplayer 现役路径）：POST JSON
+/// `{biz_param{…,video_platform:3,from_video_id:""}, content_type:1004,
+/// video_id}`，2026-10-14 实测我们现有设备直接可用（code=0）。
+pub const SINGLE_MODEL_PATH: &str = "/novel/player/video_model/v1/";
 
 /// 分集详情的 biz_param。
 pub fn detail_biz_param() -> Value {
@@ -91,12 +101,14 @@ pub fn detail_biz_param() -> Value {
     })
 }
 
-/// 清晰度列表的 biz_param。
+/// 清晰度列表的 biz_param（2026-10-08 抓包逐值对齐，含
+/// disable_video_relate_book）。
 pub fn model_biz_param() -> Value {
     json!({
         "detail_page_version": 0,
         "device_level": 3,
         "disable_digg_stat": false,
+        "disable_video_relate_book": false,
         "need_all_video_definition": true,
         "need_mp4_align": false,
         "use_os_player": false,
@@ -114,14 +126,36 @@ pub fn detail_payload(series_id: &str) -> Value {
     })
 }
 
-/// 构造取流地址请求体。
+/// 构造取流地址请求体（2026-10-08 抓包：dr_scene 与端点同名 "player"）。
 ///
 /// 平台用 `mixed_video_id_map` 传 vid，key 是「清晰度分组 id」，现版用 `"1004"`。
 pub fn model_payload(vid: &str) -> Value {
     json!({
         "biz_param": model_biz_param(),
-        "dr_scene": "preload",
+        "dr_scene": "player",
         "mixed_video_id_map": { "1004": [vid] },
+    })
+}
+
+/// 构造单集取流请求体（2026-10-14 hgplayer 抓包逐值对齐）：
+/// `video_platform:3`（批量是 1024）、`from_video_id:""` 在场、
+/// `content_type:1004` = 清晰度分组 id、`video_id` 单集。
+pub fn single_model_payload(vid: &str) -> Value {
+    json!({
+        "biz_param": {
+            "detail_page_version": 0,
+            "device_level": 3,
+            "disable_digg_stat": false,
+            "disable_video_relate_book": false,
+            "from_video_id": "",
+            "need_all_video_definition": true,
+            "need_mp4_align": false,
+            "use_os_player": false,
+            "use_server_dns": false,
+            "video_platform": 3,
+        },
+        "content_type": 1004,
+        "video_id": vid,
     })
 }
 
@@ -135,7 +169,7 @@ mod tests {
         assert!(!DETAIL_PATH.ends_with('/'));
         assert!(!MODEL_PATH.ends_with('/'));
         assert!(DETAIL_PATH.contains("/preload/v1"));
-        assert!(MODEL_PATH.contains("/preload/v1"));
+        assert!(MODEL_PATH.contains("/player/v1"));
     }
 
     #[test]
@@ -150,7 +184,9 @@ mod tests {
     fn model_payload_wraps_vid_in_mixed_map() {
         let p = model_payload("v123");
         assert_eq!(p["mixed_video_id_map"]["1004"][0], "v123");
-        assert_eq!(p["dr_scene"], "preload");
+        // 2026-10-08 抓包：dr_scene 与端点同名 "player"
+        assert_eq!(p["dr_scene"], "player");
+        assert_eq!(p["biz_param"]["disable_video_relate_book"], false);
     }
 
     #[test]
