@@ -41,9 +41,13 @@ pub async fn open(opts: OpenOptions) -> hongguo_common::AppResult<std::sync::Arc
     let audio_end = meta.audio.as_ref().map(media_end).unwrap_or(0.0);
     let duration = video_end.max(audio_end);
 
-    // 先立挂钟与共享态：音频可能迟到，视频任务不能等它（见下）
+    // 先立挂钟与共享态：音频可能迟到，视频任务不能等它（见下）。
+    // 倍速在出生时就定到目标轴（clamp 与 handle.set_rate 同界）：adopt_audio
+    // 经 shared.rate() 继承它，喂送侧 WSOLA 从第一包就按目标倍速伸缩——
+    // 不留「起播后宿主补发 set_rate」的分级换轴窗（见 OpenOptions::rate）。
     let wall = Arc::new(Clock::wall());
     wall.reset(opts.start_secs);
+    wall.set_rate(opts.rate.clamp(super::MIN_RATE, super::MAX_RATE), 0.0);
     let shared = Arc::new(Shared {
         paused: AtomicBool::new(false),
         shutdown: AtomicBool::new(false),

@@ -31,6 +31,11 @@ pub struct OpenOptions {
     pub definition: u32,
     /// 起播媒体时间（秒）：续播位置。0 = 从头。
     pub start_secs: f64,
+    /// 起播倍速（用户偏好）：引擎**出生即按它走**——WSOLA 从第一包就按目标
+    /// 倍速伸缩、时钟轴从 0 起就是目标倍速。若留给宿主起播后补发
+    /// `set_rate`，环里已预填的 1x 内容会触发分级换轴（时钟按旧速率推进
+    /// 到残量放完），起播头一截画面就是慢的——「每集刚播放时倍速不对」。
+    pub rate: f64,
     /// 事件通道。
     pub events: mpsc::Sender<PlayerEvent>,
 }

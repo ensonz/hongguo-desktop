@@ -24,6 +24,19 @@ const PROGRESS_SAVE_EVERY_SECS: u64 = 5;
 /// 滚轮切剧去抖（毫秒）：滚轮一格连发多事件的吸收窗口。
 const WHEEL_SWITCH_DEBOUNCE_MS: u64 = 400;
 
+/// 一次起播请求的完整参数（结构体承载，[`Self::play_task`] 的参数面收敛）。
+struct PlayRequest {
+    item: StreamItem,
+    /// 连播指定集号（None = 走起点决策）。
+    forced_next_ep: Option<u32>,
+    /// 用户显式选择的清晰度（None = 自动/沿用），传给 prepare。
+    preferred_definition: Option<u32>,
+    /// 起播倍速：引擎出生即按它走（见 `OpenOptions::rate`）。
+    rate: f64,
+    /// 切清晰度保进度的位置覆盖（None = 走起点决策）。
+    start_override: Option<f64>,
+}
+
 impl super::HomeView {
     /// 连播锁定内的切集（滚轮/↑↓，Tauri useBingeRelay 的 stepEpisode 同款）：
     /// 越过第 1 集原地不动；滚过末集 = 剧终，跟随宿主刷下一部（本实现无
@@ -199,11 +212,14 @@ impl super::HomeView {
         self.spawn_event_loop(epoch, rx, cx);
         let done = bridge::spawn(Self::play_task(
             state,
-            item,
-            forced_next_ep,
             history,
-            self.preferred_definition,
-            start_override,
+            PlayRequest {
+                item,
+                forced_next_ep,
+                preferred_definition: self.preferred_definition,
+                rate: self.rate,
+                start_override,
+            },
             events,
         ));
         cx.spawn(async move |this, cx| {
@@ -219,8 +235,12 @@ impl super::HomeView {
                         // 起了才清的写法会把先到的首帧抹掉，封面从此收不掉）。
                         // 切换途中旧帧已清，到这里的画面本来就是封面占位。
                         // 偏好重放：换集重建引擎（对齐 Tauri `<video>` 卸载重挂）后
-                        // 把倍速/音量/静音按存值发给新引擎。
-                        handle.set_rate(view.rate);
+                        // 把音量/静音按存值发给新引擎。倍速已随 OpenOptions 出生
+                        // 即位（见 play_task），只在分歧时补发——同值补发会平白
+                        // 走一次分级换轴记账。
+                        if (handle.rate() - view.rate).abs() > 1e-9 {
+                            handle.set_rate(view.rate);
+                        }
                         handle.set_volume(view.volume);
                         handle.set_muted(view.muted);
                         view.player = Some(handle);
@@ -271,17 +291,19 @@ impl super::HomeView {
 
     /// 起播链（tokio 线程）：解析档案 → 起点决策 → prepare → 引擎 open。
     /// 与 Tauri 同一段服务面；起点 >3 秒续播，本地档案优先、云端历史兜底。
-    /// `preferred_definition` 是用户显式选的清晰度（None = 自动/沿用）；
-    /// `start_override` 是切档保进度的位置覆盖。
     async fn play_task(
         state: Arc<AppStateInner>,
-        item: StreamItem,
-        forced_next_ep: Option<u32>,
         history: Vec<WatchHistoryItem>,
-        preferred_definition: Option<u32>,
-        start_override: Option<f64>,
+        req: PlayRequest,
         events: mpsc::Sender<PlayerEvent>,
     ) -> AppResult<(std::sync::Arc<PlayerHandle>, NowPlaying)> {
+        let PlayRequest {
+            item,
+            forced_next_ep,
+            preferred_definition,
+            rate,
+            start_override,
+        } = req;
         let env = state.api_env();
 
         let series = match state.store.series_by_id(&item.series_id)? {
@@ -343,6 +365,7 @@ impl super::HomeView {
             vid: ep.vid.clone(),
             definition: prepared.definition,
             start_secs,
+            rate,
             events,
         })
         .await?;

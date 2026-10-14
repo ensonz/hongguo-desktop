@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use crate::audio::Clock;
 
 pub use event::{OpenOptions, PlayerEvent};
-pub use handle::PlayerHandle;
+pub use handle::{MAX_RATE, MIN_RATE, PlayerHandle};
 pub use open::open;
 
 /// 内部共享态：任务族与句柄的共同视图。
