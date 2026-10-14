@@ -656,7 +656,8 @@ impl super::HomeView {
                         div()
                             .text_sm()
                             .text_color(gpui_kit::rgb(0xffffff))
-                            .child(SharedString::from(format!("起播失败：{err}"))),
+                            // 前缀由写入方拼（起播失败/播放失败），这里原样展示
+                            .child(SharedString::from(err.clone())),
                     )
                     .child(
                         Button::new("stage-retry-play")

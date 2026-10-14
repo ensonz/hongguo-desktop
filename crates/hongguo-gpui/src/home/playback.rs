@@ -63,10 +63,19 @@ impl super::HomeView {
         }
     }
 
-    /// 手动重试（起播失败卡的「重试」按钮）：重走当前游标位的起播链
-    ///（集号/起点重新走起点决策）。
+    /// 手动重试（失败卡的「重试」按钮）：起播失败重走当前游标位的起播链
+    ///（集号/起点重新走起点决策）；播放中失败（引擎自停、now 就是失败的
+    /// 那部）则同集重播——play_target 的同剧早退只拦 forced_next_ep=None
+    /// 的路径，带集号才能重进去。
     pub(super) fn retry_play(&mut self, cx: &mut Context<Self>) {
-        if let Some(item) = self.display_items().get(self.cursor()).cloned() {
+        let cursor_item = self.display_items().get(self.cursor()).cloned();
+        if let (Some(now), Some(item)) = (self.now.clone(), cursor_item.as_ref())
+            && now.series_id == item.series_id
+        {
+            self.play_target(item.clone(), Some(now.vid_index), None, cx);
+            return;
+        }
+        if let Some(item) = cursor_item {
             self.play_target(item, None, None, cx);
         }
     }
@@ -278,9 +287,7 @@ impl super::HomeView {
                         if !view.play_retried {
                             view.play_retried = true;
                             log::info!("[Home] 起播失败，自动重试一次");
-                            if let Some(item) =
-                                view.display_items().get(view.cursor()).cloned()
-                            {
+                            if let Some(item) = view.display_items().get(view.cursor()).cloned() {
                                 view.play_target(item, None, None, cx);
                                 cx.notify();
                                 return;
@@ -288,7 +295,7 @@ impl super::HomeView {
                         }
                         // 失败必须可见：此前只写 pending_title，而那行小徽标
                         // 随 switching 消失——用户看到的就是「点了没反应」
-                        view.play_error = Some(format!("{e}"));
+                        view.play_error = Some(format!("起播失败：{e}"));
                     }
                 }
                 cx.notify();

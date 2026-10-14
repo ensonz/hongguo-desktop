@@ -86,7 +86,10 @@ impl super::HomeView {
             }
             PlayerEvent::Failed(msg) => {
                 self.buffering = false;
-                self.pending_title = Some(format!("播放失败：{msg}"));
+                // 引擎致命失败即自停（shutdown），封面背后不会再有画面——
+                // 失败必须落可见错误态：只写 pending_title 的话，那行小徽标
+                // 随 switching 消失，用户看到的就是「无声无息卡在封面」
+                self.play_error = Some(format!("播放失败：{msg}"));
             }
         }
         cx.notify();
