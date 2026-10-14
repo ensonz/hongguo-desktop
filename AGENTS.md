@@ -4,10 +4,11 @@
 
 ## 开始任何开发前
 
-**先读 `.agents/skills/hongguo-dev/SKILL.md`**（完整开发规范），再按任务读对应参考文档：
+**动手前先读两个 skill：用户级 `dev-habits`（跨项目工程宪法，经 Skill 工具调用）→ `.agents/skills/hongguo-dev/SKILL.md`（本项目规范，只写 dev-habits 没有的内容）**，两者互补缺一不可，再按任务读对应参考文档：
 
 | 你要做的事                                               | 先读                                                                                                                                               |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 任何开发动作（通用工程宪法：做事方式 / 质量 / 测试 / 安全 / 契约 / 日志 / 并发） | 用户级 `dev-habits` skill（门禁表在其 SKILL.md，先读它再读下表）                                                                                    |
 | 环境搭建 / 日常命令 / 调试 / 提交 / 发版                 | `.agents/skills/hongguo-dev/references/workflow.md`                                                                                                |
 | 新增（或改动）IPC 命令、事件、外部 API 端点              | `.agents/skills/hongguo-dev/references/ipc.md`                                                                                                     |
 | 写前端：组件 / hooks / 查询 / store / 样式 / i18n / 路由 | `.agents/skills/hongguo-dev/references/frontend.md`                                                                                                |

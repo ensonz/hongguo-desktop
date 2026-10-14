@@ -6,7 +6,7 @@ Tauri 壳与 GPUI 壳共用的流程在本文件；壳专属部分：Tauri 的 W
 
 - Node ≥ 22（pnpm）+ Rust toolchain（MSRV 1.99，edition 2024）。依赖：`pnpm install`。
 - 数据目录 `%APPDATA%/hongguo-downloader/hongguo.db`（SQLite，沿 Electron 版路径便于旧档迁移）；`HONGGUO_DATA_DIR` 环境变量可重定向（测试用）。多壳数据根分离：壳经 `paths::set_shell_data_root` 声明**与默认根平级**的独立数据目录（GPUI 壳 = `%APPDATA%/hongguo-gpui`），与 Tauri 根互不嵌套、互不共用——嵌子目录的形态已被否决，不得改回。
-- 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户自己开着 dev 会话时**一律不可调试——CDP、computer-use 都不行**，自动化调试只针对自己启动的实例。
+- 开发端口 **1420 固定**（Tauri 要求，strictPort）；加上 SQLite 单实例锁，**第二个 `tauri dev` 起不来**。用户活跃实例的自动化边界（一律不可调试，只针对自己启动的实例）见 dev-habits『不碰用户活跃环境』。
 
 ## 日常命令
 
@@ -70,9 +70,9 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 ## 提交纪律
 
 - 开发在 **dev 分支**；`main` 只进验收过的内容。
-- Conventional commits + 中文描述：`feat(player): …`、`fix(feed): …`、`refactor(service): …`、`docs: …`。
+- 提交信息按 dev-habits『commit message 规范』（Conventional Commits）+ 中文描述：`feat(player): …`、`fix(feed): …`、`refactor(service): …`、`docs: …`。
 - 纯移动/结构拆分与行为修改**分开提交**；bug 修复独立 `fix:` 并写明根因。
-- **禁止用 Python 脚本改项目代码，改代码只准 Edit/Write 工具**——没有状态管理，会静默丢写入、混入错字（本仓库多次事故）。Python 照常可以写辅助工具（范例：`captures/addon.py` 抓包、`captures/audit.py` 参数审计，放工具目录正常提交）；一次性分析的临时脚本用完即删。
+- 改代码用精确编辑（dev-habits『改代码用精确编辑』；本仓库多次事故）。Python 照常可以写辅助工具（范例：`captures/addon.py` 抓包、`captures/audit.py` 参数审计，放工具目录正常提交）；一次性分析的临时脚本用完即删。
 - **提交前的门禁命令必须裸跑确认退出码**——`pnpm x | tail && commit` 这类管道会吞掉失败，曾把坏状态带进提交。Windows 下写文件后有可见性延迟：写完等 1 秒再验证。
 - 每 commit 编译绿：前端 `pnpm typecheck && pnpm test && pnpm lint`；后端 `cargo check && cargo test`。阶段收尾跑 `make lint` 全闸门 + `pnpm build`。
 - 播放器（features/player）改动收尾做冒烟：首页→详情→起播→切集/清晰度→弹幕。
