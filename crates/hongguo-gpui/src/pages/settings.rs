@@ -1299,8 +1299,10 @@ fn open_external(url: &str) {
     #[cfg(target_os = "windows")]
     let result = {
         use std::os::windows::process::CommandExt;
+        // cmd.exe 是控制台程序：GUI 进程里不压 CREATE_NO_WINDOW 会闪黑窗
         std::process::Command::new("cmd")
             .raw_arg(format!("/c start \"\" \"{url}\""))
+            .creation_flags(0x0800_0000)
             .spawn()
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
