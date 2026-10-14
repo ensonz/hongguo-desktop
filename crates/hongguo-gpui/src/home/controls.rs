@@ -272,7 +272,12 @@ impl super::HomeView {
     /// 静止到期后靠它（或播放中的帧事件流）触发重算隐藏。真实输入同时
     /// 解除连播静默（Tauri wakeOnInput 同款）。
     pub(super) fn wake_controls(&mut self, cx: &mut Context<Self>) {
-        self.silent_until_input = false;
+        // 静默期闸门（Tauri wakeOnMove 同款）：连播静默起步后，「用户在场」
+        // 只认真实输入（点击/按键/滚轮——它们显式走这里之外的解除路径）与
+        // 首帧；指针移动不算，不然静默刚起就被一次晃动解除，悬浮层全亮
+        if self.silent_until_input {
+            return;
+        }
         let was_hidden = !self.controls_visible();
         self.controls_until = Some(Instant::now() + Self::CONTROLS_VISIBLE);
         if was_hidden {
@@ -283,6 +288,14 @@ impl super::HomeView {
             .detach();
             cx.notify();
         }
+    }
+
+    /// 真实输入的「用户在场」：解除连播静默并亮悬浮层（Tauri
+    /// pointerdown/按键 wakeChrome 同款——与 [`Self::wake_controls`] 的差
+    /// 别就在静默期是否放行）。点击画面、键盘、滚轮切剧走这里。
+    pub(super) fn wake_on_input(&mut self, cx: &mut Context<Self>) {
+        self.silent_until_input = false;
+        self.wake_controls(cx);
     }
 
     /// 任一面板打开即常显（Tauri panelOpen 同一集合：选集/评论/弹幕设置/
@@ -465,6 +478,13 @@ impl super::HomeView {
             // 滚轮同拦（Tauri 控制条 data-wheel-block 同款）：悬在控制栏上
             // 滚不该把剧切了
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            // 容器内边距（Tauri PlayerControls 同款）：px-4 左右 16、pt-10
+            // 上方 40 悬停缓冲（热区高过进度条，好上手）、pb-3 底 12；行间
+            // gap-2 = 8
+            .px_4()
+            .pt_10()
+            .pb_3()
+            .gap_2()
             // 进度条横贯控制栏顶边（Tauri PlayerControls 同款：细条独立一条
             // 在按钮行之上，不夹在按钮中间）
             .child(self.render_progress_track(cx))
@@ -472,10 +492,9 @@ impl super::HomeView {
                 h_flex()
                     .id("stage-controls-row")
                     .items_center()
-                    .gap_3()
-                    .px_4()
-                    .pt_0p5()
-                    .pb_1p5()
+                    // 组内间距 4px（Tauri gap-1 同款；时间读数/发送框另有 ml
+                    // 微调，见各自 child）
+                    .gap_1()
                     .child(
                         Button::new("stage-toggle-play")
                             .icon(play_icon)
@@ -500,7 +519,9 @@ impl super::HomeView {
                             .on_click(cx.listener(|this, _, _, cx| this.step_episode(1, cx))),
                     )
                     .child(
+                        // 时间读数（Tauri ml-1 微调；mm:ss 分钟补零）
                         div()
+                            .ml_1()
                             .text_xs()
                             .font_family("monospace")
                             .text_color(gpui_kit::rgba(0xffffffcc))
@@ -513,9 +534,11 @@ impl super::HomeView {
                     .child(
                         // 弹幕发送 pill（Tauri 同款）：无框输入 + 内嵌表情 +
                         // 发送；表情弹层从 pill 上方拉起（与评论面板同源
-                        // 表情表，光标处插入 [名字]，上屏由弹幕渲染分段画）
+                        // 表情表，光标处插入 [名字]，上屏由弹幕渲染分段画）。
+                        // ml-2 与时间读数的间距（Tauri 同款微调）
                         div()
                             .id("danmaku-box")
+                            .ml_2()
                             .relative()
                             .child(
                                 h_flex()
@@ -650,8 +673,12 @@ impl super::HomeView {
                                     .into_any_element()
                             })),
                     )
+                    // 左右分组撑杆（Tauri 右组 ml-auto 同款）：倍速起到全屏
+                    // 止的右组贴控制栏右缘，不与左组顺排
+                    .child(div().flex_1())
                     .child(
                         Button::new("stage-rate")
+                            .icon(gpui_kit::assets::IconName::Gauge)
                             .label(Self::fmt_rate(self.rate))
                             .ghost()
                             .small()
@@ -683,18 +710,22 @@ impl super::HomeView {
                             _ => "自动".to_string(),
                         };
                         if defs.is_empty() {
-                            // 无档位表（本地集）：置灰保持可见——直接不渲染会让用户
-                            // 以为「这个功能本来就没有」，在线流那集它又出现了
-                            div()
-                                .px_2()
-                                .text_xs()
-                                .text_color(gpui_kit::rgba(0xffffff66))
-                                .child(label)
+                            // 无档位表（本地集）：禁用钮保留 + 悬停说明（Tauri
+                            // title 同语义）——直接不渲染会让用户以为「这个功能
+                            // 本来就没有」，在线流那集它又出现了
+                            Button::new("stage-definition")
+                                .icon(gpui_kit::assets::IconName::MonitorPlay)
+                                .label(label)
+                                .ghost()
+                                .small()
+                                .disabled(true)
+                                .tooltip("本地只有一版清晰度")
                                 .into_any_element()
                         } else {
                             let view = cx.entity();
                             let view_open = view.clone();
                             Button::new("stage-definition")
+                                .icon(gpui_kit::assets::IconName::MonitorPlay)
                                 .label(label)
                                 .ghost()
                                 .small()
@@ -749,9 +780,10 @@ impl super::HomeView {
                         }
                     })
                     .child(
-                        // 选集浮层入口（Tauri immersive 同款：带总集数；浮层贴按钮
-                        // 向上弹，见 render_picker）
+                        // 选集浮层入口（Tauri immersive 同款：ListVideo 图标 +
+                        // 总集数；浮层贴按钮向上弹，见 render_picker）
                         Button::new("stage-picker")
+                            .icon(gpui_kit::assets::IconName::ListVideo)
                             .label(match self.now.as_ref() {
                                 Some(now) if now.episode_count > 0 => {
                                     format!("选集 · 全{}集", now.episode_count)
@@ -765,6 +797,7 @@ impl super::HomeView {
                     .child(
                         // 下载入口（Tauri download-sheet 同款位置：右段）
                         Button::new("stage-downloads")
+                            .icon(gpui_kit::assets::IconName::Download)
                             .label("下载")
                             .ghost()
                             .small()

@@ -361,11 +361,13 @@ impl super::HomeView {
                 // 焦点后，这是用户最自然的「回到播放操作」路径
                 .on_click(cx.listener(|this, _, window, cx| {
                     window.focus(&this.focus, cx);
+                    // 点画面是真实输入：连播静默就此解除（Tauri wakeOnMove
+                    // 静默闸门的另一面——pointerdown 解除）
+                    this.wake_on_input(cx);
                     if !this.in_binge() {
                         if let Some(now) = &this.now {
                             this.binge = Some(now.series_id.clone());
                         }
-                        this.wake_controls(cx);
                         cx.notify();
                         return;
                     }
@@ -514,6 +516,8 @@ impl super::HomeView {
             .track_focus(&self.focus)
             .on_key_down(
                 cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                    // 按键是真实输入：解除连播静默（Tauri wakeChrome 同款）
+                    this.wake_on_input(cx);
                     let keys = this.shortcut_keys.clone();
                     let key = ev.keystroke.key.as_str();
                     if key == keys.play_pause {

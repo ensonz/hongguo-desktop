@@ -1042,9 +1042,10 @@ impl gpui_kit::Render for HomeView {
                             if this.mini.is_some() {
                                 return;
                             }
-                            // 滚轮也是「用户在场」：切剧/切集时唤醒悬浮层
-                            //（Tauri wakeChrome 同款，面板守卫之前就亮）
-                            this.wake_controls(cx);
+                            // 滚轮也是「用户在场」（真实输入）：切剧/切集时唤醒
+                            // 悬浮层（Tauri wakeChrome 同款，面板守卫之前就亮；
+                            // 静默期滚轮同样解除——它不是指针晃动）
+                            this.wake_on_input(cx);
                             // 面板开着不抢滚动：选集/下载是 Tauri
                             // seriesPanelOpen/downloading 的显式守卫；评论面板
                             // 在 Tauri 靠 data-wheel-block 拦——面板类统一在

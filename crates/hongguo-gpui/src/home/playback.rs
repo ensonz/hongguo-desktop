@@ -628,8 +628,22 @@ impl super::HomeView {
             return;
         }
         // 自动连播静默起步（Tauri quietStart 同款）：新集首帧或用户真实输入
-        // 之前，悬浮层一律不亮（on_player_event 首帧/wake_controls 解除）
+        // 之前，悬浮层一律不亮（首帧/on_player_event、wake_on_input 解除）。
+        // 8s 硬上限（Tauri QUIET_WINDOW_MS 同款）：起播失败/首帧迟迟不来时，
+        // 静默不能把悬浮层永久困死
         self.silent_until_input = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_secs(8))
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                if view.silent_until_input {
+                    view.silent_until_input = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
         if let Some(now) = self.now.clone()
             && (now.vid_index as usize) < now.episode_count
         {
