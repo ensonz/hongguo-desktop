@@ -4387,6 +4387,7 @@ dependencies = [
  "hongguo-api",
  "hongguo-common",
  "hongguo-media",
+ "hongguo-media-platform",
  "hongguo-media-platform-api",
  "hongguo-playback",
  "hongguo-protocol",
@@ -4399,6 +4400,7 @@ dependencies = [
  "objc2-core-video",
  "raw-window-handle",
  "reqwest",
+ "serde_json",
  "smallvec",
  "tokio",
 ]

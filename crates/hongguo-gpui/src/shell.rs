@@ -30,6 +30,7 @@ use crate::pages::collections::{CollectionEvent, CollectionView};
 use crate::pages::history::{HistoryEvent, HistoryView};
 use crate::pages::rank::RankView;
 use crate::pages::reservations::{ReservationEvent, ReservationView};
+use crate::pages::settings::{SettingsEvent, SettingsView};
 use crate::pages::storage::StorageView;
 use crate::pages::tasks::TasksView;
 
@@ -116,6 +117,7 @@ impl Dest {
             Dest::History => Some(View::History),
             Dest::Reservations => Some(View::Reservations),
             Dest::Tasks => Some(View::Tasks),
+            Dest::Settings => Some(View::Settings),
             Dest::Storage => Some(View::Storage),
             Dest::Merge => Some(View::Merge),
             Dest::Detail => Some(View::Detail),
@@ -133,6 +135,7 @@ enum View {
     History,
     Reservations,
     Tasks,
+    Settings,
     Storage,
     Merge,
     Detail,
@@ -150,6 +153,7 @@ pub struct Shell {
     history: Entity<HistoryView>,
     reservations: Entity<ReservationView>,
     tasks: Entity<TasksView>,
+    settings_page: Entity<SettingsView>,
     storage: Entity<StorageView>,
     merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
@@ -166,6 +170,7 @@ impl Shell {
         let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
         let reservations = cx.new(|cx| ReservationView::new(state.clone(), window, cx));
         let tasks = cx.new(|cx| TasksView::new(state.clone(), cx));
+        let settings_page = cx.new(|cx| SettingsView::new(state.clone(), window, cx));
         let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
         let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
@@ -219,6 +224,15 @@ impl Shell {
             }
         })
         .detach();
+        cx.subscribe(&settings_page, |this, _, event: &SettingsEvent, cx| match event {
+            SettingsEvent::Login => {
+                this.dest = Dest::Home;
+                this.feed
+                    .update(cx, |home, cx| home.toggle_login_panel(cx));
+                cx.notify();
+            }
+        })
+        .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
         // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）。
         // 预览进程有自己的目的地种子，不吃这些环境变量（可能残留）
@@ -250,6 +264,7 @@ impl Shell {
             history,
             reservations,
             tasks,
+            settings_page,
             storage,
             merge,
             detail: None,
@@ -413,6 +428,10 @@ impl Shell {
             self.dest = Dest::Tasks;
             self.tasks
                 .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("settings") {
+            self.dest = Dest::Settings;
+            self.settings_page
+                .update(cx, |view, cx| view.debug_preview_seed(scene, window, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -500,6 +519,9 @@ impl Shell {
                             this.reservations.update(cx, ReservationView::load)
                         }
                         Dest::Tasks => this.tasks.update(cx, TasksView::load),
+                        Dest::Settings => {
+                            this.settings_page.update(cx, SettingsView::load)
+                        }
                         Dest::Storage => this.storage.update(cx, StorageView::load),
                         Dest::Merge => this.merge.update(cx, MergeView::load),
                         _ => {}
@@ -639,6 +661,7 @@ impl Shell {
             Some(View::History) => self.history.clone().into_any_element(),
             Some(View::Reservations) => self.reservations.clone().into_any_element(),
             Some(View::Tasks) => self.tasks.clone().into_any_element(),
+            Some(View::Settings) => self.settings_page.clone().into_any_element(),
             Some(View::Storage) => self.storage.clone().into_any_element(),
             Some(View::Merge) => self.merge.clone().into_any_element(),
             Some(View::Detail) => self

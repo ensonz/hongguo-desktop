@@ -75,6 +75,9 @@ hongguo-media = { path = "../hongguo-media" }
 # 帧契约（VideoFrame/FrameBuffer）：壳只认契约 crate——平台实现经门面
 # 按编译目标选择，是 playback 引擎的事，与 UI 无关。
 hongguo-media-platform-api = { path = "../hongguo-media-platform-api" }
+# 设置页的转码能力探测（ffmpeg/硬件编码）：与 Tauri 的 decode_capability
+# command 同一段（probe::detect / redetect）。
+hongguo-media-platform = { path = "../hongguo-media-platform" }
 # service 的 async 函数族依赖 tokio 运行时设施（sleep / Semaphore）；GPUI 的
 # 执行器不是 tokio，本壳自带一个运行时线程做桥（oneshot 回传，见 main.rs）。
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
@@ -90,6 +93,7 @@ log = "0.4"
 env_logger = "0.11"
 # relative_time 超 30 天回落「M月D日」：本地时区日历换算（common 同款依赖）。
 chrono = "0.4"
+serde_json = "1"
 
 # 小屏落位/置顶的 HWND 获取（gpui Window 实现的 HasWindowHandle；只
 # Windows 小屏路径用）。

@@ -12,6 +12,7 @@ pub(crate) mod liked;
 pub(crate) mod list_common;
 pub(crate) mod rank;
 pub(crate) mod reservations;
+pub(crate) mod settings;
 pub(crate) mod storage;
 pub(crate) mod tasks;
 

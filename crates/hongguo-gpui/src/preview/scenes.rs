@@ -365,6 +365,31 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "tasks-manage",
             font_scale: 1.,
         },
+        // —— 设置（整页用超长视口一次成图，免滚动）——
+        PreviewCase {
+            name: "settings-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "settings",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "settings-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "settings",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "settings-tall-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: 2400.,
+            scene: "settings-no-ffmpeg",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",
