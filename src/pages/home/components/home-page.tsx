@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/common/error-state';
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
-import { Skeleton } from '@/components/ui/skeleton';
 import { PlayerView } from '@/features/player/components/player-page';
 import { play } from '@/service/commands';
 import {
@@ -29,6 +28,7 @@ const PREFETCH_FALLBACK_DELAY_MS = 8_000;
 import type { Series } from '@/service/schema';
 import { TABS, TopBarTabs } from './top-bar-tabs';
 import type { StreamSource } from './top-bar-tabs';
+import { BootSplash } from './boot-splash';
 
 /**
  * 首页：沉浸式播放器流（第三方同款形态）。
@@ -392,15 +392,14 @@ export function HomePage() {
   // 重试 = 重拉当前会话（失败重试不是换一批，keep 语义分离）
   const retrySource = () => feed.refresh();
 
-  // 切 tab 后新源首批在拉：**不整页换骨架屏**——store 里还播着上一部，
-  // 主树继续渲染 PlayerView 顶住画面，顶部细进度条已给「正在切换」反馈。
-  // 骨架屏只在冷启动（store 无目标、真的一无所有）才出现。
+  // 冷启动首批在拉：**不整页换骨架屏**——store 里还播着上一部（或冷启动
+  // 时连 store 目标都还没有），前者主树继续渲染 PlayerView 顶住画面 +
+  // 顶部细进度条，后者给品牌化启动画面（骨架黑砖在暗色下被感知成黑屏）。
   if (isLoading && items.length === 0 && !playingId) {
     return (
-      <div className="flex h-full flex-col gap-3 p-4">
-        <Skeleton className="min-h-0 flex-1 rounded-xl" />
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-3 w-2/3" />
+      <div className="relative h-full min-h-0 overflow-hidden">
+        <TopBarTabs source={source} onPick={pickTab} />
+        <BootSplash />
       </div>
     );
   }
