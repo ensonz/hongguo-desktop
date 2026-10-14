@@ -5,6 +5,7 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use gpui_kit::component::Disableable;
 use gpui_kit::component::IconName;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
@@ -300,16 +301,6 @@ impl super::HomeView {
             || self.danmaku_emoji_open
     }
 
-    /// 弹幕设置面板开合裁决：按钮 hover ∥ 面板 hover 取并集（音量弹层
-    /// update_volume_popup 同款）。
-    fn update_dm_panel(&mut self, cx: &mut Context<Self>) {
-        let open = self.dm_hovered || self.dm_panel_hovered;
-        if self.dm_panel_open != open {
-            self.dm_panel_open = open;
-            cx.notify();
-        }
-    }
-
     /// 悬浮层总闸（Tauri chromeShown 同款裁决）：连播静默期一票否决（面板
     /// 照常）；否则 悬停控制栏 / 拖进度 / 暂停 / 活动窗未到期 / 面板开 任一
     /// 即亮。指针离开舞台的立即收由舞台 on_hover 清 controls_until 实现。
@@ -532,14 +523,16 @@ impl super::HomeView {
                                     .gap_1()
                                     .pl_3()
                                     .pr_1()
-                                    .h(gpui_kit::px(30.0))
+                                    .h(gpui_kit::px(32.0))
                                     .rounded_full()
-                                    .bg(gpui_kit::rgba(0xffffff1a))
+                                    // 15% 白（Tauri bg-white/15 同值）
+                                    .bg(gpui_kit::rgba(0xffffff26))
                                     .children(self.danmaku_input.as_ref().map(|input| {
                                         Input::new(input)
                                             .bordered(false)
-                                            .h(gpui_kit::px(26.0))
-                                            .w(gpui_kit::px(150.0))
+                                            .h(gpui_kit::px(28.0))
+                                            // Tauri w-44 = 176px
+                                            .w(gpui_kit::px(176.0))
                                             .text_xs()
                                     }))
                                     .child(
@@ -553,14 +546,25 @@ impl super::HomeView {
                                                 cx.notify();
                                             })),
                                     )
-                                    .child(
+                                    .child({
+                                        // 发送钮（Tauri ghost 圆角同款）：空文本/
+                                        // 发送中置灰——点了没反应的观感就是它
+                                        let empty = self
+                                            .danmaku_input
+                                            .as_ref()
+                                            .is_none_or(|i| i.read(cx).value().trim().is_empty());
                                         Button::new("stage-danmaku-send")
                                             .label("发送")
+                                            .ghost()
                                             .small()
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.submit_danmaku(cx)
-                                            })),
-                                    ),
+                                            .rounded_full()
+                                            .disabled(empty || self.danmaku_sending)
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| {
+                                                    this.submit_danmaku(cx)
+                                                }),
+                                            )
+                                    }),
                             )
                             .children(self.danmaku_emoji_open.then(|| {
                                 // 表情网格（评论面板同款：连选不关面板、光标处
@@ -779,29 +783,32 @@ impl super::HomeView {
                     )
                     .child({
                         // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）。
-                        // 开合 = 按钮 hover ∥ 面板 hover 并集（音量弹层同款）：
-                        // gpui 的 hover 按命中盒判定，面板悬在按钮盒外，只认
-                        // wrapper hover 的话指针一移进面板就收——面板根本够不着
+                        // 开合 = 点齿轮（Tauri 同款点击语义），点外部由舞台捕获
+                        // 层收（picker 同款，见 stage 层）——原先的 hover 并集
+                        // 开合指针一晃就收，滑杆根本没法拖
                         div()
                             .id("dm-settings")
                             .relative()
-                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                this.dm_hovered = *hovered;
-                                this.update_dm_panel(cx);
-                            }))
                             .child(
                                 Button::new("stage-dm-settings")
                                     .icon(IconName::Settings2)
                                     .ghost()
-                                    .small(),
+                                    .small()
+                                    .when(self.dm_panel_open, |b| {
+                                        b.text_color(gpui_kit::rgb(0xffffff))
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dm_panel_open = !this.dm_panel_open;
+                                        cx.notify();
+                                    })),
                             )
                             .children(self.dm_panel_open.then(|| {
                                 v_flex()
                                     .id("dm-settings-panel")
                                     .absolute()
                                     .right_0()
-                                    // 贴着按钮上沿（bottom-full），指针从按钮移进
-                                    // 面板不离开并集；视觉留白进自己的 padding
+                                    // 贴着按钮上沿（bottom-full）；视觉留白进
+                                    // 自己的 padding
                                     .bottom(gpui_kit::relative(1.0))
                                     .w(gpui_kit::px(240.0))
                                     .gap_3()
@@ -810,19 +817,31 @@ impl super::HomeView {
                                     .px_4()
                                     .rounded(gpui_kit::px(12.0))
                                     .bg(gpui_kit::rgba(0x171717f2))
-                                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                        this.dm_panel_hovered = *hovered;
-                                        this.update_dm_panel(cx);
-                                    }))
                                     .on_mouse_down(
                                         gpui_kit::MouseButton::Left,
                                         cx.listener(|_, _, _, cx| cx.stop_propagation()),
                                     )
                                     .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                                    .child(self.dm_setting_row("不透明度", &self.dm_opacity_slider))
-                                    .child(self.dm_setting_row("字号", &self.dm_font_slider))
-                                    .child(self.dm_setting_row("密度", &self.dm_density_slider))
-                                    .child(self.dm_setting_row("显示区域", &self.dm_area_slider))
+                                    .child(self.dm_setting_row(
+                                        "不透明度",
+                                        &self.dm_opacity_slider,
+                                        self.dm_opacity,
+                                    ))
+                                    .child(self.dm_setting_row(
+                                        "字号",
+                                        &self.dm_font_slider,
+                                        self.dm_font_scale,
+                                    ))
+                                    .child(self.dm_setting_row(
+                                        "密度",
+                                        &self.dm_density_slider,
+                                        self.dm_density,
+                                    ))
+                                    .child(self.dm_setting_row(
+                                        "显示区域",
+                                        &self.dm_area_slider,
+                                        self.dm_area,
+                                    ))
                                     .into_any_element()
                             }))
                             .into_any_element()

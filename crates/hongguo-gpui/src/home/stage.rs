@@ -541,6 +541,8 @@ impl super::HomeView {
                         } else if this.picker_open {
                             this.picker_open = false;
                             this.picker_group_override = None;
+                        } else if this.dm_panel_open {
+                            this.dm_panel_open = false;
                         } else if this.in_binge() {
                             this.binge = None;
                         }
@@ -691,6 +693,45 @@ impl super::HomeView {
                         .into_any_element()
                 }),
             )
+            // 弹幕设置面板开着：同款捕获层（点齿轮外的任意处=关闭；齿轮
+            // 本体在层下面，点击被层拦下即「点了只关闭」，与 Tauri 点外
+            // 关闭语义一致）
+            .children((self.dm_panel_open && !in_mini).then(|| {
+                div()
+                    .absolute()
+                    .size_full()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.dm_panel_open = false;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .into_any_element()
+            }))
+            // 轻量提示（Tauri toast 同位）：舞台顶部居中，分类 tab 行的
+            // 下方；无指针监听不吃点击
+            .children(self.toast.as_ref().map(|t| {
+                div()
+                    .absolute()
+                    .top_12()
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .px_3()
+                            .py_1p5()
+                            .rounded_md()
+                            .bg(gpui_kit::rgba(0x000000cc))
+                            .text_xs()
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child(SharedString::from(t.message.clone())),
+                    )
+                    .into_any_element()
+            }))
             // 小屏拖拽条（Tauri MiniDragBar 同款）：顶栏在小屏不渲染，窗口
             // 拖动职责落在这条 24px 顶带——标记成 WindowControlArea::Drag，
             // 平台 WM_NCHITTEST 给 HTCAPTION 原生拖拽；拦下鼠标下传，拖拽

@@ -24,13 +24,14 @@ mod home;
 mod http_client;
 mod image_upload;
 mod mini;
+mod pages;
 mod play_activity;
 mod playback_prefs;
 mod preview;
-mod pages;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod shell;
+mod toast;
 #[cfg(target_os = "windows")]
 mod win32;
 

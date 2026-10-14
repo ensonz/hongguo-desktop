@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use gpui_kit::component::h_flex;
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
+use gpui_kit::component::v_flex;
 use gpui_kit::prelude::*;
 use gpui_kit::{Entity, SharedString, div};
 use hongguo_api::danmaku::{Danmaku, fetch_danmaku_all};
@@ -46,18 +47,26 @@ const DM_MIN_LANES: usize = 4;
 /// 基准字号范围（hgplayer 默认上限 22px）。
 const DM_FONT_MIN: f32 = 15.0;
 const DM_FONT_MAX: f32 = 22.0;
+/// 弹幕字数上限（Tauri maxLength 同语义）。
+const DM_MAX_LEN: usize = 100;
 
 impl super::HomeView {
     /// 拉当前集的全部弹幕（group_id = vid，book_id = series_id；社交态
-    /// 不缓存，每次进集都重拉——Tauri useDanmaku 同款）。拉完游标归零，
-    /// 由 tick 按「当前播放位置之前的不补放」自然对齐。
-    pub(super) fn load_danmaku(&mut self, vid: String, cx: &mut Context<Self>) {
-        if self.danmaku_fetching || self.danmaku_vid == vid {
+    /// 不缓存，每次进集都重拉——Tauri useDanmaku staleTime 0 同款）。拉完
+    /// 游标落到当前播放位置，由 tick 按「位置之前的不补放」自然对齐。
+    ///
+    /// `series_id` 由调用方显式传入（进集时就是**这一集所属剧**的 id）。
+    /// 以前从 `self.now` 现取有两个时序坑：调用点在 `view.now` 赋值之前，
+    /// 首播时 now 还是 None 直接返回（会话第一部剧永远没弹幕）；换剧时又
+    /// 错拿上一部剧的 id（服务端参数错配，热剧也拉空）。同集重进也重拉
+    /// （vid 去重闸已撤——社交态不缓存是既定纪律）。
+    ///
+    /// 完成回调按 vid 校验：快速切剧时旧集的响应晚到，不得覆盖新集
+    /// （Tauri react-query 按 key 隔离的等价物）。
+    pub(super) fn load_danmaku(&mut self, vid: String, series_id: String, cx: &mut Context<Self>) {
+        if self.danmaku_fetching {
             return;
         }
-        let Some(now) = self.now.clone() else {
-            return;
-        };
         self.danmaku_fetching = true;
         self.danmaku_vid = vid.clone();
         // 新集清空在飞与游标（当前播放位置之前的不会补放）
@@ -65,15 +74,19 @@ impl super::HomeView {
         self.danmaku_flights.clear();
         self.danmaku_lane_free.clear();
         let state = Arc::clone(&self.state);
-        let sid = now.series_id.clone();
+        let vid_for_cb = vid.clone();
         let rx = bridge::spawn(async move {
             let env = state.api_env();
-            fetch_danmaku_all(&vid, &sid, &env).await
+            fetch_danmaku_all(&vid, &series_id, &env).await
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, cx| {
                 view.danmaku_fetching = false;
+                // 陈旧响应不落账（期间已切到别的集）
+                if view.danmaku_vid != vid_for_cb {
+                    return;
+                }
                 match result {
                     Ok(items) => {
                         log::debug!(
@@ -94,9 +107,11 @@ impl super::HomeView {
                     }
                     Err(e) => {
                         // 拉取失败留空列表（装饰性数据，不影响主功能），
-                        // 同集内不自动重试
+                        // 同集内不自动重试；但必须可见——不然用户分不清
+                        // 「这集本来没弹幕」和「坏了」（Tauri toast 同文案）
                         log::warn!("[Home] 弹幕拉取失败: {e}");
                         view.danmaku_items = Arc::new(Vec::new());
+                        view.show_toast("弹幕加载失败（不影响播放）", cx);
                     }
                 }
                 cx.notify();
@@ -135,11 +150,14 @@ impl super::HomeView {
             .danmaku_last_tick
             .replace(now)
             .map_or(0.0, |t| now.duration_since(t).as_secs_f64());
-        let stage_w = self
+        // 字号与泳道数都按舞台**高**算（hgplayer 同源口径；显示区域滑杆
+        // 缩的就是这条高）。以前这里错传舞台宽——入场估宽用的字号与渲染
+        // 字号错位、泳道数随宽度走，「显示区域」滑杆完全失效
+        let stage_h = self
             .stage_rects
             .get()
-            .and_then(|r| r.first().copied())
-            .unwrap_or(1024.0) as f64;
+            .and_then(|r| r.get(1).copied())
+            .unwrap_or(640.0);
         // 在飞推进（暂停不推进 = 冻结）与出屏回收（progress ≥ 1 滚完一屏）
         if !paused && !self.danmaku_flights.is_empty() {
             let step = dt / DM_CROSS_MS;
@@ -152,8 +170,8 @@ impl super::HomeView {
         // 入场：offset 落在 (上一帧, 当前] 的按密度抽样发射（随机均匀：
         // 丢哪条无所谓，要的是同屏条数按比例变稀）
         let ms = (pos * 1000.0) as u64;
-        let font_px = self.dm_font_px(stage_w as f32);
-        let lanes = self.dm_lane_count(stage_w as f32);
+        let font_px = self.dm_font_px(stage_h);
+        let lanes = self.dm_lane_count(stage_h);
         if self.danmaku_lane_free.len() != lanes {
             self.danmaku_lane_free = vec![0.0; lanes];
         }
@@ -216,7 +234,9 @@ impl super::HomeView {
         lanes.max(DM_MIN_LANES)
     }
 
-    /// 弹幕设置滑杆：更新对应显示参数；Release 落盘。
+    /// 弹幕设置滑杆：更新对应显示参数；变更即落盘（Tauri
+    /// use-danmaku-settings 每次 set 就写同款——Release 才写的话，拖动中
+    /// 关进程会丢一整轮调整）。
     pub(super) fn on_dm_slider_event(
         &mut self,
         which: u8,
@@ -235,22 +255,24 @@ impl super::HomeView {
             3 => self.dm_area = *v,
             _ => {}
         }
-        if matches!(event, SliderEvent::Release(_)) {
-            self.persist_prefs();
-        }
+        self.persist_prefs();
         cx.notify();
     }
 
-    /// 提交弹幕（发送框 Enter 或发送按钮）：未登录给日志指路（壳无 toast
-    /// 基建），成功后本地乐观插入（ hgplayer 同款：发送的弹幕立刻上屏）。
+    /// 提交弹幕（发送框 Enter 或发送按钮）：未登录给可见指引（Tauri
+    /// toast.info「互动需要先登录」同位），成功 toast + 本地乐观插入
+    /// （hgplayer 同款：发送的弹幕立刻上屏），失败 toast 带服务端原文。
     pub(super) fn submit_danmaku(&mut self, cx: &mut Context<Self>) {
         let Some(input) = &self.danmaku_input else {
             return;
         };
+        // 100 字上限（Tauri maxLength 同语义）。gpui 的 InputState 没有内建
+        // 长度闸，提交时截断——超长部分进不了服务端，视觉上仍可输入
         let text = input.read(cx).value().trim().to_string();
         if text.is_empty() || self.danmaku_sending {
             return;
         }
+        let text = text.chars().take(DM_MAX_LEN).collect::<String>();
         let Some(now) = self.now.clone() else {
             return;
         };
@@ -265,6 +287,7 @@ impl super::HomeView {
             .is_some_and(|a| !a.user_id.is_empty());
         if !logged_in {
             log::info!("[Home] 弹幕发送需要登录（settings 里没有账号），已忽略");
+            self.show_toast("互动需要先登录", cx);
             return;
         }
         let Some(player) = &self.player else {
@@ -288,7 +311,8 @@ impl super::HomeView {
                     Ok((text, offset_ms, cid)) => {
                         log::info!("[Home] 弹幕已发送 cid={cid}");
                         // 本地乐观插入：排序进 items（cursor 会自然捡起上屏）。
-                        // 拉取任务还握着 Arc 时插不进去就算了——飞行已直接上屏
+                        // 拉取任务还握着 Arc 时插不进去就算了——下一拍 tick
+                        // 照常把它捡起来上屏（Tauri setQueryData 同语义）
                         let item = Danmaku {
                             comment_id: cid,
                             text: text.clone(),
@@ -299,11 +323,15 @@ impl super::HomeView {
                             let at = items.partition_point(|d| d.offset_ms <= offset_ms);
                             items.insert(at, item);
                         }
+                        view.show_toast("弹幕已发送", cx);
                         // 输入框清空走渲染期（set_value 需要 window），这里只立标志
                         view.danmaku_clear_input = true;
                     }
                     Err(e) => {
+                        // 失败必须可见：风控/频控拒绝时静默的话，用户以为
+                        // 发成功了（Tauri 全局 MutationCache onError 同位）
                         log::warn!("[Home] 弹幕发送失败: {e}");
+                        view.show_toast(format!("弹幕发送失败：{e}"), cx);
                     }
                 }
                 cx.notify();
@@ -312,22 +340,31 @@ impl super::HomeView {
         .detach();
     }
 
-    /// 弹幕设置面板的一行（标签 + 滑杆）。
+    /// 弹幕设置面板的一行（Tauri DisplaySlider 同构：label 上 + 百分比读数
+    /// 右 + 滑杆下）。
     pub(super) fn dm_setting_row(
         &self,
         label: impl Into<SharedString>,
         slider: &Entity<SliderState>,
+        value: f32,
     ) -> gpui_kit::AnyElement {
-        h_flex()
-            .items_center()
-            .gap_2()
+        v_flex()
+            .gap_1p5()
             .child(
-                div()
-                    .w(gpui_kit::px(52.0))
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(gpui_kit::rgba(0xffffffcc))
-                    .child(label.into()),
+                h_flex()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0xffffffcc))
+                            .child(label.into()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui_kit::rgba(0xffffff99))
+                            .child(format!("{}%", (value * 100.0).round() as i64)),
+                    ),
             )
             .child(Slider::new(slider))
             .into_any_element()

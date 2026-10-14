@@ -171,6 +171,10 @@ pub struct HomeView {
     play_error: Option<String>,
     /// 自动重试记账位：只在引擎就位时复位（play_target 里清会死循环）。
     play_retried: bool,
+    /// 舞台轻量提示（Tauri toast 同位，见 [`crate::toast`]）：弹幕拉取/
+    /// 发送与互动登录指引的可见出口——此前这类反馈只有日志，用户看到的
+    /// 就是「点了没反应」。
+    toast: Option<crate::toast::Toast>,
 
     // —— 控制区（对齐 Tauri 版控制栏核心件） ——
     /// 倍速/音量/静音的现值（引擎侧同值；换集后重放给新引擎，跨启动走
@@ -346,10 +350,6 @@ pub struct HomeView {
     /// 菜单一起收掉，菜单根本没法操作（暂停才能点得到的根源）。
     rate_menu_open: bool,
     definition_menu_open: bool,
-    /// 弹幕设置齿轮按钮 / 设置面板各自的 hover 位（音量弹层同款并集裁决；
-    /// 面板悬在按钮盒外，只认 wrapper hover 会在指针移入面板的瞬间收掉）。
-    dm_hovered: bool,
-    dm_panel_hovered: bool,
     /// 音量竖条的轨道矩形哨兵（拖动换算用，与 progress_bounds 同模式）。
     volume_bounds: Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
@@ -442,6 +442,7 @@ impl HomeView {
             pending_title: None,
             play_error: None,
             play_retried: false,
+            toast: None,
             rate: prefs.rate,
             volume: prefs.volume,
             muted: prefs.muted,
@@ -469,7 +470,7 @@ impl HomeView {
             danmaku_last_pos: 0.0,
             danmaku_last_tick: None,
             dm_rng: 0x853c49e6748fea9b,
-            danmaku_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("发送弹幕…"))),
+            danmaku_input: Some(cx.new(|cx| InputState::new(window, cx).placeholder("发条弹幕…"))),
             danmaku_sending: false,
             danmaku_clear_input: false,
             danmaku_emoji_open: false,
@@ -555,8 +556,6 @@ impl HomeView {
             volume_popup_hovered: false,
             rate_menu_open: false,
             definition_menu_open: false,
-            dm_hovered: false,
-            dm_panel_hovered: false,
             volume_bounds: Rc::new(Cell::new(None)),
             buffering: false,
             controls_until: None,
@@ -662,6 +661,29 @@ impl HomeView {
     ) {
         self.shortcut_keys = keys;
         cx.notify();
+    }
+
+    /// 弹一条轻量提示（Tauri toast 同位）：单槽覆盖，定时收尾（不依赖
+    /// 重渲染节拍——暂停中没有 Frame 事件也能按时消失）。
+    pub(crate) fn show_toast(&mut self, message: impl Into<String>, cx: &mut Context<Self>) {
+        self.toast = Some(crate::toast::Toast::new(message));
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(crate::toast::TOAST_TTL)
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                if view
+                    .toast
+                    .as_ref()
+                    .is_some_and(crate::toast::Toast::expired)
+                {
+                    view.toast = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// 订阅 service 业务事件（登录 MFA、下载状态）并落到视图状态。

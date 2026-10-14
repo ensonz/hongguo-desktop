@@ -132,8 +132,6 @@ impl super::HomeView {
         self.comments_panel_open = false;
         self.downloads_open = false;
         self.dm_panel_open = false;
-        self.dm_hovered = false;
-        self.dm_panel_hovered = false;
         self.danmaku_emoji_open = false;
         self.emoji_picker_open = false;
         self.volume_popup_open = false;
@@ -337,11 +335,15 @@ impl super::HomeView {
                             view.binge = None;
                         }
                         view.load_intro(now.series_id.clone(), cx);
-                        // 弹幕按集重拉（vid 变了才拉；社交态不缓存复用）
-                        view.load_danmaku(now.vid.clone(), cx);
                         // 互动数据：集级公开计数（档案）+ mget 最近互动
                         view.load_episode_counts(&now, cx);
                         view.load_interact_state(cx);
+                        // 弹幕按集重拉（社交态不缓存，每次进集都拉）。必须在
+                        // now 就位之后、且 series_id 显式传参：以前先于 now 赋值
+                        // 调用、内部又依赖 self.now——首播时 now 还是 None 直接
+                        // 返回（第一部剧永远没弹幕），换剧时错拿上一部剧的
+                        // series_id 当 book_id（服务端参数错配，热剧也拉空）
+                        view.load_danmaku(now.vid.clone(), now.series_id.clone(), cx);
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
