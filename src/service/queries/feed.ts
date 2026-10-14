@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { discover } from '../commands';
 import type { FeedItem, FeedPage } from '../schema';
@@ -49,4 +49,19 @@ export function useFeed(tab: string) {
     void queryClient.resetQueries({ queryKey: keys.feed(tab) });
   }, [queryClient, tab]);
   return { ...stream, restart };
+}
+
+/**
+ * 首页顶栏 tab 列表（服务端下发，bookmall/tab 响应 tab_item[]）。
+ *
+ * 与推荐流同源但独立缓存：拉取前/失败由壳侧回落三件套渲染，不阻塞首屏。
+ * 顶栏属配置数据（tab_type/标题/顺序随运营变化），1 小时内不重打。
+ */
+export function useFeedTabs() {
+  return useQuery({
+    queryKey: keys.feedTabs,
+    queryFn: () => discover.recommendTabs(),
+    staleTime: 60 * 60_000,
+    meta: { silentOnError: true },
+  });
 }

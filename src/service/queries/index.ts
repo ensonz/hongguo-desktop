@@ -14,7 +14,7 @@ export {
   usePrefetchSeriesEpisodes,
   useResolveSeries,
 } from './series';
-export { useFeed } from './feed';
+export { useFeed, useFeedTabs } from './feed';
 export {
   useDanmaku,
   useSendDanmaku,
