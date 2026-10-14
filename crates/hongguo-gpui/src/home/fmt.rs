@@ -1,5 +1,26 @@
 //! 展示格式化：相对时间、计数、时间与倍速文案（与 Tauri 版口径一致）。
 
+/// 体积格式化（字节 → 可读字符串）。与 Tauri `utils/format.ts` 的
+/// formatBytes 同口径：1024 进制、B 档不带小数、其余一位小数。
+/// crate 级自由函数：磁盘清理页与下载管理页共用。
+pub(crate) fn format_bytes(bytes: u64) -> String {
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+    let units = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut i = 0;
+    while value >= 1024.0 && i < units.len() - 1 {
+        value /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {}", units[i])
+    }
+}
+
 /// 相对时间（评论时间戳）。分层与 Tauri `utils/relative-time.ts` 同口径
 /// （hgplayer：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 30 天内 /
 /// M月D日）——此前自创「N 个月前/N 年前」与前端漂移。技术栈不同不共享

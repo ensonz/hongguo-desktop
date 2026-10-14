@@ -4,3 +4,4 @@
 //! 装配、切换目的地）。
 
 pub(crate) mod rank;
+pub(crate) mod storage;

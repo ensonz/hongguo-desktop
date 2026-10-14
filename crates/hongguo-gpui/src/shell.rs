@@ -25,6 +25,7 @@ use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
 use crate::pages::rank::RankView;
+use crate::pages::storage::StorageView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
 /// 播放不在列：它由各页「播放/继续播放」进入，首页本身就是沉浸流。
@@ -104,6 +105,7 @@ impl Dest {
         match self {
             Dest::Home => Some(View::Home),
             Dest::Rank => Some(View::Rank),
+            Dest::Storage => Some(View::Storage),
             Dest::Detail => Some(View::Detail),
             _ => None,
         }
@@ -114,6 +116,7 @@ impl Dest {
 enum View {
     Home,
     Rank,
+    Storage,
     Detail,
 }
 
@@ -124,6 +127,7 @@ pub struct Shell {
     sidebar_collapsed: bool,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
+    storage: Entity<StorageView>,
     detail: Option<Entity<DetailView>>,
     /// 详情页当前加载的剧（同剧重复点击不重载）。
     detail_series: Option<String>,
@@ -133,6 +137,7 @@ impl Shell {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
+        let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
         cx.subscribe(&feed, |this, _, event: &HomeEvent, cx| match event {
             HomeEvent::OpenDetail(series_id) => this.open_detail(series_id.clone(), cx),
@@ -164,6 +169,7 @@ impl Shell {
             sidebar_collapsed: false,
             feed,
             rank,
+            storage,
             detail: None,
             detail_series: None,
         }
@@ -273,6 +279,10 @@ impl Shell {
             self.rank.update(cx, |rank, cx| {
                 rank.debug_preview_seed(scene == "rank-empty", cx)
             });
+        } else if scene.starts_with("storage") {
+            self.dest = Dest::Storage;
+            self.storage
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("detail") {
             // 详情页场景：确保实体在（不走网络 load，直接灌种子）
             self.dest = Dest::Detail;
@@ -345,8 +355,10 @@ impl Shell {
                         return;
                     }
                     this.dest = dest;
-                    if dest == Dest::Rank {
-                        this.rank.update(cx, RankView::load);
+                    match dest {
+                        Dest::Rank => this.rank.update(cx, RankView::load),
+                        Dest::Storage => this.storage.update(cx, StorageView::load),
+                        _ => {}
                     }
                     cx.notify();
                 }))
@@ -478,6 +490,7 @@ impl Shell {
         match self.dest.view() {
             Some(View::Home) => self.feed.clone().into_any_element(),
             Some(View::Rank) => self.rank.clone().into_any_element(),
+            Some(View::Storage) => self.storage.clone().into_any_element(),
             Some(View::Detail) => self
                 .detail
                 .as_ref()

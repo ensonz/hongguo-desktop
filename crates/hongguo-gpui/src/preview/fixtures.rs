@@ -12,6 +12,40 @@ use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
 use hongguo_api::rank::RankItem;
 use hongguo_common::model::{DownloadTask, TaskStatus, VideoDefinition};
+use hongguo_service::storage_service::usage::{StorageSeriesUsage, StorageUsage};
+
+/// 磁盘清理页：总占用快照（3 部剧、7 个文件，合计约 2.4 GB）。
+pub(crate) fn storage_usage() -> StorageUsage {
+    let series = storage_series();
+    StorageUsage {
+        bytes: series.iter().map(|s| s.bytes).sum(),
+        files: series.iter().map(|s| s.files).sum(),
+    }
+}
+
+/// 磁盘清理页：按剧聚合的占用（只含磁盘上真有文件的剧）。
+pub(crate) fn storage_series() -> Vec<StorageSeriesUsage> {
+    vec![
+        StorageSeriesUsage {
+            series_id: SERIES[0].0.into(),
+            title: SERIES[0].1.into(),
+            bytes: 1_492_000_000,
+            files: 3,
+        },
+        StorageSeriesUsage {
+            series_id: SERIES[1].0.into(),
+            title: SERIES[1].1.into(),
+            bytes: 736_000_000,
+            files: 2,
+        },
+        StorageSeriesUsage {
+            series_id: SERIES[3].0.into(),
+            title: SERIES[3].1.into(),
+            bytes: 214_000_000,
+            files: 2,
+        },
+    ]
+}
 
 /// 剧目池：(series_id, 剧名, 热度文案)。在播剧取第一条，其余铺满三个
 /// tab 源（沉浸流滚轮/切 tab 的数据面）。

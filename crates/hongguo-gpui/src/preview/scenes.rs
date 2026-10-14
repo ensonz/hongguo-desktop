@@ -150,6 +150,31 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "rank-empty",
             font_scale: 1.,
         },
+        // —— 磁盘清理 ——
+        PreviewCase {
+            name: "storage-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "storage",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "storage-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "storage",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "storage-empty-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "storage-empty",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",
