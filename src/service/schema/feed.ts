@@ -35,6 +35,17 @@ export const feedPageSchema = z.object({
 export type FeedItem = z.infer<typeof feedItemSchema>;
 export type FeedPage = z.infer<typeof feedPageSchema>;
 
+/** 首页顶栏 tab 条目（Rust `recommend::FeedTabMeta`，bookmall/tab 响应
+ *  tab_item[] 下发；顺序即官方顶栏顺序，非活跃 tab 的 bookstoreId 为 null）。 */
+export const feedTabSchema = z.object({
+  tabType: z.string(),
+  /** 服务端下发标题（中文原文，直显） */
+  title: z.string(),
+  bookstoreId: z.string().nullish(),
+});
+
+export type FeedTab = z.infer<typeof feedTabSchema>;
+
 /** 找剧筛选面板的一行（Rust `discover::SelectorRow`，rowType 即 select_items 的键）。 */
 export const selectorRowSchema = z.object({
   rowType: z.string(),

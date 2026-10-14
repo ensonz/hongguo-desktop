@@ -143,6 +143,7 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::series_cmd::related_series,
             commands::series_cmd::series_meta,
             // 发现（首页推荐流 / 找剧筛选浏览）
+            commands::discover_cmd::recommend_tabs,
             commands::discover_cmd::recommend_feed,
             commands::discover_cmd::browse_panel,
             commands::discover_cmd::browse_page,

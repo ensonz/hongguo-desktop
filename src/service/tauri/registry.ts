@@ -23,6 +23,7 @@ import {
   decodeCapabilitySchema,
   downloadTaskSchema,
   feedPageSchema,
+  feedTabSchema,
   hevcInstallResultSchema,
   interactionStateSchema,
   loginResultSchema,
@@ -151,6 +152,7 @@ export const COMMANDS = {
     }),
     response: feedPageSchema,
   },
+  recommend_tabs: { args: noArgs, response: feedTabSchema.array() },
   browse_panel: { args: noArgs, response: selectorRowSchema.array() },
   browse_page: {
     args: z.object({
