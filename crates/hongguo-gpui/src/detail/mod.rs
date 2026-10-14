@@ -46,6 +46,19 @@ pub(crate) enum DetailEvent {
     },
 }
 
+/// 来源页（预约列表/榜单行）带来的档案快照。未上线剧解析分集必然失败
+/// （平台无分集可给），带 prefill 时走「即将上线」降级视图——与 Tauri
+/// `series-detail-page.tsx` 的 prefill/generateContext 同口径。
+#[derive(Debug, Clone)]
+pub(crate) struct DetailPrefill {
+    pub title: String,
+    pub cover: String,
+    pub tags: Vec<String>,
+    pub desc: String,
+    /// 当前账号是否已预约（预约列表行带来；降级视图的预约按钮据此起态）。
+    pub reserved: bool,
+}
+
 /// 下半区三个 tab（Tauri Tabs defaultValue="episodes" 同序）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailTab {
@@ -67,6 +80,12 @@ pub(crate) struct DetailView {
     loading: bool,
     /// 档案装载失败（错误态 + 重试；Tauri ErrorState + ResolveButton 同位）。
     load_failed: bool,
+    /// 未上线降级视图：prefill 合成 0 集档案（动作行换「即将上线 + 预约」）。
+    prefill: Option<DetailPrefill>,
+    upcoming: bool,
+    /// 降级视图的预约态与本页按钮（已预约 = 按钮可再点取消）。
+    reserved: bool,
+    reserve_pending: bool,
     tab: DetailTab,
     // —— 剧评（fetch_series_comments_page 分页；评分摘要取自首页 extra）——
     reviews: Arc<Vec<CommentItem>>,
@@ -95,6 +114,10 @@ impl DetailView {
             images_pending: std::collections::HashSet::new(),
             loading: false,
             load_failed: false,
+            prefill: None,
+            upcoming: false,
+            reserved: false,
+            reserve_pending: false,
             tab: DetailTab::Episodes,
             reviews: Arc::new(Vec::new()),
             reviews_total: 0,
@@ -114,6 +137,17 @@ impl DetailView {
     /// （meta/剧评/相关推荐/互动态）并行各拉各的，互不拦页面——Tauri
     /// react-query 各 query 独立降级同口径。
     pub(crate) fn load(&mut self, series_id: String, cx: &mut Context<Self>) {
+        self.load_with_prefill(series_id, None, cx);
+    }
+
+    /// 装载（可带来源页 prefill）：解析失败且有 prefill 时走「即将上线」
+    /// 降级视图（prefill 合成 0 集档案，正常渲染流只换动作行）。
+    pub(crate) fn load_with_prefill(
+        &mut self,
+        series_id: String,
+        prefill: Option<DetailPrefill>,
+        cx: &mut Context<Self>,
+    ) {
         if self.loading || (self.series_id == series_id && self.series.is_some()) {
             return;
         }
@@ -121,6 +155,10 @@ impl DetailView {
         self.series = None;
         self.meta = None;
         self.load_failed = false;
+        self.upcoming = false;
+        self.reserved = prefill.as_ref().map(|p| p.reserved).unwrap_or(false);
+        self.reserve_pending = false;
+        self.prefill = prefill.clone();
         self.tab = DetailTab::Episodes;
         self.reviews = Arc::new(Vec::new());
         self.reviews_total = 0;
@@ -137,35 +175,50 @@ impl DetailView {
         let sid = series_id.clone();
         let rx = bridge::spawn(async move {
             let env = state.api_env();
-            let series = match state.store.series_by_id(&sid)? {
-                Some(s) if !s.episodes.is_empty() => s,
-                _ => {
-                    let s = hongguo_service::series_service::resolver::resolve_series(&sid, &env)
-                        .await?;
-                    state.store.upsert_series(&s)?;
-                    s
+            let cached = state
+                .store
+                .series_by_id(&sid)?
+                .filter(|s| !s.episodes.is_empty());
+            // 未上线剧解析必然失败：有 prefill 就用它合成 0 集档案
+            let (series, upcoming) = match cached {
+                Some(s) => (s, false),
+                None => {
+                    match hongguo_service::series_service::resolver::resolve_series(&sid, &env).await
+                    {
+                        Ok(s) => {
+                            state.store.upsert_series(&s)?;
+                            (s, false)
+                        }
+                        Err(e) => match prefill.clone() {
+                            Some(p) => (synthesize_upcoming_series(&sid, &p), true),
+                            None => return Err(e),
+                        },
+                    }
                 }
             };
             // 装饰性 meta 失败不拦页面（头部相应行不渲染，Tauri 同口径）
             let meta = hongguo_api::detail::fetch_series_meta(&sid, &env)
                 .await
                 .ok();
-            Ok::<_, hongguo_common::AppError>((series, meta))
+            Ok::<_, hongguo_common::AppError>((series, meta, upcoming))
         });
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, cx| {
                 view.loading = false;
                 match result {
-                    Ok((series, meta)) => {
+                    Ok((series, meta, upcoming)) => {
                         view.load_image(series.cover.clone(), cx);
                         view.meta = meta;
                         view.series = Some(Arc::new(series));
-                        // 头部统计行的评分来自剧评分页首页 extra——剧评
-                        // 本来就要拉，这里一并驱动
-                        view.load_reviews_first_page(cx);
-                        view.load_related(cx);
-                        view.load_interact_state(cx);
+                        view.upcoming = upcoming;
+                        if !upcoming {
+                            // 头部统计行的评分来自剧评分页首页 extra——剧评
+                            // 本来就要拉，这里一并驱动
+                            view.load_reviews_first_page(cx);
+                            view.load_related(cx);
+                            view.load_interact_state(cx);
+                        }
                     }
                     Err(e) => {
                         log::warn!("[Detail] {series_id} 档案装载失败: {e}");
@@ -331,6 +384,21 @@ impl DetailView {
     }
 }
 
+/// prefill → 0 集合成档案（未上线剧）。只填展示必需字段；分集为空，
+/// 选集 tab 自然落「暂无分集信息」。
+fn synthesize_upcoming_series(series_id: &str, prefill: &DetailPrefill) -> Series {
+    Series {
+        series_id: series_id.to_string(),
+        title: prefill.title.clone(),
+        cover: prefill.cover.clone(),
+        episode_count: 0,
+        followed_cnt: 0,
+        tags: prefill.tags.clone(),
+        episodes: Vec::new(),
+        dismissed: false,
+    }
+}
+
 impl gpui_kit::Render for DetailView {
     fn render(
         &mut self,
@@ -353,6 +421,27 @@ impl DetailView {
 
         self.loading = false;
         self.load_failed = false;
+        if tab == "detail-upcoming" {
+            // 未上线降级视图：prefill 合成 0 集档案（预约态起「预约」按钮）
+            let prefill = DetailPrefill {
+                title: "长风渡口".into(),
+                cover: "preview://detail-cover".into(),
+                tags: vec!["古装".into(), "权谋".into()],
+                desc: "战乱年代，一介孤女在渡口撑起商行，卷入朝堂风云。".into(),
+                reserved: true,
+            };
+            self.upcoming = true;
+            self.reserved = prefill.reserved;
+            self.prefill = Some(prefill.clone());
+            self.series_id = "7200000".into();
+            self.series = Some(Arc::new(synthesize_upcoming_series("7200000", &prefill)));
+            self.images
+                .insert("preview://detail-cover".into(), fixtures::cover(6));
+            self.meta = None;
+            self.tab = DetailTab::Episodes;
+            cx.notify();
+            return;
+        }
         self.tab = if tab == "detail-related" {
             DetailTab::Related
         } else {

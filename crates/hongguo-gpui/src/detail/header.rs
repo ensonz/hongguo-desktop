@@ -11,6 +11,8 @@ use gpui_kit::component::{ActiveTheme, Sizable};
 use gpui_kit::prelude::*;
 use gpui_kit::{ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_api::interact::{collect_series, digg_video};
+use gpui_kit::component::notification::Notification;
+use gpui_kit::component::WindowExt;
 
 use super::DetailView;
 use crate::bridge;
@@ -77,6 +79,15 @@ impl DetailView {
             .unwrap_or_else(|| series.tags.clone());
         let (resume_ep, resume_start) = self.resume_entry();
         let intro = meta.map(|m| m.intro.clone()).unwrap_or_default();
+        // 未上线降级视图：简介回落来源页 prefill 的描述（Tauri 同口径）
+        let intro = if intro.is_empty() && self.upcoming {
+            self.prefill
+                .as_ref()
+                .map(|p| p.desc.clone())
+                .unwrap_or_default()
+        } else {
+            intro
+        };
 
         h_flex()
             .items_start()
@@ -145,7 +156,40 @@ impl DetailView {
                             .text_color(theme.muted_foreground)
                             .child(SharedString::from(intro))
                     }))
-                    .child(
+                    .child(if self.upcoming {
+                        // 未上线降级视图（Tauri prefill 同款）：动作行换
+                        // 「即将上线 + 预约（已预约可再点取消）」
+                        h_flex()
+                            .mt_5()
+                            .items_center()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .rounded_full()
+                                    .bg(theme.secondary)
+                                    .px_3()
+                                    .py_1()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child("⌛ 即将上线"),
+                            )
+                            .child(
+                                Button::new("detail-reserve")
+                                    .icon(gpui_kit::assets::IconName::BellRing)
+                                    .label(if self.reserved { "已预约" } else { "预约" })
+                                    .outline()
+                                    .text_color(if self.reserved {
+                                        theme.muted_foreground
+                                    } else {
+                                        theme.foreground
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_reserve(cx);
+                                    })),
+                            )
+                            .into_any_element()
+                    } else {
                         // 动作行：播放/继续播放 + 收藏 + 点赞（Tauri 同三键；
                         // 未登录点互动静默忽略——与首页互动栏同口径，Tauri
                         // 是 toast + 去设置页，壳无对应路由暂分叉）
@@ -204,8 +248,9 @@ impl DetailView {
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.toggle_digg(cx);
                                     }))
-                            }),
-                    ),
+                            })
+                            .into_any_element()
+                    }),
             )
             .into_any_element()
     }
@@ -335,6 +380,47 @@ impl DetailView {
                     log::warn!("[Detail] 点赞失败: {e}");
                 }
                 view.load_interact_state(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// 未上线降级视图的预约切换（Tauri prefill 视图「预约」按钮同款：
+    /// 一个按钮管预约/取消预约，成败都弹通知）。
+    fn toggle_reserve(&mut self, cx: &mut Context<Self>) {
+        if self.reserve_pending {
+            return;
+        }
+        self.reserve_pending = true;
+        let next = !self.reserved;
+        let state = Arc::clone(&self.state);
+        let sid = self.series_id.clone();
+        let rx = bridge::spawn(async move {
+            let env = state.api_env();
+            hongguo_api::reservation::reserve_series(&sid, next, &env).await
+        });
+        cx.spawn(async move |this, cx| {
+            let result = rx.await.expect("tokio 桥不会丢弃发送端");
+            let _ = this.update_in(cx, |view, window, cx| {
+                view.reserve_pending = false;
+                match result {
+                    Ok(()) => {
+                        view.reserved = next;
+                        window.push_notification(
+                            Notification::success(if next { "预约成功" } else { "已取消预约" }),
+                            cx,
+                        );
+                    }
+                    Err(e) => {
+                        log::warn!("[Detail] 预约操作失败: {e}");
+                        window.push_notification(
+                            Notification::error(format!("操作失败：{e}")),
+                            cx,
+                        );
+                    }
+                }
                 cx.notify();
             });
         })

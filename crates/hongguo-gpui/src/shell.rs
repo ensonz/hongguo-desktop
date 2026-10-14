@@ -245,6 +245,16 @@ impl Shell {
 
     /// 打开应用内详情页（播放页点剧名）：同剧重复点击不重载。
     fn open_detail(&mut self, series_id: String, cx: &mut Context<Self>) {
+        self.open_detail_with_prefill(series_id, None, cx);
+    }
+
+    /// 打开详情页（可带来源页 prefill：未上线剧走「即将上线」降级视图）。
+    pub(crate) fn open_detail_with_prefill(
+        &mut self,
+        series_id: String,
+        prefill: Option<crate::detail::DetailPrefill>,
+        cx: &mut Context<Self>,
+    ) {
         if self.dest == Dest::Detail && self.detail_series.as_deref() == Some(&series_id) {
             return;
         }
@@ -261,7 +271,9 @@ impl Shell {
                 v
             }
         };
-        view.update(cx, |detail, cx| detail.load(series_id.clone(), cx));
+        view.update(cx, |detail, cx| {
+            detail.load_with_prefill(series_id.clone(), prefill, cx)
+        });
         self.detail_series = Some(series_id);
         self.dest = Dest::Detail;
         cx.notify();
