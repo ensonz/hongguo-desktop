@@ -12,6 +12,8 @@ use hongguo_api::recommend::{fetch_feed_tabs, fetch_recommend_feed};
 
 use crate::bridge;
 
+use super::NowPlaying;
+
 /// 沉浸流的 tab 身份（即书城 cell 换一换的 tab_type 契约）。列表由服务端
 /// 下发（[`Self::load_tabs`]），回落三件套见 [`Self::fallback_tabs`]。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -371,39 +373,17 @@ impl super::HomeView {
 
     /// 渲染/交互共用的展示列表：种子（仅推荐 tab）+ 流条目，**按 series_id
     /// 去重**——会话轮换后跨页偶发同条目（Tauri 渲染期同款去重），不去重
-    /// 就是滚轮里同一部剧连出好几遍。在播剧若已被换出列表（换一批后的新
-    /// 批次通常没有它），钉在最前——「在播不动」。
+    /// 就是滚轮里同一部剧连出好几遍。换一批（`pin_hold` 开闸）把在播剧换出
+    /// 列表后钉在最前——「在播不动」；跨 tab 切换关闸，首批到位即换片。
     pub(super) fn display_items(&self) -> Vec<StreamItem> {
         let feed = self.feeds.get(&self.active).expect("源已初始化");
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut items: Vec<StreamItem> = Vec::with_capacity(self.seeds.len() + feed.items.len());
-        // 种子只属于推荐 tab（tab_type 16）：类型 tab 的头一条必须是该类型
-        // 的剧（Tauri home-page 同口径）
-        if self.active.as_str() == "16" {
-            for s in &self.seeds {
-                if !s.series_id.is_empty() && seen.insert(s.series_id.clone()) {
-                    items.push(s.clone());
-                }
-            }
-        }
-        for i in &feed.items {
-            if !i.series_id.is_empty() && seen.insert(i.series_id.clone()) {
-                items.push(i.clone());
-            }
-        }
-        if let Some(now) = &self.now
-            && !items.iter().any(|i| i.series_id == now.series_id)
-        {
-            items.insert(
-                0,
-                StreamItem {
-                    series_id: now.series_id.clone(),
-                    title: now.title.clone(),
-                    ..Default::default()
-                },
-            );
-        }
-        items
+        assemble_display_items(
+            feed,
+            &self.seeds,
+            self.active.as_str() == "16",
+            self.pin_hold,
+            self.now.as_ref(),
+        )
     }
 
     /// 游标位置（展示列表下标，夹到已加载范围）。语义**对齐 Tauri**：游标是
@@ -426,4 +406,48 @@ impl super::HomeView {
         };
         self.now.as_ref().is_some_and(|n| &n.series_id == sid)
     }
+}
+
+/// 展示列表组装（纯函数：`display_items` 的主体抽出来，钉住语义不依赖
+/// HomeView/窗口即可单测）。
+fn assemble_display_items(
+    feed: &SourceFeed,
+    seeds: &[StreamItem],
+    seeds_active: bool,
+    pin_hold: bool,
+    now: Option<&NowPlaying>,
+) -> Vec<StreamItem> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut items: Vec<StreamItem> = Vec::with_capacity(seeds.len() + feed.items.len());
+    // 种子只属于推荐 tab（tab_type 16）：类型 tab 的头一条必须是该类型
+    // 的剧（Tauri home-page 同口径）
+    if seeds_active {
+        for s in seeds {
+            if !s.series_id.is_empty() && seen.insert(s.series_id.clone()) {
+                items.push(s.clone());
+            }
+        }
+    }
+    for i in &feed.items {
+        if !i.series_id.is_empty() && seen.insert(i.series_id.clone()) {
+            items.push(i.clone());
+        }
+    }
+    // 「在播不动」钉：仅换一批/回首页闸门（pin_hold）开着且在播剧已被换出
+    // 列表时插到最前——游标 0 仍是在播，follow_cursor 自然不切；跨 tab 关闸，
+    // 首批到位即换游标处的剧（Tauri pinHold 同口径）。
+    if pin_hold
+        && let Some(now) = now
+        && !seen.contains(&now.series_id)
+    {
+        items.insert(
+            0,
+            StreamItem {
+                series_id: now.series_id.clone(),
+                title: now.title.clone(),
+                ..Default::default()
+            },
+        );
+    }
+    items
 }

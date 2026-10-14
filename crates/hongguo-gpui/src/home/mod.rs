@@ -131,6 +131,13 @@ pub struct HomeView {
     #[cfg(feature = "screenshot")]
     preview_engine: bool,
     now: Option<NowPlaying>,
+    /// 「在播不动」闸门（Tauri pinHold 同口径）：换一批（同 tab 重开）开闸
+    /// ——在播剧被换出列表时钉在最前，新批到位游标 0 仍是它，不切；跨 tab
+    /// 切换关闸——新源首批到位即换游标处的剧（切 tab 就换片）。不关闸的话
+    /// 钉子会占住新源的第 0 位，播放目标判「就是在播」而不切（点了没反应
+    /// 的根因）。HomeView 是常驻 Entity，「回首页不换片」由状态常驻天然
+    /// 满足，无需 Tauri 的重挂载恢复。
+    pin_hold: bool,
     switching: bool,
     /// 当前可上屏的帧；`None` = 还没出画（画封面占位）。
     ///
@@ -416,6 +423,7 @@ impl HomeView {
             #[cfg(feature = "screenshot")]
             preview_engine: false,
             now: None,
+            pin_hold: true,
             switching: false,
             frame: None,
             #[cfg(target_os = "windows")]
@@ -704,15 +712,15 @@ impl HomeView {
 
     // —— 壳协作面（Shell 顶栏/侧栏读写的最小开口） ——
 
-    /// 切沉浸流 tab（顶栏 tab 入口）：重复点当前 tab = 换一批（重开会话、
-    /// 游标归零）；切到别的 tab 后当前游标的剧不在播就切过去（起点决策
-    /// effect 同语义）。
     /// 当前 tab 源（预览交互探针读，断言切源生效）。
     #[cfg(feature = "screenshot")]
     pub(crate) fn active_source(&self) -> Source {
         self.active.clone()
     }
 
+    /// 切沉浸流 tab（顶栏 tab 入口）：重复点当前 tab = 换一批（重开会话、
+    /// 游标归零、在播剧钉住不动）；切到别的 tab 关掉在播钉——新源首批到位
+    /// 或缓存游标处的剧立即接管播放，切 tab 就换片（Tauri pinHold 同口径）。
     pub(crate) fn switch_source(&mut self, s: Source, cx: &mut Context<Self>) {
         log::info!(
             "[Home] 切换 tab 源 → {}（当前 {}）",
@@ -722,9 +730,14 @@ impl HomeView {
         let same = self.active == s;
         let empty = self.feeds.get(&s).is_none_or(|f| f.items.is_empty());
         if same {
+            // 换一批：重开会话、游标归零，在播剧钉住不动（开闸）
+            self.pin_hold = true;
             self.load_feed(s, true, cx);
             return;
         }
+        // 跨 tab 关闸：钉子不关的话，游标 0 会被在播剧占住，首批到位后
+        // follow_cursor/play_target 判「目标就是在播」而不切——点了没反应
+        self.pin_hold = false;
         self.active = s.clone();
         if empty {
             self.load_feed(s, false, cx);
