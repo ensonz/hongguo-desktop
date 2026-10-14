@@ -414,12 +414,27 @@ fn recommend_feed_entry(raw: &Value) -> Option<super::discover::FeedItem> {
             .unwrap_or_default()
             .to_string(),
         horiz_cover: String::new(),
+        // 推荐位 vid 两个位置都见过：顶层 vid（2026-10-08 样本）与
+        // video_detail.video_list[0].vid（2026-10-14 实流，起点集）——
+        // 批量取流预取的 vid 源就是它，两级回落兜住
         vid: raw
             .get("vid")
             .map(|v| match v {
                 Value::Number(n) => n.to_string(),
                 Value::String(s) => s.clone(),
                 _ => String::new(),
+            })
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                det.and_then(|d| d.get("video_list"))
+                    .and_then(Value::as_array)
+                    .and_then(|arr| arr.first())
+                    .and_then(|v| v.get("vid"))
+                    .map(|v| match v {
+                        Value::Number(n) => n.to_string(),
+                        Value::String(s) => s.clone(),
+                        _ => String::new(),
+                    })
             })
             .unwrap_or_default(),
         episode_cnt: det

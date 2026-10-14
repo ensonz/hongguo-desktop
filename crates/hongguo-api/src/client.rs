@@ -133,6 +133,30 @@ pub async fn api_call_full_with_headers(
         .map(|r| r.bytes)
 }
 
+/// 单次发送、空响应不重试不报错（回空 body）。批量取流预取专用：
+/// 2026-10-14 起批量形态恒回 200+0（服务端不再发货），它是「发了即回」
+/// 的常态而非故障——重试只会让每次切剧白等 6 秒。hgplayer 同款一次即回。
+pub async fn api_call_once_allow_empty(
+    origin: &str,
+    pathname: &str,
+    body: Option<Vec<u8>>,
+    biz_query: &[(String, String)],
+    env: &ApiEnv,
+) -> AppResult<Vec<u8>> {
+    let client = build_client(&env.proxy)?;
+    let resp = send_once(
+        &client,
+        origin,
+        pathname,
+        body.as_deref(),
+        biz_query,
+        &[],
+        env,
+    )
+    .await?;
+    Ok(resp.bytes)
+}
+
 /// 响应体 + Set-Cookie（passport 登录捕获会话用，其余调用走
 /// [`api_call_full_with_headers`] 自动丢弃 cookie）。
 pub struct ApiCallResponse {

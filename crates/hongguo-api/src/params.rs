@@ -129,11 +129,12 @@ pub fn detail_payload(series_id: &str) -> Value {
 /// 构造取流地址请求体（2026-10-08 抓包：dr_scene 与端点同名 "player"）。
 ///
 /// 平台用 `mixed_video_id_map` 传 vid，key 是「清晰度分组 id」，现版用 `"1004"`。
-pub fn model_payload(vid: &str) -> Value {
+/// hgplayer 的批量形态一次带「当前 + 信息流后续几部」共 ~5 个 vid 做预取。
+pub fn model_payload(vids: &[String]) -> Value {
     json!({
         "biz_param": model_biz_param(),
         "dr_scene": "player",
-        "mixed_video_id_map": { "1004": [vid] },
+        "mixed_video_id_map": { "1004": vids },
     })
 }
 
@@ -181,9 +182,10 @@ mod tests {
     }
 
     #[test]
-    fn model_payload_wraps_vid_in_mixed_map() {
-        let p = model_payload("v123");
+    fn model_payload_wraps_vids_in_mixed_map() {
+        let p = model_payload(&["v123".to_string(), "v456".to_string()]);
         assert_eq!(p["mixed_video_id_map"]["1004"][0], "v123");
+        assert_eq!(p["mixed_video_id_map"]["1004"][1], "v456");
         // 2026-10-08 抓包：dr_scene 与端点同名 "player"
         assert_eq!(p["dr_scene"], "player");
         assert_eq!(p["biz_param"]["disable_video_relate_book"], false);

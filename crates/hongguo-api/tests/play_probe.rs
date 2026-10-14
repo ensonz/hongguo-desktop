@@ -22,3 +22,17 @@ async fn probe_play_url() {
         Err(e) => println!("ERR {e}"),
     }
 }
+
+#[tokio::test]
+#[ignore = "手工探针：打真实接口"]
+async fn probe_feed_vids() {
+    let env = hongguo_api::client::ApiEnv::anonymous(Default::default());
+    match hongguo_api::recommend::fetch_recommend_feed("36", "", 0, &[], &env).await {
+        Ok(page) => {
+            for it in page.items.iter().take(5) {
+                println!("series={} vid_len={} title={}", &it.series_id[..8.min(it.series_id.len())], it.vid.len(), it.title);
+            }
+        }
+        Err(e) => println!("ERR {e}"),
+    }
+}

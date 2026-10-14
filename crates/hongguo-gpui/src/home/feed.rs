@@ -51,6 +51,8 @@ pub(super) struct StreamItem {
     pub(super) heat_text: String,
     pub(super) season_tag: String,
     pub(super) badge: String,
+    /// 推荐位的 vid（批量取流预取用；种子条目可能为空）。
+    pub(super) vid: String,
 }
 
 impl From<&FeedItem> for StreamItem {
@@ -63,6 +65,7 @@ impl From<&FeedItem> for StreamItem {
             heat_text: i.heat_text.clone(),
             season_tag: i.season_tag.clone(),
             badge: i.badge.clone(),
+            vid: i.vid.clone(),
         }
     }
 }

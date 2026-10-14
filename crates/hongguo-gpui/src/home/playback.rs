@@ -139,6 +139,40 @@ impl super::HomeView {
         // 新一次起播尝试：清上一轮的失败态（自动重试的记账位只在引擎
         // 就位时复位——在这里也清会让「失败→重试→失败」死循环）
         self.play_error = None;
+        // 批量取流预取（hgplayer 同款时机与窗口）：当前 + 信息流后续几部的
+        // 推荐位 vid 一次批量；命中落 api 层暂存表，起播链先查它。批量
+        // 空响应（当前服务端常态）时静默，起播照走单集端点。
+        let batch_vids: Vec<String> = {
+            let items = self.display_items();
+            let cur = self.cursor();
+            let mut vids: Vec<String> = Vec::new();
+            if !item.vid.is_empty() {
+                vids.push(item.vid.clone());
+            }
+            for it in items.iter().skip(cur + 1) {
+                if vids.len() >= 5 {
+                    break;
+                }
+                if !it.vid.is_empty() && !vids.contains(&it.vid) {
+                    vids.push(it.vid.clone());
+                }
+            }
+            vids
+        };
+        if batch_vids.len() > 1 {
+            let state = Arc::clone(&self.state);
+            bridge::spawn(async move {
+                let env = state.api_env();
+                let cap = hongguo_api::stream_pick::DecoderCapability::from_hevc(
+                    hongguo_service::capability_service::hevc_playable(),
+                );
+                match hongguo_api::play_url::fetch_play_batch(&batch_vids, cap, &env).await {
+                    Ok(n) if n > 0 => log::info!("[Home] 批量预取命中 {n} 条"),
+                    Ok(_) => {}
+                    Err(e) => log::warn!("[Home] 批量预取失败: {e}"),
+                }
+            });
+        }
         // 旧的帧立即退场：切换期间画面上是新目标的封面，不是上一部的残帧
         self.frame = None;
         #[cfg(target_os = "windows")]
@@ -458,6 +492,7 @@ impl super::HomeView {
                     heat_text: String::new(),
                     season_tag: String::new(),
                     badge: String::new(),
+                    vid: String::new(),
                 };
                 view.binge = Some(series_id.clone());
                 view.play_target(
