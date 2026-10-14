@@ -75,17 +75,20 @@ fn redetect_platform() {
 fn redetect_platform() {}
 
 fn probe() -> DecodeCapability {
-    let has_ffmpeg = crate::ffmpeg::ffmpeg_path().is_some();
-    // 分流第一级是平台编码层（selected_backend 同一判定）：它可用时
-    // h264_hw_encoder 对设置页标签（platformHwEncoder 已定「硬件加速」档）
-    // 与实际转码链路都无发言权，而探它要 -encoders + 逐个试编一帧（一到
-    // 两秒的子进程链）——不预付。平台层不可用时 ffmpeg 升级为兜底决定者，
-    // 才值得付这个钱。转码若在运行期回落 ffmpeg，h264_encoder() 的惰性
-    // 缓存会在那一刻自己探，与本缓存无关。
-    let h264_hw = if platform_available() {
-        false
+    // 严格按分流优先级探测：平台层（纯原生 API，毫秒级）先探；它可用时
+    // ffmpeg 整层不探——链路不会用它（selected_backend 直接走平台），装
+    // ffmpeg 没有任何收益，设置页安装指引也按同一条件隐藏（「装上后转码
+    // 自动改走它」在那档机器上是假话）。平台层不可用，ffmpeg 升级为链路
+    // 兜底与指引的决定者，才付探测的钱（-version 约 50ms；真硬件还要
+    // -encoders + 试编）。转码若在运行期回落 ffmpeg，h264_encoder() 的
+    // 惰性缓存会在那一刻自己探，与本缓存无关。
+    let (has_ffmpeg, h264_hw) = if platform_available() {
+        (false, false)
     } else {
-        crate::ffmpeg::h264_encoder().is_some_and(|e| e.hardware)
+        (
+            crate::ffmpeg::ffmpeg_path().is_some(),
+            crate::ffmpeg::h264_encoder().is_some_and(|e| e.hardware),
+        )
     };
     DecodeCapability {
         has_ffmpeg,
@@ -128,13 +131,12 @@ pub fn scaling_available() -> bool {
 pub fn warm_up() {
     let c = detect();
     if c.platform_encoder {
-        // 平台层可用＝分流已定（selected_backend 直接走平台），ffmpeg 试编
-        // 层没探也不该探（probe 有意跳过）。日志不能再调 backend_info()——
-        // 它内部就是 ffmpeg_path()+h264_encoder()，会把省掉的探测全触发回来。
+        // 平台层可用＝分流已定（selected_backend 直接走平台），ffmpeg 整层
+        // 都没探（probe 有意跳过）。日志不能再调 backend_info()——它内部
+        // 就是 ffmpeg_path()+h264_encoder()，会把省掉的探测全触发回来。
         log::info!(
-            "[Media] 平台编码层可用（硬件={}，ffmpeg 兜底={}），试编层按需惰性探测",
-            c.platform_hw_encoder,
-            c.has_ffmpeg
+            "[Media] 平台编码层可用（硬件={}）→ 分流已定，ffmpeg 兜底层不探测",
+            c.platform_hw_encoder
         );
         return;
     }

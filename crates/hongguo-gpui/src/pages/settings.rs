@@ -910,7 +910,13 @@ impl SettingsView {
     fn render_playback_card(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme();
         let current = self.current();
-        let has_ffmpeg = self.capability.as_ref().map(|c| c.has_ffmpeg);
+        // 安装指引只在「ffmpeg 是兜底决定者且确实没装」时出现：平台编码层
+        // 可用的机器分流不会走 ffmpeg，装了也不改道（与 Tauri 设置页同款
+        // 条件；探测本身严格按优先级，见 media-platform capability/probe.rs）
+        let show_ffmpeg_hint = matches!(
+            self.capability.as_ref(),
+            Some(cap) if !cap.platform_encoder && !cap.has_ffmpeg
+        );
         let capability_tag = match &self.capability {
             Some(cap) if cap.platform_hw_encoder || cap.h264_hw_encoder => {
                 Tag::success().child(self.backend_label())
@@ -999,7 +1005,7 @@ impl SettingsView {
                     .text_color(theme.muted_foreground)
                     .child(SharedString::from(line))
             }))
-            .children((has_ffmpeg == Some(false)).then(|| ffmpeg_install_block(cx)))
+            .children(show_ffmpeg_hint.then(|| ffmpeg_install_block(cx)))
             .into_any_element()
     }
 
