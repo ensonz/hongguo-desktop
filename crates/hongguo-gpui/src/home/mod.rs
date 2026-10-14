@@ -152,6 +152,11 @@ pub struct HomeView {
     stage_diag_at: Cell<Instant>,
     /// 切换目标（switching 时 overlay 显示它的封面与标题）。
     pending_title: Option<String>,
+    /// 起播失败态（自动重试也失败后落这里；画面中央错误卡 + 重试——
+    /// 失败必须可见，否则「切 tab / 换剧没反应」）。
+    play_error: Option<String>,
+    /// 自动重试记账位：只在引擎就位时复位（play_target 里清会死循环）。
+    play_retried: bool,
 
     // —— 控制区（对齐 Tauri 版控制栏核心件） ——
     /// 倍速/音量/静音的现值（引擎侧同值；换集后重放给新引擎，跨启动走
@@ -402,6 +407,8 @@ impl HomeView {
             video_target: Rc::new(Cell::new((1280, 720))),
             stage_diag_at: Cell::new(Instant::now()),
             pending_title: None,
+            play_error: None,
+            play_retried: false,
             rate: prefs.rate,
             volume: prefs.volume,
             muted: prefs.muted,
@@ -657,6 +664,7 @@ impl HomeView {
     /// 游标归零）；切到别的 tab 后当前游标的剧不在播就切过去（起点决策
     /// effect 同语义）。
     /// 当前 tab 源（预览交互探针读，断言切源生效）。
+    #[cfg(feature = "screenshot")]
     pub(crate) fn active_source(&self) -> Source {
         self.active
     }

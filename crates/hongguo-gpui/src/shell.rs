@@ -139,11 +139,23 @@ impl Shell {
         })
         .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
-        // 预览进程有自己的目的地种子，不吃这个环境变量（可能残留）
+        // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）。
+        // 预览进程有自己的目的地种子，不吃这些环境变量（可能残留）
+        let tab_source = (!crate::preview::is_active())
+            .then(|| std::env::var("HONGGUO_TAB").ok())
+            .flatten()
+            .and_then(|v| match v.as_str() {
+                "36" => Some(crate::home::Source::Comic),
+                "39" => Some(crate::home::Source::Human),
+                _ => None,
+            });
         let dest = if !crate::preview::is_active() && std::env::var("HONGGUO_RANK").is_ok() {
             rank.update(cx, RankView::load);
             Dest::Rank
         } else {
+            if let Some(source) = tab_source {
+                feed.update(cx, |home, cx| home.switch_source(source, cx));
+            }
             Dest::Home
         };
         Self {
@@ -182,6 +194,7 @@ impl Shell {
     }
 
     /// 首页当前 tab 源（预览交互探针读，断言切源生效）。
+    #[cfg(feature = "screenshot")]
     pub(crate) fn active_source(&self, cx: &App) -> crate::home::Source {
         self.feed.read(cx).active_source()
     }

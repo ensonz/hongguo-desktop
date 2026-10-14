@@ -50,8 +50,15 @@ impl super::HomeView {
         }
     }
 
-    /// 滚轮冷却裁决 + 记账：到点可切返回 true 并落章。只由滚轮路径调用
-    /// （键盘 ↑↓ 不吃这把锁）；换剧与连播切集共用——冷却原写在换剧分支
+    /// 手动重试（起播失败卡的「重试」按钮）：重走当前游标位的起播链
+    ///（集号/起点重新走起点决策）。
+    pub(super) fn retry_play(&mut self, cx: &mut Context<Self>) {
+        if let Some(item) = self.display_items().get(self.cursor()).cloned() {
+            self.play_target(item, None, None, cx);
+        }
+    }
+
+    /// 滚轮冷却裁决 + 记账：到点可切返回 true 并落章。只由滚轮路径调用    /// （键盘 ↑↓ 不吃这把锁）；换剧与连播切集共用——冷却原写在换剧分支
     /// 里，连播切集漏网，一次惯性滚动连跳好几集。
     pub(super) fn wheel_cooldown_ready(&mut self) -> bool {
         let now = Instant::now();
@@ -129,6 +136,9 @@ impl super::HomeView {
             }
         );
         self.switching = true;
+        // 新一次起播尝试：清上一轮的失败态（自动重试的记账位只在引擎
+        // 就位时复位——在这里也清会让「失败→重试→失败」死循环）
+        self.play_error = None;
         // 旧的帧立即退场：切换期间画面上是新目标的封面，不是上一部的残帧
         self.frame = None;
         #[cfg(target_os = "windows")]
@@ -194,12 +204,29 @@ impl super::HomeView {
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
+                        view.play_retried = false;
                         log::info!("[Home] 引擎就位（epoch={epoch}），switching 解除");
                     }
                     Err(e) => {
                         log::warn!("[Home] 起播失败: {e}");
                         view.switching = false;
-                        view.pending_title = Some(format!("起播失败：{e}"));
+                        view.buffering = false;
+                        // 对齐 Tauri recovery-policy 的 retry 档：自动重试一次
+                        //（换目标/换集失败同样算一次预算），再失败才落错误态
+                        if !view.play_retried {
+                            view.play_retried = true;
+                            log::info!("[Home] 起播失败，自动重试一次");
+                            if let Some(item) =
+                                view.display_items().get(view.cursor()).cloned()
+                            {
+                                view.play_target(item, None, None, cx);
+                                cx.notify();
+                                return;
+                            }
+                        }
+                        // 失败必须可见：此前只写 pending_title，而那行小徽标
+                        // 随 switching 消失——用户看到的就是「点了没反应」
+                        view.play_error = Some(format!("{e}"));
                     }
                 }
                 cx.notify();

@@ -626,6 +626,44 @@ impl super::HomeView {
                         }))
                     }))
             }))
+            // 起播失败态（Tauri error-state 对齐）：画面中央错误 + 重试。
+            // 失败必须可见——此前只写 pending_title，而那行小徽标随
+            // switching 消失，用户看到的就是「切 tab / 换剧没反应」。
+            // 铺一层捕获拦下鼠标（错误卡后面是画面，点了会暂停/选中）
+            .children(self.play_error.as_ref().map(|err| {
+                v_flex()
+                    .absolute()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .on_mouse_up(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|_, _, _, cx| cx.stop_propagation()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child(SharedString::from(format!("起播失败：{err}"))),
+                    )
+                    .child(
+                        Button::new("stage-retry-play")
+                            .label("重试")
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.play_error = None;
+                                this.retry_play(cx);
+                                cx.stop_propagation();
+                                cx.notify();
+                            })),
+                    )
+                    .into_any_element()
+            }))
             // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层
             // 拦下鼠标下传（舞台的播放/暂停与信息层都不该收到这次点击）
             .children(

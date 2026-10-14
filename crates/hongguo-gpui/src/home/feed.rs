@@ -119,27 +119,38 @@ impl super::HomeView {
         cx.spawn(async move |this, cx| {
             let result = rx.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, cx| {
-                let feed = view.feeds.get_mut(&source).expect("源已初始化");
-                feed.loading = false;
                 match result {
                     Ok(page) => {
-                        feed.session = page.session_id;
-                        feed.offset = page.next_offset;
-                        feed.has_more = page.has_more;
-                        feed.items = page.items.iter().map(StreamItem::from).collect();
-                        feed.failed = None;
+                        {
+                            let feed = view.feeds.get_mut(&source).expect("源已初始化");
+                            feed.session = page.session_id;
+                            feed.offset = page.next_offset;
+                            feed.has_more = page.has_more;
+                            feed.items = page.items.iter().map(StreamItem::from).collect();
+                            feed.failed = None;
+                        }
                         // 取证：dump 开关时把整页封面都预载落盘（离线对拍用）
                         if std::env::var("HONGGUO_DUMP_COVER").is_ok() {
-                            let items: Vec<StreamItem> = feed.items.clone();
+                            let items: Vec<StreamItem> =
+                                view.feeds.get(&source).expect("源已初始化").items.clone();
                             for item in items.iter().take(12) {
                                 view.load_cover_of(item, cx);
                             }
                         }
                     }
                     Err(e) => {
-                        feed.failed = Some(format!("推荐流加载失败：{e}"));
+                        log::warn!("[Home] {source:?} 首批加载失败: {e}");
+                        view.feeds.get_mut(&source).expect("源已初始化").failed =
+                            Some(format!("推荐流加载失败：{e}"));
                     }
                 }
+                view.feeds.get_mut(&source).expect("源已初始化").loading = false;
+                let feed = view.feeds.get(&source).expect("源已初始化");
+                log::info!(
+                    "[Home] {source:?} 首批落定：{} 条，failed={:?}",
+                    feed.items.len(),
+                    feed.failed.as_deref().map(|_| true).unwrap_or(false)
+                );
                 view.after_feed_loaded(source, cx);
             });
         })
