@@ -324,6 +324,9 @@ impl super::HomeView {
                 gpui_kit::MouseButton::Left,
                 cx.listener(|_, _, _, cx| cx.stop_propagation()),
             )
+            // 滚轮拦下（Tauri seriesPanelOpen 守卫同语义）：浮层列表自己在
+            // 滚，不冒泡成舞台切剧
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(header)
             .children(if self.picker_tab_series {
                 Some(self.render_seasons_tab(cx))

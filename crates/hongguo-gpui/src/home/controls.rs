@@ -445,6 +445,9 @@ impl super::HomeView {
                     cx.stop_propagation();
                 }),
             )
+            // 滚轮同拦（Tauri 控制条 data-wheel-block 同款）：悬在控制栏上
+            // 滚不该把剧切了
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             // 进度条横贯控制栏顶边（Tauri PlayerControls 同款：细条独立一条
             // 在按钮行之上，不夹在按钮中间）
             .child(self.render_progress_track(cx))
@@ -551,6 +554,9 @@ impl super::HomeView {
                                         this.danmaku_emoji_open = false;
                                         cx.notify();
                                     }))
+                                    // 滚轮拦下（Tauri emoji-picker data-wheel-block
+                                    // 同款）：表情网格上滚不切剧
+                                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                     .child(
                                         div()
                                             .id("danmaku-emoji-grid")
@@ -753,6 +759,7 @@ impl super::HomeView {
                                         gpui_kit::MouseButton::Left,
                                         cx.listener(|_, _, _, cx| cx.stop_propagation()),
                                     )
+                                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                     .child(self.dm_setting_row("不透明度", &self.dm_opacity_slider))
                                     .child(self.dm_setting_row("字号", &self.dm_font_slider))
                                     .child(self.dm_setting_row("密度", &self.dm_density_slider))
@@ -848,6 +855,7 @@ impl super::HomeView {
                                         gpui_kit::MouseButton::Left,
                                         cx.listener(|_, _, _, cx| cx.stop_propagation()),
                                     )
+                                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
                                     // 百分比读数（Tauri VolumePopup 同款）
                                     .child(
                                         div()

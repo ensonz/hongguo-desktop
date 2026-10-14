@@ -279,6 +279,9 @@ impl super::HomeView {
             .bottom_24()
             .items_center()
             .gap_4()
+            // 滚轮拦下（Tauri interaction-rail data-wheel-block 同款）：
+            // 悬在互动键上滚不切剧
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .child(self.rail_item(
                 "collect",
                 RailItem {

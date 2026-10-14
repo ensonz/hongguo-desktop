@@ -50,19 +50,27 @@ impl super::HomeView {
         }
     }
 
-    /// 滚轮切剧（Tauri 同参：400ms 冷却 + 小位移忽略）。连播锁定时语义
-    /// 变为切集，不跟随换剧。
+    /// 滚轮冷却裁决 + 记账：到点可切返回 true 并落章。只由滚轮路径调用
+    /// （键盘 ↑↓ 不吃这把锁）；换剧与连播切集共用——冷却原写在换剧分支
+    /// 里，连播切集漏网，一次惯性滚动连跳好几集。
+    pub(super) fn wheel_cooldown_ready(&mut self) -> bool {
+        let now = Instant::now();
+        if self.wheel_at.is_some_and(|t| {
+            now.duration_since(t) < Duration::from_millis(WHEEL_SWITCH_DEBOUNCE_MS)
+        }) {
+            return false;
+        }
+        self.wheel_at = Some(now);
+        true
+    }
+
+    /// 滚轮切剧。连播锁定时语义变为切集，不跟随换剧（冷却见
+    /// [`Self::wheel_cooldown_ready`]，由舞台层滚轮入口先行裁决）。
     pub(super) fn step(&mut self, dir: i32, cx: &mut Context<Self>) {
         if self.in_binge() {
             // Tauri 同款：滚轮也是「用户在场」，切集时唤醒悬浮层
             self.wake_controls(cx);
             self.step_episode(dir, cx);
-            return;
-        }
-        let now = Instant::now();
-        if self.wheel_at.is_some_and(|t| {
-            now.duration_since(t) < Duration::from_millis(WHEEL_SWITCH_DEBOUNCE_MS)
-        }) {
             return;
         }
         let len = self.display_items().len();
@@ -74,7 +82,6 @@ impl super::HomeView {
         if next == cur {
             return;
         }
-        self.wheel_at = Some(now);
         self.set_cursor(next);
         // 快滑到尾部：预取下一页
         let feed = self.feeds.get(&self.active).expect("源已初始化");

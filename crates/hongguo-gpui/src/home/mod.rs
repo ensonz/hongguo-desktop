@@ -318,7 +318,6 @@ pub struct HomeView {
     volume_hovered: bool,
     volume_popup_hovered: bool,
     /// 音量竖条的轨道矩形哨兵（拖动换算用，与 progress_bounds 同模式）。
-    #[cfg(target_os = "windows")]
     volume_bounds: Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
     buffering: bool,
@@ -511,7 +510,6 @@ impl HomeView {
             volume_popup_open: false,
             volume_hovered: false,
             volume_popup_hovered: false,
-            #[cfg(target_os = "windows")]
             volume_bounds: Rc::new(Cell::new(None)),
             buffering: false,
             controls_until: None,
@@ -931,10 +929,27 @@ impl gpui_kit::Render for HomeView {
                             if this.mini.is_some() {
                                 return;
                             }
-                            // Tauri 同参：|Δy|<15 忽略，400ms 冷却在 step 里；
-                            // 方向同 Tauri（deltaY>0=下滚=下一部，y<0 即下一部）
+                            // 滚轮也是「用户在场」：切剧/切集时唤醒悬浮层
+                            //（Tauri wakeChrome 同款，面板守卫之前就亮）
+                            this.wake_controls(cx);
+                            // 面板开着不抢滚动：选集/下载是 Tauri
+                            // seriesPanelOpen/downloading 的显式守卫；评论面板
+                            // 在 Tauri 靠 data-wheel-block 拦——面板类统一在
+                            // 舞台层守卫（条状区域见各自根节点的滚轮拦截）
+                            if this.picker_open || this.comments_panel_open || this.downloads_open
+                            {
+                                return;
+                            }
+                            // Tauri 同参：|Δy|<15 忽略；方向同 Tauri
+                            //（deltaY>0=下滚=下一部，y<0 即下一部）
                             let y = ev.delta.pixel_delta(window.line_height()).y.to_f64();
                             if y.abs() < 15.0 {
+                                return;
+                            }
+                            // 400ms 冷却吃掉一次惯性滚动的连发。裁决在舞台层
+                            // 而不是 step() 里：连播切集路径同样要冷却，而键盘
+                            // ↑↓（Tauri 同款）不吃这把滚轮锁
+                            if !this.wheel_cooldown_ready() {
                                 return;
                             }
                             this.step(if y < 0.0 { 1 } else { -1 }, cx);
