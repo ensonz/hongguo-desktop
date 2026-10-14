@@ -27,6 +27,11 @@ test = false
 name = "emoji_insert"
 required-features = ["screenshot"]
 
+# 舞台 tab 点击行为断言（同上，依赖 gpui test-support 派进程内鼠标事件）。
+[[test]]
+name = "tab_click_repro"
+required-features = ["screenshot"]
+
 # 预览场景矩阵的覆盖率断言（纯数据，不出图、不碰窗口）：scenes.rs 自洽、
 # 经 #[path] 源文件级引入（bin 无 lib 目标，集成测试进不了 crate 内部）。
 # 不依赖 test-support，默认构建即可跑。

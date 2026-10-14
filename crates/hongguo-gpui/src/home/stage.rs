@@ -582,12 +582,11 @@ impl super::HomeView {
                         .text_color(gpui_kit::rgb(0xffffff))
                         .cursor_pointer()
                         .hover(|s| s.bg(gpui_kit::rgba(0x00000080)))
-                        .on_mouse_down(
-                            gpui_kit::MouseButton::Left,
-                            cx.listener(|_, _, _, cx| cx.stop_propagation()),
-                        )
+                        // 拦截放 on_click 内（同元素 on_mouse_down(stop) 会
+                        // 杀掉点击合成，见分类 tab 处注释）
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.binge = None;
+                            cx.stop_propagation();
                             cx.notify();
                         }))
                         .child(
@@ -599,8 +598,10 @@ impl super::HomeView {
                 }),
             )
             // 分类 tab（Tauri 顶栏 portal 的悬浮形态）：舞台顶部居中，与
-            // 左上连播胶囊同一行，显隐跟随悬浮层总闸；小屏不渲染。tab 按钮
-            // 拦下鼠标下传（点击不能同时落到画面触发暂停）
+            // 左上连播胶囊同一行，显隐跟随悬浮层总闸；小屏不渲染。tab 的
+            // 点击不能下传画面（触发暂停/选中）——拦截放进 on_click 里：
+            // 同元素挂 on_mouse_down(stop) 会把 Button 内部的按下记录一并
+            // 杀掉，点击就永远合成不出来（tab 点不动就是这么来的）
             .children((!in_mini && self.controls_visible()).then(|| {
                 h_flex()
                     .absolute()
@@ -619,18 +620,10 @@ impl super::HomeView {
                         } else {
                             button.ghost()
                         };
-                        button
-                            .on_mouse_down(
-                                gpui_kit::MouseButton::Left,
-                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
-                            )
-                            .on_mouse_up(
-                                gpui_kit::MouseButton::Left,
-                                cx.listener(|_, _, _, cx| cx.stop_propagation()),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.switch_source(s, cx);
-                            }))
+                        button.on_click(cx.listener(move |this, _, _, cx| {
+                            this.switch_source(s, cx);
+                            cx.stop_propagation();
+                        }))
                     }))
             }))
             // 选集浮层开着：舞台铺一层透明捕获层，点浮层外=关闭。捕获层

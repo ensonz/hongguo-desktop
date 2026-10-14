@@ -181,6 +181,11 @@ impl Shell {
         cx.notify();
     }
 
+    /// 首页当前 tab 源（预览交互探针读，断言切源生效）。
+    pub(crate) fn active_source(&self, cx: &App) -> crate::home::Source {
+        self.feed.read(cx).active_source()
+    }
+
     /// 详情页的返回/播放入口（DetailView 发事件，壳裁决目的地）。
     fn on_detail_event(&mut self, event: DetailEvent, cx: &mut Context<Self>) {
         match event {

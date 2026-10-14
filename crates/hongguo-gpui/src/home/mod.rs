@@ -50,7 +50,8 @@ use hongguo_service::events::ServiceEvent;
 use tokio::sync::mpsc;
 
 use danmaku::DmFlight;
-use feed::{Source, SourceFeed, StreamItem};
+use feed::{SourceFeed, StreamItem};
+pub(crate) use feed::Source;
 
 /// 首页发往壳的事件（页面间不互相持有，壳订阅后裁决目的地）。
 #[derive(Debug, Clone)]
@@ -655,7 +656,13 @@ impl HomeView {
     /// 切沉浸流 tab（顶栏 tab 入口）：重复点当前 tab = 换一批（重开会话、
     /// 游标归零）；切到别的 tab 后当前游标的剧不在播就切过去（起点决策
     /// effect 同语义）。
+    /// 当前 tab 源（预览交互探针读，断言切源生效）。
+    pub(crate) fn active_source(&self) -> Source {
+        self.active
+    }
+
     pub(crate) fn switch_source(&mut self, s: Source, cx: &mut Context<Self>) {
+        log::info!("[Home] 切换 tab 源 → {}（当前 {}）", s.label(), self.active.label());
         if self.active == s {
             self.load_feed(s, true, cx);
             return;
