@@ -231,14 +231,19 @@ impl super::HomeView {
                 self.mini = Some(saved);
                 crate::mini::set_active(true);
                 // 大屏的浮层带不进 480×270 的小窗：进小屏前一并收掉
-                //（Tauri enterMini 同款）
+                //（Tauri enterMini 同款）。下拉菜单本体收不掉（Popover 随
+                // 触发钮卸载自毁），这里清的是常显记账位
                 self.comments_panel_open = false;
                 self.dm_panel_open = false;
+                self.dm_hovered = false;
+                self.dm_panel_hovered = false;
                 self.downloads_open = false;
                 self.picker_open = false;
                 self.picker_group_override = None;
                 self.volume_popup_open = false;
                 self.danmaku_emoji_open = false;
+                self.rate_menu_open = false;
+                self.definition_menu_open = false;
                 self.wake_controls(cx);
                 log::info!("[Home] 进入小屏 480×270（工作区右下角）");
             }

@@ -323,6 +323,15 @@ pub struct HomeView {
     /// 弹层在按钮盒外——两个 hover 取并集才是「弹层开着」。
     volume_hovered: bool,
     volume_popup_hovered: bool,
+    /// 倍速 / 清晰度下拉菜单开着（Popover 的 on_open_change 回写）：开着期间
+    /// 控制条常显——不进 `panel_open` 的话，帧事件流触发重算时 3s 一到连
+    /// 菜单一起收掉，菜单根本没法操作（暂停才能点得到的根源）。
+    rate_menu_open: bool,
+    definition_menu_open: bool,
+    /// 弹幕设置齿轮按钮 / 设置面板各自的 hover 位（音量弹层同款并集裁决；
+    /// 面板悬在按钮盒外，只认 wrapper hover 会在指针移入面板的瞬间收掉）。
+    dm_hovered: bool,
+    dm_panel_hovered: bool,
     /// 音量竖条的轨道矩形哨兵（拖动换算用，与 progress_bounds 同模式）。
     volume_bounds: Rc<Cell<Option<gpui_kit::Bounds<gpui_kit::Pixels>>>>,
     /// 引擎 rebuffer 状态（Buffering/Ready 事件驱动，中间出 loading）。
@@ -520,6 +529,10 @@ impl HomeView {
             volume_popup_open: false,
             volume_hovered: false,
             volume_popup_hovered: false,
+            rate_menu_open: false,
+            definition_menu_open: false,
+            dm_hovered: false,
+            dm_panel_hovered: false,
             volume_bounds: Rc::new(Cell::new(None)),
             buffering: false,
             controls_until: None,

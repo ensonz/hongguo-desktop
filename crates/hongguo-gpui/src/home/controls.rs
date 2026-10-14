@@ -278,13 +278,29 @@ impl super::HomeView {
     }
 
     /// 任一面板打开即常显（Tauri panelOpen 同一集合：选集/评论/弹幕设置/
-    /// 音量/下载）。
+    /// 音量/下载）。倍速/清晰度下拉菜单与表情网格虽不是「面板」，但开着时
+    /// 指针不在控制条本体上、hover 养不了常显窗——不进来就会被帧事件流的
+    /// 重算连菜单一起收掉（播放中每帧都触发，暂停态没重渲染所以显得
+    /// 「只有暂停能操作」）。
     fn panel_open(&self) -> bool {
         self.picker_open
             || self.comments_panel_open
             || self.dm_panel_open
             || self.volume_popup_open
             || self.downloads_open
+            || self.rate_menu_open
+            || self.definition_menu_open
+            || self.danmaku_emoji_open
+    }
+
+    /// 弹幕设置面板开合裁决：按钮 hover ∥ 面板 hover 取并集（音量弹层
+    /// update_volume_popup 同款）。
+    fn update_dm_panel(&mut self, cx: &mut Context<Self>) {
+        let open = self.dm_hovered || self.dm_panel_hovered;
+        if self.dm_panel_open != open {
+            self.dm_panel_open = open;
+            cx.notify();
+        }
     }
 
     /// 悬浮层总闸（Tauri chromeShown 同款裁决）：连播静默期一票否决（面板
@@ -394,6 +410,8 @@ impl super::HomeView {
         };
         // 倍速菜单的点击回调拿不到 view 的 Context，经实体句柄回写
         let view = cx.entity();
+        // 开态回写专用句柄：rate_menu 闭包会把 view 按值收进各 item
+        let view_open = view.clone();
         let rate = self.rate;
         let rate_menu = move |menu: gpui_kit::component::menu::PopupMenu,
                               _window: &mut Window,
@@ -626,7 +644,18 @@ impl super::HomeView {
                             .label(Self::fmt_rate(self.rate))
                             .ghost()
                             .small()
-                            .dropdown_menu(rate_menu),
+                            .dropdown_menu(rate_menu)
+                            // 菜单开态回写视图：开着期间控制条常显（panel_open），
+                            // 不然 3s 一到菜单跟着控制条一起被收走
+                            .on_open_change({
+                                let view = view_open.clone();
+                                move |open, _, cx| {
+                                    view.update(cx, |v, cx| {
+                                        v.rate_menu_open = *open;
+                                        cx.notify();
+                                    });
+                                }
+                            }),
                     )
                     .child({
                         // 清晰度菜单（Tauri 同款）：自动 + 本集全部档位；本地集
@@ -653,6 +682,7 @@ impl super::HomeView {
                                 .into_any_element()
                         } else {
                             let view = cx.entity();
+                            let view_open = view.clone();
                             Button::new("stage-definition")
                                 .label(label)
                                 .ghost()
@@ -693,6 +723,17 @@ impl super::HomeView {
                                     }
                                     menu
                                 })
+                                // 菜单开态回写视图（倍速菜单同款）：开着常显。
+                                // 挂在 dropdown_menu 返回的 Popover 上，不是 Button
+                                .on_open_change({
+                                    let view = view_open.clone();
+                                    move |open, _, cx| {
+                                        view.update(cx, |v, cx| {
+                                            v.definition_menu_open = *open;
+                                            cx.notify();
+                                        });
+                                    }
+                                })
                                 .into_any_element()
                         }
                     })
@@ -730,15 +771,16 @@ impl super::HomeView {
                             })),
                     )
                     .child({
-                        // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）
+                        // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）。
+                        // 开合 = 按钮 hover ∥ 面板 hover 并集（音量弹层同款）：
+                        // gpui 的 hover 按命中盒判定，面板悬在按钮盒外，只认
+                        // wrapper hover 的话指针一移进面板就收——面板根本够不着
                         div()
                             .id("dm-settings")
                             .relative()
                             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                if this.dm_panel_open != *hovered {
-                                    this.dm_panel_open = *hovered;
-                                    cx.notify();
-                                }
+                                this.dm_hovered = *hovered;
+                                this.update_dm_panel(cx);
                             }))
                             .child(
                                 Button::new("stage-dm-settings")
@@ -748,14 +790,23 @@ impl super::HomeView {
                             )
                             .children(self.dm_panel_open.then(|| {
                                 v_flex()
+                                    .id("dm-settings-panel")
                                     .absolute()
                                     .right_0()
-                                    .bottom(gpui_kit::px(36.0))
+                                    // 贴着按钮上沿（bottom-full），指针从按钮移进
+                                    // 面板不离开并集；视觉留白进自己的 padding
+                                    .bottom(gpui_kit::relative(1.0))
                                     .w(gpui_kit::px(240.0))
                                     .gap_3()
-                                    .p_4()
+                                    .pt_3()
+                                    .pb_4()
+                                    .px_4()
                                     .rounded(gpui_kit::px(12.0))
                                     .bg(gpui_kit::rgba(0x171717f2))
+                                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                                        this.dm_panel_hovered = *hovered;
+                                        this.update_dm_panel(cx);
+                                    }))
                                     .on_mouse_down(
                                         gpui_kit::MouseButton::Left,
                                         cx.listener(|_, _, _, cx| cx.stop_propagation()),
