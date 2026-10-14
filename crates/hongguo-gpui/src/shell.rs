@@ -24,7 +24,7 @@ use hongguo_service::app_state::AppStateInner;
 use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
-use crate::rank::RankView;
+use crate::pages::rank::RankView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
 /// 播放不在列：它由各页「播放/继续播放」进入，首页本身就是沉浸流。
