@@ -69,15 +69,33 @@ pub type AudioConverterComplexInputDataProc = unsafe extern "C" fn(
 pub const noErr: OSStatus = 0;
 /// `kAudioFormatLinearPCM`（'lpcm'）
 pub const kAudioFormatLinearPCM: u32 = 0x6C70_636D;
-/// `kAudioFormatMPEG4AAC`（'aac '，含 LC/HE 各 profile，具体由 magic cookie 决定）
-pub const kAudioFormatMPEG4AAC: u32 = 0x6163_6320;
+/// `kAudioFormatMPEG4AAC`（'aac '——a/a/c/空格 = 0x61,0x61,0x63,0x20；含 LC/HE
+/// 各 profile，具体由 magic cookie 决定）。⚠️ 曾误写成 0x6163_6320（'acc '）：
+/// 一字之差，AudioConverterNew 回 'fmt?'，主路在任何机器上都建不起来、全体
+/// 静默回落软解（FourCC 是大端读法，四个字符各占一个字节）。
+pub const kAudioFormatMPEG4AAC: u32 = 0x6161_6320;
 /// `kAudioFormatFlagIsFloat`
 pub const kAudioFormatFlagIsFloat: u32 = 1 << 0;
 /// `kAudioFormatFlagIsPacked`（交错；NonInterleaved 位不设即交错）
 pub const kAudioFormatFlagIsPacked: u32 = 1 << 3;
 /// `kAudioConverterDecompressionMagicCookie`（'dmgc'）——解码器的
-/// AudioSpecificConfig 走这里传入
+/// AudioSpecificConfig（按 esds 描述符形态包装，见 audio.rs）走这里传入
 pub const kAudioConverterDecompressionMagicCookie: u32 = 0x646D_6763;
+/// `kAudioConverterInputChannelLayout`（'icl '）——原始压缩格式的解码器
+/// 校验 cookie 与输入声道布局的一致性，单声道核的流必须显式给布局
+pub const kAudioConverterInputChannelLayout: u32 = 0x6963_6C20;
+
+/// `AudioChannelLayout`（AudioChannelLayout.h；只用到 tag 一条）。
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct AudioChannelLayout {
+    pub mChannelLayoutTag: u32,
+    pub mChannelBitmap: u32,
+    pub mNumberChannelDescriptions: u32,
+}
+
+/// `kAudioChannelLayoutTag_Mono`（layout id 100 << 16 | 1 声道）
+pub const kAudioChannelLayoutTag_Mono: u32 = 0x0064_0001;
 
 #[link(name = "AudioToolbox", kind = "framework")]
 unsafe extern "C" {
