@@ -1,11 +1,28 @@
 //! 设置服务：归一化与校验。
 //!
 //! 保存时收敛并发到 1–10，并立即应用到下载调度器——无需重启（与现版一致）。
+//! 保存编排（归一化 → 换内存态 → 调度器并发 → 落库）在本模块：两个壳
+//! （Tauri command / GPUI 直调）走同一段，不各自记步骤。
 
 pub mod proxy;
 
+use crate::app_state::AppState;
 use hongguo_common::model::Settings;
 use hongguo_common::{AppError, AppResult};
+
+/// 保存设置（立即生效，无需重启）。
+pub fn save(state: &AppState, settings: Settings) -> AppResult<Settings> {
+    let normalized = normalize(settings)?;
+
+    state.replace_settings(normalized.clone());
+    // 并发上限立即应用到调度器
+    state.queue().set_limit(normalized.max_concurrency);
+
+    // 落库
+    state.store.save_settings(&normalized)?;
+
+    Ok(normalized)
+}
 
 /// 归一化并校验设置。
 ///
