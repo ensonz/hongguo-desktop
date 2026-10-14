@@ -64,13 +64,27 @@ pub fn open_external_page(app: AppHandle, page: String) -> AppResult<()> {
         .map_err(|e| hongguo_common::AppError::Io(e.to_string()))
 }
 
-/// 前端界面挂载完成：此后窗口关闭请求转交前端弹确认框，不再直接退出。
+/// 前端界面挂载完成：亮出窗口 + 开启关闭拦截。
 ///
-/// 退出是危险动作——正在跑的下载任务会被掐断，所以自绘 ×/Alt+F4/任务栏
-/// 关闭一律先问一声。lib.rs 的 CloseRequested 拦截只在本命令调用过之后生效。
+/// 窗口配置 `visible: false`（启动白屏治理：装配与 WebView 加载期间不亮
+/// 白板），本命令是唯一的显示时机——AppShell 挂载、监听就位后才调用，
+/// 此时首帧已提交，用户看到的是完整界面而非白屏。
+///
+/// 显示只发生在 false→true 的那次翻转上：本命令随 AppShell 重挂载会重复
+/// 调用，无条件 show 会把最小化/隐身中的窗口抢到前台（2026-10-09 同款事故）。
+/// 关闭拦截沿用原语义：ready 之后自绘 ×/Alt+F4/任务栏关闭转交前端弹确认框。
 #[tauri::command]
-pub fn mark_window_ready(ready: State<'_, WindowCloseGate>) -> AppResult<()> {
-    ready.store(true, Ordering::Release);
+pub fn mark_window_ready(app: AppHandle, ready: State<'_, WindowCloseGate>) -> AppResult<()> {
+    if ready
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        use tauri::Manager;
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
     Ok(())
 }
 

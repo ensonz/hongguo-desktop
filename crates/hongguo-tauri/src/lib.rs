@@ -58,9 +58,9 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
 
     builder
         .setup(|app| {
-            // 启动装配的顺序即依赖顺序：
-            // 先建应用状态（含数据库），再从磁盘补回丢失的任务记录，然后把
-            // 待跑任务推入调度，最后探测转码能力。
+            // 启动装配的顺序即依赖顺序：先建应用状态（含数据库），装载设置
+            // 与下载队列，把待跑任务推入调度。设备健康复检 / 磁盘补登记 /
+            // 转码探测不拦启动，各自在 init 里后台化（见 bootstrap/mod.rs）。
             app.manage(build_app_state());
             bootstrap::store::init(app.handle())?;
             bootstrap::device::init(app.handle())?;
@@ -85,6 +85,9 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
                 // 恒 visible），前端拿不到——Rust 侧在 Resized 里查
                 // is_minimized，状态翻转才 emit（避免每次 resize 都发）
                 let minimized = std::sync::atomic::AtomicBool::new(false);
+                // 兜底显示用的副本先克隆：win/ready 都要 move 进下面的事件闭包
+                let fallback_ready = ready.clone();
+                let fallback_window = win.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event
                         && ready.load(Ordering::Acquire)
@@ -102,6 +105,18 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
                         {
                             log::warn!("[Window] 最小化事件发送失败: {e}");
                         }
+                    }
+                });
+
+                // 兜底显示：窗口改由 mark_window_ready（前端挂载）亮出后，
+                // 前端崩溃/加载失败会让它永远藏着——超时强制亮出。宁可亮出
+                // 一个白屏（能关、能被单实例二次启动拉回），不能无窗可关。
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    if !fallback_ready.load(Ordering::Acquire) {
+                        log::warn!("[Window] 前端 10s 未就绪，兜底显示窗口");
+                        let _ = fallback_window.show();
+                        let _ = fallback_window.set_focus();
                     }
                 });
             }
