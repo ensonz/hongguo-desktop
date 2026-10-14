@@ -29,7 +29,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::ActiveTheme;
@@ -59,6 +59,18 @@ use feed::{SourceFeed, StreamItem};
 pub(crate) enum HomeEvent {
     /// 点剧名 → 打开应用内详情页。
     OpenDetail(String),
+}
+
+/// 视频转换目标尺寸的跨线程打包（(w,h) ⇄ u64；Arc<AtomicU64> 共享给
+/// 后台转换线程，见 [`HomeView::video_target`]）。
+#[cfg(target_os = "windows")]
+fn pack_size(w: usize, h: usize) -> u64 {
+    ((w as u64) << 32) | h as u64
+}
+
+#[cfg(target_os = "windows")]
+fn unpack_size(packed: u64) -> (usize, usize) {
+    ((packed >> 32) as usize, (packed & 0xffff_ffff) as usize)
 }
 
 pub(crate) mod auth;
@@ -123,8 +135,10 @@ pub struct HomeView {
     covers_pending: HashSet<String>,
 
     // —— 播放态 ——
-    /// 引擎出生纪元：每次切剧 +1，陈旧事件/任务按它丢弃。
-    epoch: u64,
+    /// 引擎出生纪元：每次切剧 +1，陈旧事件/任务按它丢弃。Arc 原子共享给
+    /// 事件循环——转换挪到后台线程后，纪元判定必须在**转换之前**做
+    ///（切剧窗口里旧帧不再白转一遍），主线程字段够不着就要共享。
+    epoch: Arc<AtomicU64>,
     player: Option<std::sync::Arc<PlayerHandle>>,
     /// 预览的虚拟引擎标记（screenshot feature）：预览无真实引擎，而控制条/
     /// 选集/下载面板的渲染门槛都是 player.is_some()——种子置位后同一门槛
@@ -157,11 +171,12 @@ pub struct HomeView {
     /// 路径每帧一个新 id，不主动回收就是无上限的显存/内存泄漏。
     #[cfg(target_os = "windows")]
     retired_images: Vec<Arc<RenderImage>>,
-    /// 视频转换目标尺寸（宽,高；CSS px）。render_stage 按舞台显示区刷新，
+    /// 视频转换目标尺寸（宽,高；CSS px，打包成 u64 跨线程共享——转换在
+    /// gpui 后台线程池跑，Rc/Cell 过不去）。render_stage 按舞台显示区刷新，
     /// 事件循环的 NV12→RGBA 按它缩放输出——769px 的视口出 1080p 纹理纯
     /// 浪费：转换 CPU、图集纹理、回收压力都按面积走（8.3MB → ~1.3MB）。
     #[cfg(target_os = "windows")]
-    video_target: Rc<Cell<(usize, usize)>>,
+    video_target: Arc<AtomicU64>,
     /// 舞台周期状态日志的上一跳（排障取证：frame/switching/image 状态）。
     stage_diag_at: Cell<Instant>,
     /// 切换目标（switching 时 overlay 显示它的封面与标题）。
@@ -424,7 +439,7 @@ impl HomeView {
             covers_pending: HashSet::new(),
             avatars: HashMap::new(),
             avatars_pending: HashSet::new(),
-            epoch: 0,
+            epoch: Arc::new(AtomicU64::new(0)),
             player: None,
             #[cfg(feature = "screenshot")]
             preview_engine: false,
@@ -437,7 +452,7 @@ impl HomeView {
             #[cfg(target_os = "windows")]
             retired_images: Vec::new(),
             #[cfg(target_os = "windows")]
-            video_target: Rc::new(Cell::new((1280, 720))),
+            video_target: Arc::new(AtomicU64::new(pack_size(1280, 720))),
             stage_diag_at: Cell::new(Instant::now()),
             pending_title: None,
             play_error: None,
@@ -865,15 +880,25 @@ impl HomeView {
     }
 
     /// 引擎事件循环（每个引擎一个，epoch 封口：换剧后陈旧事件自然断流）。
+    /// 纪元与转换目标经 Arc 原子共享——NV12→RGBA 转换挪到 gpui 后台线程池
+    /// （每帧 3-4ms 标量转换 + BGRA 交换不再挤占主线程，30fps ≈ 每秒
+    /// 120-150ms 主线程时间还给它），纪元判定因此必须走在转换**之前**。
     pub(super) fn spawn_event_loop(
         &mut self,
         epoch: u64,
+        epoch_shared: Arc<AtomicU64>,
         mut events: mpsc::Receiver<PlayerEvent>,
-        #[cfg(target_os = "windows")] video_target: Rc<Cell<(usize, usize)>>,
+        #[cfg(target_os = "windows")] video_target: Arc<AtomicU64>,
         cx: &mut Context<Self>,
     ) {
         cx.spawn(async move |this, cx| {
             while let Some(first) = events.recv().await {
+                // 纪元先行判定：切剧/离开首页后本循环的剩余事件全部作废，
+                // 直接退场——以前是整帧转换完才在 update 里丢弃，切剧窗口
+                // （恰好是 UI 最忙的时候）负载凭空翻倍
+                if epoch_shared.load(Ordering::Relaxed) != epoch {
+                    return;
+                }
                 // 合并积压：Frame 只保最新一批里的最后一帧（1080p 转换 ~50ms、
                 // 上屏只认最新，旧帧转换纯属浪费），其余事件一个不丢、按序处理。
                 // 抽干按 16 条封顶：病态积压下（转换跟不上、通道满载）一条
@@ -891,21 +916,26 @@ impl HomeView {
                     if matches!(event, PlayerEvent::Frame(_)) && Some(i) != last_frame {
                         continue;
                     }
-                    // Windows：NV12→RGBA 在事件任务里转换（每帧几十毫秒，不占
-                    // UI 线程）；macOS 是 CVPixelBuffer 零拷贝，无需转换
+                    // Windows：NV12→RGBA 在后台线程池转换（不占主线程； awaiting
+                    // 期间主线程照常跑布局/绘制/输入）；macOS 是 CVPixelBuffer
+                    // 零拷贝，无需转换
                     #[cfg(target_os = "windows")]
                     let converted = match &event {
                         PlayerEvent::Frame(frame) => {
-                            Self::render_image_of(frame, video_target.get())
+                            let target = unpack_size(video_target.load(Ordering::Relaxed));
+                            let frame = frame.clone();
+                            cx.background_executor()
+                                .spawn(async move { Self::render_image_of(&frame, target) })
+                                .await
                         }
                         _ => None,
                     };
                     let ok = this
                         .update(cx, |view, cx| {
-                            if view.epoch != epoch {
+                            if view.epoch.load(Ordering::Relaxed) != epoch {
                                 log::warn!(
                                     "[Home] 事件被纪元弃置（loop={epoch}，view={}）——事件到得了 view 却进不去",
-                                    view.epoch
+                                    view.epoch.load(Ordering::Relaxed)
                                 );
                                 return;
                             }

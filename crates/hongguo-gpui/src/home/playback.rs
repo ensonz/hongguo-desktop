@@ -2,8 +2,8 @@
 //! 切换、切清晰度、自动连播、进度落盘与流/档案预取。
 
 #[cfg(target_os = "windows")]
-use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
@@ -93,7 +93,7 @@ impl super::HomeView {
         self.save_progress_now();
         // 陈旧事件与在途起播任务按纪元弃置；句柄 Drop = 任务 abort、音频
         // 设备释放、事件通道关闭（循环自灭）
-        self.epoch += 1;
+        self.epoch.fetch_add(1, Ordering::Relaxed);
         self.player = None;
         self.frame = None;
         #[cfg(target_os = "windows")]
@@ -219,7 +219,7 @@ impl super::HomeView {
                 Some(ep) => format!("连播第 {ep} 集"),
                 None => "起点决策".to_string(),
             },
-            self.epoch + 1,
+            self.epoch.load(Ordering::Relaxed) + 1,
             if item.title.is_empty() {
                 "<无标题>"
             } else {
@@ -280,21 +280,22 @@ impl super::HomeView {
         } else {
             item.title.clone()
         });
-        self.epoch += 1;
+        self.epoch.fetch_add(1, Ordering::Relaxed);
         self.load_cover_of(&item, cx);
         cx.notify();
 
         let state = Arc::clone(&self.state);
         let history = self.history.clone().unwrap_or_default();
         let (events, rx) = mpsc::channel::<PlayerEvent>(64);
-        let epoch = self.epoch;
+        let epoch = self.epoch.load(Ordering::Relaxed);
+        let epoch_shared = Arc::clone(&self.epoch);
         // 事件循环先于引擎起：Channel 关闭（引擎丢弃 → 发送端清零）即自然退出
         #[cfg(target_os = "windows")]
-        let video_target = Rc::clone(&self.video_target);
+        let video_target = Arc::clone(&self.video_target);
         #[cfg(target_os = "windows")]
-        self.spawn_event_loop(epoch, rx, video_target, cx);
+        self.spawn_event_loop(epoch, epoch_shared, rx, video_target, cx);
         #[cfg(not(target_os = "windows"))]
-        self.spawn_event_loop(epoch, rx, cx);
+        self.spawn_event_loop(epoch, epoch_shared, rx, cx);
         let done = bridge::spawn(Self::play_task(
             state,
             history,
@@ -311,7 +312,7 @@ impl super::HomeView {
             let result = done.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, cx| {
                 // 陈旧任务（期间用户又切了剧）：不接管，引擎随 result 丢弃自停
-                if view.epoch != epoch {
+                if view.epoch.load(Ordering::Relaxed) != epoch {
                     return;
                 }
                 match result {
@@ -633,9 +634,7 @@ impl super::HomeView {
         // 静默不能把悬浮层永久困死
         self.silent_until_input = true;
         cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_secs(8))
-                .await;
+            cx.background_executor().timer(Duration::from_secs(8)).await;
             let _ = this.update(cx, |view, cx| {
                 if view.silent_until_input {
                     view.silent_until_input = false;

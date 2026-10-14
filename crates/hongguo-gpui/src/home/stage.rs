@@ -239,7 +239,8 @@ impl super::HomeView {
             && w >= 2.0
             && h >= 2.0
         {
-            self.video_target.set((w as usize, h as usize));
+            self.video_target
+                .store(super::pack_size(w as usize, h as usize), Ordering::Relaxed);
         }
         // 周期状态取证（5s 一跳）：封面收不收、帧/图/切换位各在哪一档，
         // 一行钉死——排障不用再猜是事件没到还是渲染没跟上。带舞台尺寸
@@ -269,7 +270,7 @@ impl super::HomeView {
                 "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={} 舞台={stage_size} 视口={}×{} 播放={:.1}/{}s",
                 self.frame.is_some(),
                 self.switching,
-                self.epoch,
+                self.epoch.load(Ordering::Relaxed),
                 window.viewport_size().width.to_f64(),
                 window.viewport_size().height.to_f64(),
                 self.player
