@@ -12,7 +12,9 @@ use windows::core::{GUID, Interface};
 
 use hongguo_common::{AppError, AppResult};
 
+use super::decoder::frame_size_of;
 use super::probe::MF_VERSION;
+use super::sample::type_stride;
 
 // ————————————————————————————————————————————————————————————
 // 会话线程：COM/MTA + MFStartup 的生命周期
@@ -170,6 +172,29 @@ impl SyncMft {
         Ok(())
     }
 
+    /// 当前输出类型的几何（stride, 宽, 高）。类型未就绪时 None。
+    fn current_geometry(&self) -> Option<(usize, usize, usize)> {
+        unsafe {
+            let cur = self.xform.GetOutputCurrentType(0).ok()?;
+            let (w, h) = frame_size_of(&cur).ok()?;
+            Some((type_stride(&cur, w), w, h))
+        }
+    }
+
+    /// 输出缓冲的分配尺寸：契约下界 cbSize 与「类型几何 + 高度 16 对齐」
+    /// 取大者。HEVC 码流的 coded 高几乎恒为 16 的倍数（显示高 1080 实际
+    /// 写 1088 行，conformance window 裁边），而 cbSize 由声明几何算出——
+    /// 本机 HEVC 扩展对非常规宽度（1924×1080）实测写超声明值，首次取帧
+    /// 即 MF_E_BUFFERTOOSMALL。预留对齐头，解析端只读显示区，多出的尾巴
+    /// 无害（见 playback::nv12_of 的 need 校验）。
+    fn out_alloc_size(&self) -> u32 {
+        let padded = self
+            .current_geometry()
+            .map(|(stride, _w, h)| (stride * h.div_ceil(16) * 16 * 3 / 2) as u32)
+            .unwrap_or(0);
+        self.out_size.max(padded)
+    }
+
     fn alloc_out_sample(&self) -> Option<IMFSample> {
         if self.provides_samples || self.out_size == 0 {
             return None;
@@ -177,7 +202,7 @@ impl SyncMft {
         (|| -> AppResult<Option<IMFSample>> {
             unsafe {
                 let sample = hr(MFCreateSample(), "建输出样本")?;
-                let buf = hr(MFCreateMemoryBuffer(self.out_size), "建输出缓冲")?;
+                let buf = hr(MFCreateMemoryBuffer(self.out_alloc_size()), "建输出缓冲")?;
                 hr(sample.AddBuffer(&buf), "挂输出缓冲")?;
                 Ok(Some(sample))
             }
@@ -192,32 +217,54 @@ impl SyncMft {
 
     pub(super) fn pull_once(&mut self) -> AppResult<Pulled> {
         unsafe {
-            let buf = MFT_OUTPUT_DATA_BUFFER {
-                dwStreamID: 0,
-                pSample: std::mem::ManuallyDrop::new(self.alloc_out_sample()),
-                dwStatus: 0,
-                pEvents: std::mem::ManuallyDrop::new(None),
-            };
-            let mut arr = [buf];
-            let mut status = 0u32;
-            let r = self.xform.ProcessOutput(0, &mut arr, &mut status);
-            // 所有权先取回再分胜负：`NEED_MORE_INPUT` / `STREAM_CHANGE` 是
-            // pull 循环的常态收尾（拉到没输出为止），留在 ManuallyDrop 里
-            // 不取 = 每次漏一块 out_size 的原生内存（实测 1080p NV12 一路
-            // 每帧 3.1MB、25fps 80MB/s）。pEvents 同理（MFT 塞的事件对象
-            // 也归调用方释放）。
-            let s = std::mem::ManuallyDrop::take(&mut arr[0].pSample);
-            let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
-            match r {
-                Ok(()) => Ok(match s {
-                    Some(s) => Pulled::Sample(s),
-                    None => Pulled::NeedMoreInput,
-                }),
-                Err(e) if is_code(&e, MF_E_TRANSFORM_NEED_MORE_INPUT) => Ok(Pulled::NeedMoreInput),
-                Err(e) if is_code(&e, MF_E_TRANSFORM_STREAM_CHANGE) => Ok(Pulled::StreamChange),
-                Err(e) => Err(AppError::Media(format!(
-                    "Media Foundation ProcessOutput 失败（{e}）"
-                ))),
+            // BUFFERTOOSMALL 只放大重配重取一次（输出仍挂在 MFT 里，重取
+            // 即可）；仍不足说明解码器写出连类型几何都装不下，如实上抛
+            let mut retried = false;
+            loop {
+                let buf = MFT_OUTPUT_DATA_BUFFER {
+                    dwStreamID: 0,
+                    pSample: std::mem::ManuallyDrop::new(self.alloc_out_sample()),
+                    dwStatus: 0,
+                    pEvents: std::mem::ManuallyDrop::new(None),
+                };
+                let mut arr = [buf];
+                let mut status = 0u32;
+                let r = self.xform.ProcessOutput(0, &mut arr, &mut status);
+                // 所有权先取回再分胜负：`NEED_MORE_INPUT` / `STREAM_CHANGE` 是
+                // pull 循环的常态收尾（拉到没输出为止），留在 ManuallyDrop 里
+                // 不取 = 每次漏一块 out_size 的原生内存（实测 1080p NV12 一路
+                // 每帧 3.1MB、25fps 80MB/s）。pEvents 同理（MFT 塞的事件对象
+                // 也归调用方释放）。
+                let s = std::mem::ManuallyDrop::take(&mut arr[0].pSample);
+                let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
+                match r {
+                    Ok(()) => {
+                        return Ok(match s {
+                            Some(s) => Pulled::Sample(s),
+                            None => Pulled::NeedMoreInput,
+                        });
+                    }
+                    Err(e) if is_code(&e, MF_E_TRANSFORM_NEED_MORE_INPUT) => {
+                        return Ok(Pulled::NeedMoreInput);
+                    }
+                    Err(e) if is_code(&e, MF_E_TRANSFORM_STREAM_CHANGE) => {
+                        return Ok(Pulled::StreamChange);
+                    }
+                    Err(e) if is_code(&e, MF_E_BUFFERTOOSMALL) && !retried => {
+                        retried = true;
+                        let (declared, geom) = (self.out_size, self.current_geometry());
+                        self.refresh_out_info()?;
+                        log::warn!(
+                            "[Platform/mf] ProcessOutput 缓冲不足（声明 cbSize={declared}，类型几何 {geom:?}，刷新后 cbSize={}），按对齐几何放大重配重取",
+                            self.out_size
+                        );
+                    }
+                    Err(e) => {
+                        return Err(AppError::Media(format!(
+                            "Media Foundation ProcessOutput 失败（{e}）"
+                        )));
+                    }
+                }
             }
         }
     }
@@ -284,30 +331,72 @@ impl AsyncMft {
         Ok(())
     }
 
+    /// 输出缓冲的分配尺寸：契约下界 cbSize 与「类型几何 + 高度 16 对齐」
+    /// 取大者（同 [`SyncMft::out_alloc_size`]——异步 MFT 同样可能写超
+    /// 声明值）。
+    fn out_alloc_size(&self) -> u32 {
+        let padded = unsafe {
+            self.xform.GetOutputCurrentType(0).ok().and_then(|cur| {
+                frame_size_of(&cur)
+                    .ok()
+                    .map(|(w, h)| (type_stride(&cur, w) * h.div_ceil(16) * 16 * 3 / 2) as u32)
+            })
+        }
+        .unwrap_or(0);
+        self.out_size.max(padded)
+    }
+
     fn pull_one(&mut self) -> AppResult<IMFSample> {
         unsafe {
-            let sample = if self.provides_samples {
-                None
-            } else {
-                let s = hr(MFCreateSample(), "建输出样本")?;
-                let buf = hr(MFCreateMemoryBuffer(self.out_size), "建输出缓冲")?;
-                hr(s.AddBuffer(&buf), "挂输出缓冲")?;
-                Some(s)
-            };
-            let mut arr = [MFT_OUTPUT_DATA_BUFFER {
-                dwStreamID: 0,
-                pSample: std::mem::ManuallyDrop::new(sample),
-                dwStatus: 0,
-                pEvents: std::mem::ManuallyDrop::new(None),
-            }];
-            let mut status = 0u32;
-            let r = self.xform.ProcessOutput(0, &mut arr, &mut status);
-            // 所有权先取回再核错误（同 SyncMft::pull_once 的泄漏教训）：
-            // `?` 提前返回会把 ManuallyDrop 里的样本/事件漏在原地。
-            let s = std::mem::ManuallyDrop::take(&mut arr[0].pSample);
-            let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
-            hr(r, "ProcessOutput")?;
-            s.ok_or_else(|| AppError::Media("Media Foundation 输出样本缺失".into()))
+            // 与 SyncMft::pull_once 同款：缓冲不足按刷新后的契约放大重配，
+            // 只重取一次
+            let mut retried = false;
+            loop {
+                let sample = if self.provides_samples {
+                    None
+                } else {
+                    let size = self.out_alloc_size();
+                    let s = hr(MFCreateSample(), "建输出样本")?;
+                    let buf = hr(MFCreateMemoryBuffer(size), "建输出缓冲")?;
+                    hr(s.AddBuffer(&buf), "挂输出缓冲")?;
+                    Some(s)
+                };
+                let mut arr = [MFT_OUTPUT_DATA_BUFFER {
+                    dwStreamID: 0,
+                    pSample: std::mem::ManuallyDrop::new(sample),
+                    dwStatus: 0,
+                    pEvents: std::mem::ManuallyDrop::new(None),
+                }];
+                let mut status = 0u32;
+                let r = self.xform.ProcessOutput(0, &mut arr, &mut status);
+                // 所有权先取回再核错误（同 SyncMft::pull_once 的泄漏教训）：
+                // `?` 提前返回会把 ManuallyDrop 里的样本/事件漏在原地。
+                let s = std::mem::ManuallyDrop::take(&mut arr[0].pSample);
+                let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
+                match r {
+                    Ok(()) => {
+                        return s
+                            .ok_or_else(|| AppError::Media("Media Foundation 输出样本缺失".into()));
+                    }
+                    Err(e) if is_code(&e, MF_E_BUFFERTOOSMALL) && !retried => {
+                        retried = true;
+                        let declared = self.out_size;
+                        let info = hr(self.xform.GetOutputStreamInfo(0), "读输出流信息")?;
+                        self.provides_samples =
+                            (info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES.0 as u32) != 0;
+                        self.out_size = info.cbSize;
+                        log::warn!(
+                            "[Platform/mf] ProcessOutput 缓冲不足（声明 cbSize={declared}，刷新后 {}），放大重配重取",
+                            self.out_size
+                        );
+                    }
+                    Err(e) => {
+                        return Err(AppError::Media(format!(
+                            "Media Foundation ProcessOutput 失败（{e}）"
+                        )));
+                    }
+                }
+            }
         }
     }
 
