@@ -609,6 +609,72 @@ pub(crate) fn related_seasons() -> Vec<RelatedItem> {
 }
 
 /// 排行榜快照：前三甲 + 常规行 + 未上线行（预约按钮分支）。
+/// 排行榜：内容 tab × 子榜（两级形态，含子榜自带筛选面板）。
+pub(crate) fn rank_tabs() -> Vec<hongguo_api::rank::RankTab> {
+    use hongguo_api::rank::{RankPanelItem, RankPanelRow, RankSubList, RankTab};
+    let panel = vec![RankPanelRow {
+        name: "分类".into(),
+        items: vec![
+            RankPanelItem {
+                id: String::new(),
+                name: "总榜".into(),
+            },
+            RankPanelItem {
+                id: "cate_262".into(),
+                name: "脑洞".into(),
+            },
+            RankPanelItem {
+                id: "cate_265".into(),
+                name: "逆袭".into(),
+            },
+        ],
+    }];
+    let subs = |names: [(&str, &str, &str); 3]| -> Vec<RankSubList> {
+        names
+            .into_iter()
+            .map(|(id, name, desc)| RankSubList {
+                id: id.into(),
+                name: name.into(),
+                description: desc.into(),
+                panel: if id == "ranklist_hot_sc" {
+                    panel.clone()
+                } else {
+                    Vec::new()
+                },
+            })
+            .collect()
+    };
+    vec![
+        RankTab {
+            id: "all".into(),
+            name: "全部".into(),
+            subs: subs([
+                ("ranklist_hot_sc", "热榜", "10月14日更新"),
+                ("ranklist_new_sc", "新剧榜", "10月14日更新"),
+                ("ranklist_reserve", "预约榜", "按预约人数"),
+            ]),
+        },
+        RankTab {
+            id: "real".into(),
+            name: "真人剧".into(),
+            subs: subs([
+                ("ranklist_real_hot", "真人热榜", "10月14日更新"),
+                ("ranklist_real_new", "真人新剧", "10月14日更新"),
+                ("ranklist_real_reserve", "真人预约", "按预约人数"),
+            ]),
+        },
+        RankTab {
+            id: "comic".into(),
+            name: "漫剧".into(),
+            subs: subs([
+                ("ranklist_comic_hot", "漫剧热榜", "10月14日更新"),
+                ("ranklist_comic_new", "漫剧新剧", "10月14日更新"),
+                ("ranklist_comic_reserve", "漫剧预约", "按预约人数"),
+            ]),
+        },
+    ]
+}
+
 pub(crate) fn rank_items() -> Vec<RankItem> {
     let rows: [(&str, &str, &str, f64, i64, u32, bool); 6] = [
         (

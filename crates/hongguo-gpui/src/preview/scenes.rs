@@ -150,6 +150,14 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "rank-empty",
             font_scale: 1.,
         },
+        PreviewCase {
+            name: "rank-filter-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "rank-filter",
+            font_scale: 1.,
+        },
         // —— 磁盘清理 ——
         PreviewCase {
             name: "storage-light",

@@ -30,7 +30,7 @@ use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::collections::{CollectionEvent, CollectionView};
 use crate::pages::browse::{BrowseEvent, BrowseView};
 use crate::pages::history::{HistoryEvent, HistoryView};
-use crate::pages::rank::RankView;
+use crate::pages::rank::{RankEvent, RankView};
 use crate::pages::reservations::{ReservationEvent, ReservationView};
 use crate::pages::settings::{SettingsEvent, SettingsView};
 use crate::pages::storage::StorageView;
@@ -213,6 +213,17 @@ impl Shell {
                 start_secs,
             } => this.start_play(series_id, vid_index, start_secs, cx),
             NewDramaEvent::OpenDetail { series_id, prefill } => {
+                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+            }
+        })
+        .detach();
+        cx.subscribe(&rank, |this, _, event: &RankEvent, cx| match event.clone() {
+            RankEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => this.start_play(series_id, vid_index, start_secs, cx),
+            RankEvent::OpenDetail { series_id, prefill } => {
                 this.open_detail_with_prefill(series_id, Some(prefill), cx);
             }
         })
@@ -438,7 +449,7 @@ impl Shell {
         if scene.starts_with("rank") {
             self.dest = Dest::Rank;
             self.rank.update(cx, |rank, cx| {
-                rank.debug_preview_seed(scene == "rank-empty", cx)
+                rank.debug_preview_seed(scene, cx)
             });
         } else if scene.starts_with("storage") {
             self.dest = Dest::Storage;
