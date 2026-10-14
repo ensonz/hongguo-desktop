@@ -12,6 +12,11 @@ use hongguo_video::sample_table::TrackInfo;
 /// 单次 serve 拉取的窗口大小（对齐填充的分块口径）。
 const WINDOW: u64 = 1024 * 1024;
 
+/// 头部读取的窗口：moov 解析在累积头上反复重跑，窗口越小串行 RTT 越多
+/// ——「头部就绪 200-260ms」的主体就是那 2-4 个串行往返，4MB 一窗通常
+/// 1-2 轮就齐。样本读取仍用 1MB（顺序消费，大窗只多占内存）。
+const HEAD_WINDOW: u64 = 4 * 1024 * 1024;
+
 /// 流的静态信息（moov 解析产物）。
 pub(crate) struct StreamMeta {
     pub video: TrackInfo,
@@ -29,11 +34,11 @@ pub(crate) async fn open_stream(vid: &str, definition: u32) -> AppResult<StreamM
     let mut head: Vec<u8> = Vec::new();
     let mut cursor = 0u64;
     for _ in 0..16 {
-        // 16MB 封顶：moov 不可能这么大，超了说明流不对
+        // 64MB 封顶：moov 不可能这么大，超了说明流不对
         if cursor >= total {
             break;
         }
-        let want = WINDOW.min(total - cursor);
+        let want = HEAD_WINDOW.min(total - cursor);
         let chunk = read_range(
             vid.to_string(),
             definition,
