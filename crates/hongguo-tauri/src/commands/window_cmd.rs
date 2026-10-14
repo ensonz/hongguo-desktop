@@ -31,10 +31,13 @@ fn saved_geometry() -> std::sync::MutexGuard<'static, Option<SavedGeometry>> {
 const MINI_W: f64 = 480.0;
 const MINI_H: f64 = 270.0;
 const MINI_MARGIN: f64 = 16.0;
-/// 主窗口平时的最小尺寸（tauri.conf.json 的 minWidth/minHeight）。进小屏
-/// 必须先降到小屏尺寸以下，否则缩窗被最小值 clamp 住纹丝不动——
-/// hgplayer 进小屏前同样先 `WindowSetMinSize`。
-const MAIN_MIN: (f64, f64) = (1024.0, 680.0);
+/// 小屏下的最小尺寸：倍速紧贴时长 + 紧凑间距后，控制条一行固定内容约
+/// 352px——360 即「播放控件不换行」的下限（用户口径：还可以再小）；
+/// 高 180 是 16:9 附近的观感下限（控制条悬浮在画面上，高度不挤控件）。
+const MINI_MIN: (f64, f64) = (360.0, 180.0);
+/// 主窗口平时的最小尺寸（tauri.conf.json 的 minWidth/minHeight）＝小屏
+/// 同款（#5：常态也允许缩到迷你尺寸，进出小屏只差几何与控制条形态）。
+const MAIN_MIN: (f64, f64) = (MINI_W, MINI_H);
 
 /// 藏/显 macOS 原生红绿灯的三颗圆点（小屏模式用）。
 ///
@@ -126,7 +129,9 @@ pub fn enter_mini_screen(app: AppHandle) -> AppResult<()> {
     let w = MINI_W.min(right - left - 2.0 * MINI_MARGIN);
     let h = MINI_H.min(bottom - top - 2.0 * MINI_MARGIN);
 
-    let _ = win.set_min_size(Some(tauri::LogicalSize::new(w, h)));
+    // 小屏放开到控件不换行的下限（可继续缩小，见 MINI_MIN），再缩到
+    // 标准小屏尺寸落角
+    let _ = win.set_min_size(Some(tauri::LogicalSize::new(MINI_MIN.0, MINI_MIN.1)));
     let _ = win.set_size(tauri::LogicalSize::new(w, h));
     // 手动 min/max 而非 clamp：极小工作区下 min>max 时 clamp 会 panic
     let x = (right - w - MINI_MARGIN).max(left);

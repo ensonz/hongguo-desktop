@@ -567,7 +567,13 @@ export function PlayerView({
                    <video> 按固有纵横比撑大（1100 宽 → 1956 高），舞台裁切后
                    表现为「画面放大、控件全被顶出窗口」（mac 长期已知 bug）。
                    绝对定位把盒子钉死在舞台内，object-contain 只管留黑边。 */
-                  className="absolute inset-0 size-full object-contain"
+                  className={cn(
+                    'absolute inset-0 size-full',
+                    // 小屏 object-cover：迷你窗是固定 16:9，竖版/异比例源用
+                    // contain 会留大片黑边（用户实测截图）——小窗里裁切比
+                    // 黑边可取；大屏保留 contain（换剧的过场不裁内容）
+                    miniScreen ? 'object-cover' : 'object-contain',
+                  )}
                   autoPlay
                   onLoadedMetadata={handleLoadedMetadata}
                   onPlay={() => {
