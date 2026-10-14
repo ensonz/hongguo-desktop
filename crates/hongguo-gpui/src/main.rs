@@ -26,7 +26,7 @@ mod image_upload;
 mod mini;
 mod playback_prefs;
 mod preview;
-mod rank;
+mod pages;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod shell;

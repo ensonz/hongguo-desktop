@@ -350,6 +350,8 @@ pub struct HomeView {
     /// FocusHandle（见 render_stage），首次渲染播种、点舞台带回。
     focus: gpui_kit::FocusHandle,
     focus_seeded: bool,
+    /// 播放器快捷键映射（设置页可改；舞台的 on_key_down 读它）。
+    shortcut_keys: crate::playback_prefs::ShortcutKeys,
     /// 已流预取（每部一次，失败不算数允许重试）。
     stream_prefetched: HashSet<String>,
     /// 已预取过分集档案的剧。
@@ -530,6 +532,7 @@ impl HomeView {
             last_save: Instant::now(),
             focus: cx.focus_handle(),
             focus_seeded: false,
+            shortcut_keys: prefs.keys.clone(),
             stream_prefetched: HashSet::new(),
             archives_prefetched: HashSet::new(),
             history: None,
@@ -596,6 +599,16 @@ impl HomeView {
             view.load_history(cx);
         }
         view
+    }
+
+    /// 设置页改了快捷键映射：换进运行中的视图（新值已由设置页落盘）。
+    pub(crate) fn reload_shortcut_keys(
+        &mut self,
+        keys: crate::playback_prefs::ShortcutKeys,
+        cx: &mut Context<Self>,
+    ) {
+        self.shortcut_keys = keys;
+        cx.notify();
     }
 
     /// 订阅 service 业务事件（登录 MFA、下载状态）并落到视图状态。

@@ -506,39 +506,45 @@ impl super::HomeView {
             .bg(gpui_kit::rgb(0x000000))
             .relative()
             .overflow_hidden()
-            // 播放快捷键（对齐 Tauri use-player-interactions 默认映射）：空格
-            // 暂停/继续、←→ 快退/快进 5 秒、↑↓ 切上一部/下一部剧（沉浸流与
-            // 滚轮同语义）。键盘事件只派发给焦点子树，焦点锚就在本元素上。
+            // 播放快捷键（映射可在设置页自定义，默认对齐 Tauri
+            // use-player-interactions：空格暂停/继续、←→ 快退/快进 5 秒、
+            // ↑↓ 切上一部/下一部剧）。键盘事件只派发给焦点子树，焦点锚就
+            // 在本元素上。
             .key_context("HomeStage")
             .track_focus(&self.focus)
             .on_key_down(
                 cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
-                    match ev.keystroke.key.as_str() {
-                        "space" => this.toggle_pause(cx),
-                        "left" => this.seek_by(-5.0, cx),
-                        "right" => this.seek_by(5.0, cx),
-                        // ↑↓ 是信息流切剧——小屏里没有流上下文（Tauri 小屏是
-                        // 纯播放页同款），误触切剧=播放重启，直接吞掉
-                        "down" if this.mini.is_none() => this.step(1, cx),
-                        "up" if this.mini.is_none() => this.step(-1, cx),
-                        // F = 播放器全屏（真沉浸：OS 全屏 + chrome 全藏）
-                        "f" => this.toggle_immersive_fullscreen(window, cx),
-                        // Esc 固定管「退出选中」（Tauri 同款语义）：小屏 →
-                        // 沉浸全屏 → 浮层面板 → 连播锁定，逐层退出
-                        "escape" => {
-                            if this.mini.is_some() {
-                                this.exit_mini(window, cx);
-                            } else if this.immersive {
-                                this.toggle_immersive_fullscreen(window, cx);
-                            } else if this.picker_open {
-                                this.picker_open = false;
-                                this.picker_group_override = None;
-                            } else if this.in_binge() {
-                                this.binge = None;
-                            }
-                            cx.notify();
+                    let keys = this.shortcut_keys.clone();
+                    let key = ev.keystroke.key.as_str();
+                    if key == keys.play_pause {
+                        this.toggle_pause(cx);
+                    } else if key == keys.seek_back {
+                        this.seek_by(-5.0, cx);
+                    } else if key == keys.seek_forward {
+                        this.seek_by(5.0, cx);
+                    // ↑↓ 是信息流切剧——小屏里没有流上下文（Tauri 小屏是
+                    // 纯播放页同款），误触切剧=播放重启，直接吞掉
+                    } else if key == keys.step_next && this.mini.is_none() {
+                        this.step(1, cx);
+                    } else if key == keys.step_prev && this.mini.is_none() {
+                        this.step(-1, cx);
+                    // F = 播放器全屏（真沉浸：OS 全屏 + chrome 全藏）
+                    } else if key == "f" {
+                        this.toggle_immersive_fullscreen(window, cx);
+                    // Esc 固定管「退出选中」（Tauri 同款语义）：小屏 →
+                    // 沉浸全屏 → 浮层面板 → 连播锁定，逐层退出
+                    } else if key == "escape" {
+                        if this.mini.is_some() {
+                            this.exit_mini(window, cx);
+                        } else if this.immersive {
+                            this.toggle_immersive_fullscreen(window, cx);
+                        } else if this.picker_open {
+                            this.picker_open = false;
+                            this.picker_group_override = None;
+                        } else if this.in_binge() {
+                            this.binge = None;
                         }
-                        _ => {}
+                        cx.notify();
                     }
                 }),
             )

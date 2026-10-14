@@ -12,7 +12,30 @@ use std::path::Path;
 /// 数据目录下的文件名。
 pub(crate) const FILE_NAME: &str = "gpui-playback-prefs";
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// 播放器快捷键映射（值 = GPUI keystroke 键名：`space` / `left` / `a`…）。
+/// 语义对齐 Tauri 的 hongguo-shortcuts（默认空格 / ←→ / ↑↓）。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ShortcutKeys {
+    pub(crate) play_pause: String,
+    pub(crate) seek_back: String,
+    pub(crate) seek_forward: String,
+    pub(crate) step_prev: String,
+    pub(crate) step_next: String,
+}
+
+impl Default for ShortcutKeys {
+    fn default() -> Self {
+        Self {
+            play_pause: "space".into(),
+            seek_back: "left".into(),
+            seek_forward: "right".into(),
+            step_prev: "up".into(),
+            step_next: "down".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlaybackPrefs {
     /// 倍速（0.25–4，与引擎 MIN_RATE/MAX_RATE 一致）。
     pub(crate) rate: f64,
@@ -32,6 +55,8 @@ pub(crate) struct PlaybackPrefs {
     pub(crate) dm_area: f32,
     /// 隐身模式开关（Tauri readIncognito 同语义：跨启动还原轮询态）。
     pub(crate) incognito: bool,
+    /// 播放器快捷键映射（设置页可改；空值回落默认键）。
+    pub(crate) keys: ShortcutKeys,
 }
 
 /// 弹幕显示参数默认值（Tauri DANMAKU_DEFAULTS 同款）。
@@ -65,6 +90,7 @@ impl Default for PlaybackPrefs {
             dm_density: DM_DEFAULTS.density,
             dm_area: DM_DEFAULTS.area,
             incognito: false,
+            keys: ShortcutKeys::default(),
         }
     }
 }
@@ -113,6 +139,20 @@ pub(crate) fn load_from(path: &Path) -> PlaybackPrefs {
                 }
             }
             "incognito" => prefs.incognito = value.trim() == "true",
+            "key_play_pause" | "key_seek_back" | "key_seek_forward" | "key_step_prev"
+            | "key_step_next" => {
+                let v = value.trim().to_lowercase();
+                if v.is_empty() || v.contains('=') {
+                    continue; // 坏值回落默认键
+                }
+                match key.trim() {
+                    "key_play_pause" => prefs.keys.play_pause = v,
+                    "key_seek_back" => prefs.keys.seek_back = v,
+                    "key_seek_forward" => prefs.keys.seek_forward = v,
+                    "key_step_prev" => prefs.keys.step_prev = v,
+                    _ => prefs.keys.step_next = v,
+                }
+            }
             _ => {}
         }
     }
@@ -123,7 +163,7 @@ pub(crate) fn load_from(path: &Path) -> PlaybackPrefs {
 pub(crate) fn save_to(path: &Path, prefs: &PlaybackPrefs) {
     let tmp = path.with_extension("tmp");
     let text = format!(
-        "rate={}\nvolume={}\nmuted={}\ndm_on={}\ndm_opacity={}\ndm_font={}\ndm_density={}\ndm_area={}\nincognito={}\n",
+        "rate={}\nvolume={}\nmuted={}\ndm_on={}\ndm_opacity={}\ndm_font={}\ndm_density={}\ndm_area={}\nincognito={}\nkey_play_pause={}\nkey_seek_back={}\nkey_seek_forward={}\nkey_step_prev={}\nkey_step_next={}\n",
         prefs.rate,
         prefs.volume,
         prefs.muted,
@@ -132,7 +172,12 @@ pub(crate) fn save_to(path: &Path, prefs: &PlaybackPrefs) {
         prefs.dm_font_scale,
         prefs.dm_density,
         prefs.dm_area,
-        prefs.incognito
+        prefs.incognito,
+        prefs.keys.play_pause,
+        prefs.keys.seek_back,
+        prefs.keys.seek_forward,
+        prefs.keys.step_prev,
+        prefs.keys.step_next
     );
     if std::fs::write(&tmp, text)
         .and_then(|_| std::fs::rename(&tmp, path))

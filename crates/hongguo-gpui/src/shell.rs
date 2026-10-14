@@ -24,7 +24,17 @@ use hongguo_service::app_state::AppStateInner;
 use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
-use crate::rank::RankView;
+use crate::pages::merge::MergeView;
+use crate::pages::new_drama::{NewDramaEvent, NewDramaView};
+use crate::pages::liked::{LikedEvent, LikedView};
+use crate::pages::collections::{CollectionEvent, CollectionView};
+use crate::pages::browse::{BrowseEvent, BrowseView};
+use crate::pages::history::{HistoryEvent, HistoryView};
+use crate::pages::rank::{RankEvent, RankView};
+use crate::pages::reservations::{ReservationEvent, ReservationView};
+use crate::pages::settings::{SettingsEvent, SettingsView};
+use crate::pages::storage::StorageView;
+use crate::pages::tasks::TasksView;
 
 /// 侧栏导航目的地（与 Tauri `app-sidebar.tsx` 的 NAV_ITEMS 逐项同序）。
 /// 播放不在列：它由各页「播放/继续播放」进入，首页本身就是沉浸流。
@@ -99,13 +109,42 @@ impl Dest {
         }
     }
 
-    /// 已有真数据视图的目的地（其余给建设中空态）。
-    fn view(self) -> Option<View> {
-        match self {
-            Dest::Home => Some(View::Home),
-            Dest::Rank => Some(View::Rank),
-            Dest::Detail => Some(View::Detail),
+    /// 取证开关取值 → 目的地（`HONGGUO_PAGE=browse|new|…`，与 HONGGUO_RANK
+    /// 同族：无人值守点检任一页面）。
+    fn from_key(key: &str) -> Option<Dest> {
+        match key {
+            "home" => Some(Dest::Home),
+            "browse" => Some(Dest::Browse),
+            "rank" => Some(Dest::Rank),
+            "new" => Some(Dest::New),
+            "history" => Some(Dest::History),
+            "collections" => Some(Dest::Collections),
+            "liked" => Some(Dest::Liked),
+            "reservations" => Some(Dest::Reservations),
+            "tasks" => Some(Dest::Tasks),
+            "merge" => Some(Dest::Merge),
+            "storage" => Some(Dest::Storage),
+            "settings" => Some(Dest::Settings),
             _ => None,
+        }
+    }
+
+    /// 目的地 → 壳内视图（12 页 + 详情全部实现，无空态兜底）。
+    fn view(self) -> View {
+        match self {
+            Dest::Home => View::Home,
+            Dest::Rank => View::Rank,
+            Dest::Browse => View::Browse,
+            Dest::New => View::New,
+            Dest::Liked => View::Liked,
+            Dest::Collections => View::Collections,
+            Dest::History => View::History,
+            Dest::Reservations => View::Reservations,
+            Dest::Tasks => View::Tasks,
+            Dest::Settings => View::Settings,
+            Dest::Storage => View::Storage,
+            Dest::Merge => View::Merge,
+            Dest::Detail => View::Detail,
         }
     }
 }
@@ -114,6 +153,16 @@ impl Dest {
 enum View {
     Home,
     Rank,
+    Browse,
+    New,
+    Liked,
+    Collections,
+    History,
+    Reservations,
+    Tasks,
+    Settings,
+    Storage,
+    Merge,
     Detail,
 }
 
@@ -124,6 +173,16 @@ pub struct Shell {
     sidebar_collapsed: bool,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
+    browse: Entity<BrowseView>,
+    new_drama: Entity<NewDramaView>,
+    liked: Entity<LikedView>,
+    collections: Entity<CollectionView>,
+    history: Entity<HistoryView>,
+    reservations: Entity<ReservationView>,
+    tasks: Entity<TasksView>,
+    settings_page: Entity<SettingsView>,
+    storage: Entity<StorageView>,
+    merge: Entity<MergeView>,
     detail: Option<Entity<DetailView>>,
     /// 详情页当前加载的剧（同剧重复点击不重载）。
     detail_series: Option<String>,
@@ -133,14 +192,120 @@ impl Shell {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
+        let browse = cx.new(|cx| BrowseView::new(state.clone(), window, cx));
+        let new_drama = cx.new(|_cx| NewDramaView::new(state.clone()));
+        let liked = cx.new(|cx| LikedView::new(state.clone(), window, cx));
+        let collections = cx.new(|cx| CollectionView::new(state.clone(), window, cx));
+        let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
+        let reservations = cx.new(|cx| ReservationView::new(state.clone(), window, cx));
+        let tasks = cx.new(|cx| TasksView::new(state.clone(), cx));
+        let settings_page = cx.new(|cx| SettingsView::new(state.clone(), window, cx));
+        let storage = cx.new(|cx| StorageView::new(state.clone(), window, cx));
+        let merge = cx.new(|cx| MergeView::new(state.clone(), window, cx));
         // 播放页 → 详情页：HomeView 发事件，壳切目的地（页面间不互相持有）
         cx.subscribe(&feed, |this, _, event: &HomeEvent, cx| match event {
             HomeEvent::OpenDetail(series_id) => this.open_detail(series_id.clone(), cx),
         })
         .detach();
+        // 点赞/收藏卡「继续播放」：壳切回首页沉浸流起播（与详情页同通道）
+        cx.subscribe(&liked, |this, _, event: &LikedEvent, cx| {
+            let LikedEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&browse, |this, _, event: &BrowseEvent, cx| {
+            let BrowseEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&new_drama, |this, _, event: &NewDramaEvent, cx| match event.clone() {
+            NewDramaEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => this.start_play(series_id, vid_index, start_secs, cx),
+            NewDramaEvent::OpenDetail { series_id, prefill } => {
+                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+            }
+        })
+        .detach();
+        cx.subscribe(&rank, |this, _, event: &RankEvent, cx| match event.clone() {
+            RankEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => this.start_play(series_id, vid_index, start_secs, cx),
+            RankEvent::OpenDetail { series_id, prefill } => {
+                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+            }
+        })
+        .detach();
+        cx.subscribe(&collections, |this, _, event: &CollectionEvent, cx| {
+            let CollectionEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&history, |this, _, event: &HistoryEvent, cx| {
+            let HistoryEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&reservations, |this, _, event: &ReservationEvent, cx| match event.clone() {
+            ReservationEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } => this.start_play(series_id, vid_index, start_secs, cx),
+            ReservationEvent::OpenDetail { series_id, prefill } => {
+                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+            }
+            ReservationEvent::Login => {
+                // 切回首页开登录面板（Tauri 弹 LoginDialog 的同位入口）
+                this.dest = Dest::Home;
+                this.feed
+                    .update(cx, |home, cx| home.toggle_login_panel(cx));
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.subscribe(&settings_page, |this, _, event: &SettingsEvent, cx| match event {
+            SettingsEvent::Login => {
+                this.dest = Dest::Home;
+                this.feed
+                    .update(cx, |home, cx| home.toggle_login_panel(cx));
+                cx.notify();
+            }
+            SettingsEvent::ShortcutKeys(keys) => {
+                let keys = keys.clone();
+                this.feed
+                    .update(cx, |home, cx| home.reload_shortcut_keys(keys, cx));
+            }
+        })
+        .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
-        // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）。
+        // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）；
+        // HONGGUO_PAGE=browse|new|history|… 直接开在对应目的地（逐页点检）。
         // 预览进程有自己的目的地种子，不吃这些环境变量（可能残留）
+        let page_start = (!crate::preview::is_active())
+            .then(|| std::env::var("HONGGUO_PAGE").ok())
+            .flatten()
+            .and_then(|v| Dest::from_key(&v));
         let tab_source = (!crate::preview::is_active())
             .then(|| std::env::var("HONGGUO_TAB").ok())
             .flatten()
@@ -152,25 +317,87 @@ impl Shell {
         let dest = if !crate::preview::is_active() && std::env::var("HONGGUO_RANK").is_ok() {
             rank.update(cx, RankView::load);
             Dest::Rank
+        } else if let Some(page) = page_start {
+            page
         } else {
             if let Some(source) = tab_source {
                 feed.update(cx, |home, cx| home.switch_source(source, cx));
             }
             Dest::Home
         };
-        Self {
+        let mut shell = Self {
             dest,
             state,
             sidebar_collapsed: false,
             feed,
             rank,
+            browse,
+            new_drama,
+            liked,
+            collections,
+            history,
+            reservations,
+            tasks,
+            settings_page,
+            storage,
+            merge,
             detail: None,
             detail_series: None,
+        };
+        if let Some(page) = page_start {
+            shell.enter_dest(page, cx);
         }
+        shell
+    }
+
+    /// 切换目的地并触发进入钩子（侧栏点击与 `HONGGUO_PAGE` 取证开关共用）。
+    fn enter_dest(&mut self, dest: Dest, cx: &mut Context<Self>) {
+        self.dest = dest;
+        match dest {
+            Dest::Rank => self.rank.update(cx, RankView::load),
+            Dest::Browse => self.browse.update(cx, BrowseView::load),
+            Dest::New => self.new_drama.update(cx, NewDramaView::load),
+            Dest::Liked => self.liked.update(cx, LikedView::load),
+            Dest::Collections => self.collections.update(cx, CollectionView::load),
+            Dest::History => self.history.update(cx, HistoryView::load),
+            Dest::Reservations => self.reservations.update(cx, ReservationView::load),
+            Dest::Tasks => self.tasks.update(cx, TasksView::load),
+            Dest::Settings => self.settings_page.update(cx, SettingsView::load),
+            Dest::Storage => self.storage.update(cx, StorageView::load),
+            Dest::Merge => self.merge.update(cx, MergeView::load),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    /// 页面「继续播放」的统一入口：切回首页沉浸流起播（详情页播放同通道，
+    /// 页面间不互相持有）。
+    fn start_play(
+        &mut self,
+        series_id: String,
+        vid_index: u32,
+        start_secs: f64,
+        cx: &mut Context<Self>,
+    ) {
+        self.dest = Dest::Home;
+        self.feed.update(cx, |home, cx| {
+            home.play_from_detail(series_id, vid_index, start_secs, cx)
+        });
+        cx.notify();
     }
 
     /// 打开应用内详情页（播放页点剧名）：同剧重复点击不重载。
     fn open_detail(&mut self, series_id: String, cx: &mut Context<Self>) {
+        self.open_detail_with_prefill(series_id, None, cx);
+    }
+
+    /// 打开详情页（可带来源页 prefill：未上线剧走「即将上线」降级视图）。
+    pub(crate) fn open_detail_with_prefill(
+        &mut self,
+        series_id: String,
+        prefill: Option<crate::detail::DetailPrefill>,
+        cx: &mut Context<Self>,
+    ) {
         if self.dest == Dest::Detail && self.detail_series.as_deref() == Some(&series_id) {
             return;
         }
@@ -187,7 +414,9 @@ impl Shell {
                 v
             }
         };
-        view.update(cx, |detail, cx| detail.load(series_id.clone(), cx));
+        view.update(cx, |detail, cx| {
+            detail.load_with_prefill(series_id.clone(), prefill, cx)
+        });
         self.detail_series = Some(series_id);
         self.dest = Dest::Detail;
         cx.notify();
@@ -271,8 +500,52 @@ impl Shell {
         if scene.starts_with("rank") {
             self.dest = Dest::Rank;
             self.rank.update(cx, |rank, cx| {
-                rank.debug_preview_seed(scene == "rank-empty", cx)
+                rank.debug_preview_seed(scene, cx)
             });
+        } else if scene.starts_with("storage") {
+            self.dest = Dest::Storage;
+            self.storage
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("liked") {
+            self.dest = Dest::Liked;
+            self.liked
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("collections") {
+            self.dest = Dest::Collections;
+            self.collections
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("history") {
+            self.dest = Dest::History;
+            self.history
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("reservation") {
+            self.dest = Dest::Reservations;
+            self.reservations
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("tasks") {
+            self.dest = Dest::Tasks;
+            self.tasks
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("settings") {
+            self.dest = Dest::Settings;
+            self.settings_page
+                .update(cx, |view, cx| view.debug_preview_seed(scene, window, cx));
+        } else if scene.starts_with("browse") {
+            self.dest = Dest::Browse;
+            self.browse
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("new-calendar") {
+            self.dest = Dest::New;
+            self.new_drama
+                .update(cx, |view, cx| view.debug_preview_seed("new-calendar", cx));
+        } else if scene.starts_with("new") {
+            self.dest = Dest::New;
+            self.new_drama
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
+        } else if scene.starts_with("merge") {
+            self.dest = Dest::Merge;
+            self.merge
+                .update(cx, |view, cx| view.debug_preview_seed(scene, window, cx));
         } else if scene.starts_with("detail") {
             // 详情页场景：确保实体在（不走网络 load，直接灌种子）
             self.dest = Dest::Detail;
@@ -344,11 +617,7 @@ impl Shell {
                     if this.dest == dest {
                         return;
                     }
-                    this.dest = dest;
-                    if dest == Dest::Rank {
-                        this.rank.update(cx, RankView::load);
-                    }
-                    cx.notify();
+                            this.enter_dest(dest, cx);
                 }))
                 .child(
                     gpui_kit::component::Icon::new(dest.icon())
@@ -452,39 +721,26 @@ impl Shell {
             .into_any_element()
     }
 
-    /// 未实现目的地的空态（本轮决策：全列出 + 建设中空态，页面逐个补）。
-    fn render_stub(&self, dest: Dest, cx: &Context<Self>) -> gpui_kit::AnyElement {
-        let theme = cx.theme();
-        v_flex()
-            .flex_1()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                gpui_kit::component::Icon::new(dest.icon())
-                    .with_size(gpui_kit::px(40.0))
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(format!("「{}」页面建设中", dest.label())),
-            )
-            .into_any_element()
-    }
-
-    fn render_content(&self, cx: &Context<Self>) -> gpui_kit::AnyElement {
+    fn render_content(&self, _cx: &Context<Self>) -> gpui_kit::AnyElement {
         match self.dest.view() {
-            Some(View::Home) => self.feed.clone().into_any_element(),
-            Some(View::Rank) => self.rank.clone().into_any_element(),
-            Some(View::Detail) => self
+            View::Home => self.feed.clone().into_any_element(),
+            View::Rank => self.rank.clone().into_any_element(),
+            View::Browse => self.browse.clone().into_any_element(),
+            View::New => self.new_drama.clone().into_any_element(),
+            View::Liked => self.liked.clone().into_any_element(),
+            View::Collections => self.collections.clone().into_any_element(),
+            View::History => self.history.clone().into_any_element(),
+            View::Reservations => self.reservations.clone().into_any_element(),
+            View::Tasks => self.tasks.clone().into_any_element(),
+            View::Settings => self.settings_page.clone().into_any_element(),
+            View::Storage => self.storage.clone().into_any_element(),
+            View::Merge => self.merge.clone().into_any_element(),
+            View::Detail => self
                 .detail
                 .as_ref()
                 .expect("Detail 目的地必有实体")
                 .clone()
                 .into_any_element(),
-            None => self.render_stub(self.dest, cx),
         }
     }
 }
