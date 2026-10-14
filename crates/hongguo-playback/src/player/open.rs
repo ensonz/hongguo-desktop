@@ -239,8 +239,16 @@ const AUDIO_OPEN_TIMEOUT: Duration = Duration::from_secs(5);
 /// 尝试还能把声音找回来。
 const AUDIO_RETRY_COOLDOWN: Duration = Duration::from_secs(30);
 
+/// 建流**超时**（HAL 卡住而非快速失败）之后的冷却：HAL 卡死期间每 30s 叠
+/// 一个僵尸线程只会更糟——实测卡死窗口里整个进程的定时器唤醒都被拖慢
+/// （换集起播的 50ms 轮询被拉长到 20s，观感即「每次换集卡 20-40 秒」），
+/// 拉长冷却让恢复期的风暴小一个量级。设备真恢复时最多等 5 分钟找回声音。
+const AUDIO_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(5 * 60);
+
 /// 上一次建流尝试的时刻（Unix 毫秒；0 = 从未试过）。
 static AUDIO_LAST_ATTEMPT_MS: AtomicU64 = AtomicU64::new(0);
+/// 上一次尝试是以「超时」收场的（HAL 卡住的强信号）。
+static AUDIO_LAST_TIMED_OUT: AtomicBool = AtomicBool::new(false);
 
 /// 现在的 Unix 毫秒。
 fn now_millis() -> u64 {
@@ -271,10 +279,15 @@ fn audio_attempt(audio: Option<&TrackInfo>, shared: &Shared) -> AudioAttempt {
     }
     let now = now_millis();
     let last = AUDIO_LAST_ATTEMPT_MS.load(Ordering::Acquire);
-    if last != 0 && now.saturating_sub(last) < AUDIO_RETRY_COOLDOWN.as_millis() as u64 {
+    let cooldown = if AUDIO_LAST_TIMED_OUT.load(Ordering::Acquire) {
+        AUDIO_TIMEOUT_COOLDOWN
+    } else {
+        AUDIO_RETRY_COOLDOWN
+    };
+    if last != 0 && now.saturating_sub(last) < cooldown.as_millis() as u64 {
         log::info!(
             "[Playback] 距上次音频建流尝试不足 {}s，本次直接无声起播",
-            AUDIO_RETRY_COOLDOWN.as_secs()
+            cooldown.as_secs()
         );
         return AudioAttempt::Unusable;
     }
@@ -303,14 +316,17 @@ fn audio_attempt(audio: Option<&TrackInfo>, shared: &Shared) -> AudioAttempt {
             Ok(Some(pair)) => {
                 // 建流成功：冷却重置，后续集数立刻可用
                 AUDIO_LAST_ATTEMPT_MS.store(0, Ordering::Release);
+                AUDIO_LAST_TIMED_OUT.store(false, Ordering::Release);
                 return AudioAttempt::Ready(Box::new(pair));
             }
             Ok(None) => {
                 log::warn!("[Playback] 音频设备不可用，退化为无声播放（挂钟）");
+                AUDIO_LAST_TIMED_OUT.store(false, Ordering::Release);
                 return AudioAttempt::Unusable;
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                 log::warn!("[Playback] 音频建流线程异常退出，无声播放");
+                AUDIO_LAST_TIMED_OUT.store(false, Ordering::Release);
                 return AudioAttempt::Unusable;
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
@@ -320,6 +336,9 @@ fn audio_attempt(audio: Option<&TrackInfo>, shared: &Shared) -> AudioAttempt {
                 "[Playback] 音频设备建流超过 {}s 未返回（CoreAudio 卡住），先出画、等它迟到接管",
                 AUDIO_OPEN_TIMEOUT.as_secs()
             );
+            // HAL 卡住的强信号：拉长冷却（见 AUDIO_TIMEOUT_COOLDOWN），别让
+            // 僵尸线程每 30s 叠一个
+            AUDIO_LAST_TIMED_OUT.store(true, Ordering::Release);
             return AudioAttempt::Pending(rx);
         }
         std::thread::sleep(Duration::from_millis(20));

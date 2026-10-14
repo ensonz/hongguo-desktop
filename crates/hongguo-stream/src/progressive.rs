@@ -207,7 +207,10 @@ fn serve_inner(
     // 渐进模式等计划注册（plain_len 已知即可应答，字节按区间再等）。
     // 取流失败回落整集时，两条都可能出现，谁先就绪走谁。
     let deadline = std::time::Instant::now() + Duration::from_secs(WAIT_TIMEOUT_SECS);
+    let entered = std::time::Instant::now();
+    let mut polls: u64 = 0;
     let mode = loop {
+        polls += 1;
         if cancelled() {
             log::info!("[Stream] {vid}@{definition} 等待就绪前已被取消（seek 重定位）");
             return Err("读取已取消（seek 重定位）".to_string());
@@ -217,11 +220,32 @@ fn serve_inner(
             return Err("在线流已被替换，请重试".to_string());
         }
         let prog = entry.progressive.lock().clone();
-        if *entry.filled.lock() > 0 {
+        let filled = *entry.filled.lock();
+        // 首轮就绪是常态（渐进入注册即应答），只在异常等待时留痕：排障
+        // 「换集卡 20s」类问题看「已等 Xs」的一行即定位
+        if filled > 0 {
+            if polls > 1 {
+                log::info!(
+                    "[Stream][probe] mode 就绪(整集): polls={polls} 等 {:.3}s",
+                    entered.elapsed().as_secs_f64()
+                );
+            }
             break None;
         }
         if let Some(p) = prog {
+            if polls > 1 {
+                log::info!(
+                    "[Stream][probe] mode 就绪(渐进): polls={polls} 等 {:.3}s",
+                    entered.elapsed().as_secs_f64()
+                );
+            }
             break Some(p);
+        }
+        if polls == 1 || polls.is_multiple_of(40) {
+            log::info!(
+                "[Stream][probe] mode 等待中: filled={filled} prog=false 已等 {:.3}s",
+                entered.elapsed().as_secs_f64()
+            );
         }
         if std::time::Instant::now() >= deadline {
             log::warn!("[Stream] {vid}@{definition} 等待流就绪超时（{WAIT_TIMEOUT_SECS}s）");
