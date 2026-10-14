@@ -36,6 +36,18 @@ pub(crate) fn format_duration(seconds: f64) -> String {
     }
 }
 
+/// 播放量短格式（Tauri `formatPlayCount` 同口径：亿/万阶梯、去尾零）。
+/// 找剧搜索卡热度行用。
+pub(crate) fn format_play_count(n: i64) -> String {
+    if n >= 100_000_000 {
+        return format!("{:.1}亿", n as f64 / 100_000_000.0).replace(".0", "");
+    }
+    if n >= 10_000 {
+        return format!("{:.1}万", n as f64 / 10_000.0).replace(".0", "");
+    }
+    n.to_string()
+}
+
 /// 相对时间（评论时间戳）。分层与 Tauri `utils/relative-time.ts` 同口径
 /// （hgplayer：刚刚 / N 分钟前 / N 小时前 / 昨天 / N 天前 30 天内 /
 /// M月D日）——此前自创「N 个月前/N 年前」与前端漂移。技术栈不同不共享

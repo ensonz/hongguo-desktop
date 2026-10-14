@@ -27,6 +27,7 @@ use crate::home::HomeView;
 use crate::pages::merge::MergeView;
 use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::collections::{CollectionEvent, CollectionView};
+use crate::pages::browse::{BrowseEvent, BrowseView};
 use crate::pages::history::{HistoryEvent, HistoryView};
 use crate::pages::rank::RankView;
 use crate::pages::reservations::{ReservationEvent, ReservationView};
@@ -112,6 +113,7 @@ impl Dest {
         match self {
             Dest::Home => Some(View::Home),
             Dest::Rank => Some(View::Rank),
+            Dest::Browse => Some(View::Browse),
             Dest::Liked => Some(View::Liked),
             Dest::Collections => Some(View::Collections),
             Dest::History => Some(View::History),
@@ -130,6 +132,7 @@ impl Dest {
 enum View {
     Home,
     Rank,
+    Browse,
     Liked,
     Collections,
     History,
@@ -148,6 +151,7 @@ pub struct Shell {
     sidebar_collapsed: bool,
     feed: Entity<HomeView>,
     rank: Entity<RankView>,
+    browse: Entity<BrowseView>,
     liked: Entity<LikedView>,
     collections: Entity<CollectionView>,
     history: Entity<HistoryView>,
@@ -165,6 +169,7 @@ impl Shell {
     pub fn new(state: Arc<AppStateInner>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let feed = cx.new(|cx| HomeView::new(state.clone(), window, cx));
         let rank = cx.new(|_cx| RankView::new(state.clone()));
+        let browse = cx.new(|cx| BrowseView::new(state.clone(), window, cx));
         let liked = cx.new(|cx| LikedView::new(state.clone(), window, cx));
         let collections = cx.new(|cx| CollectionView::new(state.clone(), window, cx));
         let history = cx.new(|cx| HistoryView::new(state.clone(), window, cx));
@@ -181,6 +186,15 @@ impl Shell {
         // 点赞/收藏卡「继续播放」：壳切回首页沉浸流起播（与详情页同通道）
         cx.subscribe(&liked, |this, _, event: &LikedEvent, cx| {
             let LikedEvent::Play {
+                series_id,
+                vid_index,
+                start_secs,
+            } = event.clone();
+            this.start_play(series_id, vid_index, start_secs, cx);
+        })
+        .detach();
+        cx.subscribe(&browse, |this, _, event: &BrowseEvent, cx| {
+            let BrowseEvent::Play {
                 series_id,
                 vid_index,
                 start_secs,
@@ -264,6 +278,7 @@ impl Shell {
             sidebar_collapsed: false,
             feed,
             rank,
+            browse,
             liked,
             collections,
             history,
@@ -437,6 +452,10 @@ impl Shell {
             self.dest = Dest::Settings;
             self.settings_page
                 .update(cx, |view, cx| view.debug_preview_seed(scene, window, cx));
+        } else if scene.starts_with("browse") {
+            self.dest = Dest::Browse;
+            self.browse
+                .update(cx, |view, cx| view.debug_preview_seed(scene, cx));
         } else if scene.starts_with("merge") {
             self.dest = Dest::Merge;
             self.merge
@@ -515,6 +534,7 @@ impl Shell {
                     this.dest = dest;
                     match dest {
                         Dest::Rank => this.rank.update(cx, RankView::load),
+                        Dest::Browse => this.browse.update(cx, BrowseView::load),
                         Dest::Liked => this.liked.update(cx, LikedView::load),
                         Dest::Collections => {
                             this.collections.update(cx, CollectionView::load)
@@ -661,6 +681,7 @@ impl Shell {
         match self.dest.view() {
             Some(View::Home) => self.feed.clone().into_any_element(),
             Some(View::Rank) => self.rank.clone().into_any_element(),
+            Some(View::Browse) => self.browse.clone().into_any_element(),
             Some(View::Liked) => self.liked.clone().into_any_element(),
             Some(View::Collections) => self.collections.clone().into_any_element(),
             Some(View::History) => self.history.clone().into_any_element(),

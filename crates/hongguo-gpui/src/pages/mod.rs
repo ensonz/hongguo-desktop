@@ -5,6 +5,7 @@
 
 use gpui_kit::prelude::*;
 
+pub(crate) mod browse;
 pub(crate) mod collections;
 pub(crate) mod history;
 pub(crate) mod merge;

@@ -390,6 +390,47 @@ pub(crate) fn cases() -> Vec<PreviewCase> {
             scene: "settings-no-ffmpeg",
             font_scale: 1.,
         },
+        // —— 找剧 ——
+        PreviewCase {
+            name: "browse-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "browse",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "browse-dark",
+            mode: ThemeMode::Dark,
+            width: W,
+            height: H,
+            scene: "browse",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "browse-tall-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: 1800.,
+            scene: "browse",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "browse-search-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "browse-search",
+            font_scale: 1.,
+        },
+        PreviewCase {
+            name: "browse-empty-light",
+            mode: ThemeMode::Light,
+            width: W,
+            height: H,
+            scene: "browse-empty",
+            font_scale: 1.,
+        },
         // —— 详情页（头部 + 选集 tab / 相关推荐 tab；明暗各一）——
         PreviewCase {
             name: "detail-light",
