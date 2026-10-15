@@ -74,7 +74,8 @@ pub async fn comment_send(
         return Err(hongguo_common::AppError::Media("评论内容为空".into()));
     }
     match &mention {
-        Some(m) => send_comment_mention(&group_id, &book_id, m, &text, &env).await,
+        // 提及评论走剧级形态（group_id=series_id，Rust 侧自行取用 book_id）
+        Some(m) => send_comment_mention(&book_id, m, &text, &env).await,
         None => send_comment(&group_id, &book_id, &text, &env).await,
     }
 }
