@@ -39,7 +39,11 @@ export function resolveBossKeyConflicts(
     .pop();
   if (!core) return [];
   const actions: { action: ShortcutAction; label: string; key: string }[] = [
-    { action: 'playPause', label: shortcutKeyLabel(keys.playPause, spaceLabel), key: keys.playPause },
+    {
+      action: 'playPause',
+      label: shortcutKeyLabel(keys.playPause, spaceLabel),
+      key: keys.playPause,
+    },
     { action: 'seekBack', label: shortcutKeyLabel(keys.seekBack, spaceLabel), key: keys.seekBack },
     {
       action: 'seekForward',
