@@ -53,6 +53,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     select: (s) => s.pathname === '/' || s.pathname === '/player',
   });
   const playerFullscreen = windowFullscreen && playerSurface;
+  // 竖屏只在播放器形态页面（首页沉浸流/纯播放页）成立：离开即自动退出，
+  // 窄条窗口配常规页面布局没法用（hgplayer 路由监听同款语义；退出实现
+  // 收在 features/player 的 use-portrait-window，这里只做路由侧触发）
+  useEffect(() => {
+    if (!playerSurface && useUiStore.getState().portrait) {
+      useUiStore.getState().setPortrait(false);
+      void appApi.exitPortraitScreen().catch(() => undefined);
+    }
+  }, [playerSurface]);
   // 置顶开关与播放器（大屏顶栏/小屏紧凑条两个入口）共用同一份实现
   const { pinned, togglePinned } = usePinWindow();
 

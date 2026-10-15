@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useShortcutsStore } from '@/stores/shortcuts';
+import { useUiStore } from '@/stores/ui';
+import { app as appApi } from '@/service/commands';
+import { portraitAspectOf } from '@/features/player/hooks/use-portrait-window';
 
 /**
  * 舞台三套交互裁决：滚轮切换、点击画面、键盘快捷键。
@@ -114,6 +117,22 @@ export function usePlayerInteractions(params: {
 
       // Esc 固定管「退出选中」——面板语义按键，不随自定义映射
       if (e.key === 'Escape') {
+        // 竖屏铺满先退铺满回竖条（hgplayer 同序：面板 Esc 之后、退出选中
+        // 之前；面板开着时 Esc 仍归面板）
+        const ui = useUiStore.getState();
+        if (
+          ui.portraitFull &&
+          !seriesPanelOpen &&
+          !commentPanelOpen &&
+          !danmakuPanelOpen &&
+          !volumeOpen
+        ) {
+          ui.setPortraitFull(false);
+          void appApi
+            .setPortraitFull(portraitAspectOf(videoRef.current), false)
+            .catch(() => undefined);
+          return;
+        }
         // 面板（评论/选集/弹幕设置）开着时它们的 Esc 只管关面板；
         // 都没开而处于选中态时，Esc = 退出选中（滚轮/↑↓ 回到换剧）
         if (inBinge && !seriesPanelOpen && !commentPanelOpen && !danmakuPanelOpen && !volumeOpen) {

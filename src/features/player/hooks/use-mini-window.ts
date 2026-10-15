@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useUiStore } from '@/stores/ui';
 import { applyWindowFullscreen } from '@/hooks/use-window-fullscreen';
 import { app as appApi } from '@/service/commands';
+import { exitPortraitScreen } from '@/features/player/hooks/use-portrait-window';
 
 /**
  * 小屏播放（对齐 hgplayer ng()/Op()）：同一窗口缩成 480×270 落到屏幕
@@ -47,6 +48,9 @@ export function useMiniWindow(params: {
     if (useUiStore.getState().windowFullscreen) {
       void applyWindowFullscreen(false).catch(() => undefined);
     }
+    // 竖屏几何快照是单份的：先还原大窗再进小屏，否则小屏快照记的是
+    // 竖条几何，退出小屏会停在竖条尺寸（exitPortraitScreen 幂等，非竖屏 no-op）
+    exitPortraitScreen();
     // 大屏的浮层面板带不进 480×270 的小窗：进小屏前一并收掉
     setCommentPanelOpen(false);
     setDanmakuPanelOpen(false);

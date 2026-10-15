@@ -1,4 +1,5 @@
-//! 窗口管理命令：小屏播放（enter/exit_mini_screen）、置顶、红绿灯藏显。
+//! 窗口管理命令：小屏播放（enter/exit_mini_screen）、竖屏播放
+//! （enter/exit/fit_portrait_screen + set_portrait_full）、置顶、红绿灯藏显。
 
 use tauri::AppHandle;
 
@@ -179,6 +180,179 @@ pub fn set_always_on_top(app: AppHandle, enabled: bool) -> AppResult<()> {
     use tauri::Manager;
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.set_always_on_top(enabled);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------- 竖屏播放
+
+// 竖屏播放（对齐 hgplayer 1.1.8 的 rE/kc/Nf/oE/Fc，算法自其前端 bundle
+// 逐行还原）：窗口收窄成按视频宽高比算宽的竖条，竖屏视频刚好包住画面
+// 不留两侧黑边。两档——普通档保持当前窗口高；铺满档（portraitFull）
+// 撑满工作区高并居中。
+//
+// 与 hgplayer 的两处刻意差异：最小宽度取 360（hgplayer Gv=240 配它的
+// 竖屏专属布局；本壳沿用「控制条一行不换行」的 360 下限口径，同
+// MINI_MIN）；标题栏高度按 0 算（本壳无框，macOS overlay 内容满窗）。
+// 其余对齐：最大化状态进竖屏直接进铺满档；普通档在**当前窗口 x** 上
+// 居中（不跳屏幕中心）；宽高比钳宽溢出工作区时反推高度（hgplayer 同
+// 款，不再回钳工作区高）。
+
+/// 竖屏退出时要恢复的窗口几何（进入那一刻的快照，语义同 MINI_RESTORE）。
+static PORTRAIT_RESTORE: std::sync::Mutex<Option<SavedGeometry>> = std::sync::Mutex::new(None);
+
+/// 铺满档退出时要还原的普通档几何（hgplayer 的 Pi：只快照 x/y/w/h）。
+static PORTRAIT_FULL_RESTORE: std::sync::Mutex<Option<(i32, i32, u32, u32)>> =
+    std::sync::Mutex::new(None);
+
+/// 竖屏下的最小尺寸（hgplayer nE=400 同高；宽见上面模块注释）。
+const PORTRAIT_MIN: (f64, f64) = (360.0, 400.0);
+
+fn portrait_restore() -> std::sync::MutexGuard<'static, Option<SavedGeometry>> {
+    PORTRAIT_RESTORE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn portrait_full_restore() -> std::sync::MutexGuard<'static, Option<(i32, i32, u32, u32)>> {
+    PORTRAIT_FULL_RESTORE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 按视频宽高比重算竖屏几何并落窗（hgplayer kc 逐步同款）。
+fn fit_portrait(win: &tauri::WebviewWindow, aspect: f64, full: bool) {
+    let mon = win.current_monitor().ok().flatten();
+    let (left, top, right, bottom) = work_area_logical(mon.as_ref());
+    let (Ok(pos), Ok(size)) = (win.outer_position(), win.inner_size()) else {
+        return;
+    };
+    let sf = win.scale_factor().unwrap_or(1.0);
+    let cur_x = pos.x as f64 / sf;
+    let cur_y = pos.y as f64 / sf;
+    let cur_w = size.width as f64 / sf;
+    let cur_h = size.height as f64 / sf;
+    let wa_w = right - left;
+    let wa_h = bottom - top;
+
+    // 高：铺满档撑满工作区；普通档保持当前高（夹进工作区）
+    let mut h = if full { wa_h } else { cur_h.min(wa_h) };
+    // 宽 =（高 − 标题栏）× 宽高比；溢出工作区时钳宽反推高
+    let mut w = (h * aspect).round();
+    if w > wa_w {
+        w = wa_w;
+        h = (w / aspect).round();
+    }
+    w = w.max(PORTRAIT_MIN.0);
+    // x：铺满档居中于工作区；普通档居中于**当前窗口**（夹进工作区，
+    // 手动 min/max 而非 clamp：极小工作区下 min>max 时 clamp 会 panic）
+    let x = if full {
+        left + ((wa_w - w) / 2.0).round().max(0.0)
+    } else {
+        (cur_x + ((cur_w - w) / 2.0).round()).max(left).min(right - w)
+    };
+    let y = if full { top } else { cur_y };
+    let _ = win.set_size(tauri::LogicalSize::new(w, h));
+    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+}
+
+/// 进入竖屏播放。`aspect` 是视频宽高比（w/h），由前端按 hgplayer 口径
+/// 算好传入（非竖屏比回落 9:16）。已在竖屏中幂等。
+#[tauri::command]
+pub fn enter_portrait_screen(app: AppHandle, aspect: f64) -> AppResult<()> {
+    use tauri::Manager;
+    let Some(win) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    // 幂等 + 参数守卫（hgplayer rE 的 !de.mini 与 !(e>0)；mini 由前端保证；
+    // NaN/0/负数/无穷都拒——NaN 一旦漏进几何计算，set_size 的行为不可预期）
+    if portrait_restore().is_some() || !aspect.is_finite() || aspect <= 0.0 {
+        return Ok(());
+    }
+    let (Ok(pos), Ok(size)) = (win.outer_position(), win.inner_size()) else {
+        return Ok(());
+    };
+    let maximized = win.is_maximized().unwrap_or(false);
+    *portrait_restore() = Some(SavedGeometry {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+        maximized,
+    });
+    let _ = win.set_min_size(Some(tauri::LogicalSize::new(PORTRAIT_MIN.0, PORTRAIT_MIN.1)));
+    // 最大化进竖屏：退最大化直接进铺满档（hgplayer rE 的 Ev + kc(e, max)）
+    if maximized {
+        let _ = win.unmaximize();
+    }
+    fit_portrait(&win, aspect, maximized);
+    Ok(())
+}
+
+/// 竖屏中换集/换流导致视频宽高比变化后的重适配（hgplayer oE）。
+/// 铺满与否由前端镜像态传入；不在竖屏中则忽略。
+#[tauri::command]
+pub fn fit_portrait_screen(app: AppHandle, aspect: f64, full: bool) -> AppResult<()> {
+    use tauri::Manager;
+    if portrait_restore().is_none() || !aspect.is_finite() || aspect <= 0.0 {
+        return Ok(());
+    }
+    let Some(win) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    fit_portrait(&win, aspect, full);
+    Ok(())
+}
+
+/// 铺满档切换（hgplayer Nf）：普通→铺满先快照当前几何再撑满；铺满→普通
+/// 还原快照（没有快照——最大化直接进来的——就从当前几何按普通档重算）。
+#[tauri::command]
+pub fn set_portrait_full(app: AppHandle, aspect: f64, full: bool) -> AppResult<()> {
+    use tauri::Manager;
+    if portrait_restore().is_none() {
+        return Ok(());
+    }
+    let Some(win) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    if full {
+        let (Ok(pos), Ok(size)) = (win.outer_position(), win.inner_size()) else {
+            return Ok(());
+        };
+        *portrait_full_restore() = Some((pos.x, pos.y, size.width, size.height));
+        fit_portrait(&win, aspect, true);
+    } else {
+        let saved = portrait_full_restore().take();
+        match saved {
+            Some((x, y, w, h)) => {
+                let _ = win.set_size(tauri::PhysicalSize::new(w, h));
+                let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+            None => fit_portrait(&win, aspect, false),
+        }
+    }
+    Ok(())
+}
+
+/// 退出竖屏：还原进入前的窗口几何与最小尺寸约束。
+#[tauri::command]
+pub fn exit_portrait_screen(app: AppHandle) -> AppResult<()> {
+    use tauri::Manager;
+    let Some(win) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let _ = portrait_full_restore().take();
+    let saved = portrait_restore().take();
+    let _ = win.set_min_size(Some(tauri::LogicalSize::new(MAIN_MIN.0, MAIN_MIN.1)));
+    let Some(g) = saved else {
+        return Ok(());
+    };
+    // g.width/height 是进入时的内容尺寸（inner_size），与 set_size 语义
+    // 一致，见 enter_mini_screen 里的快照注释
+    let _ = win.set_size(tauri::PhysicalSize::new(g.width, g.height));
+    let _ = win.set_position(tauri::PhysicalPosition::new(g.x, g.y));
+    if g.maximized {
+        let _ = win.maximize();
     }
     Ok(())
 }

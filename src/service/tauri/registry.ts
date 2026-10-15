@@ -73,6 +73,16 @@ export const COMMANDS = {
   enter_mini_screen: { args: noArgs, response: voidResp },
   exit_mini_screen: { args: noArgs, response: voidResp },
   set_always_on_top: { args: z.object({ enabled: z.boolean() }), response: voidResp },
+  enter_portrait_screen: { args: z.object({ aspect: z.number() }), response: voidResp },
+  exit_portrait_screen: { args: noArgs, response: voidResp },
+  fit_portrait_screen: {
+    args: z.object({ aspect: z.number(), full: z.boolean() }),
+    response: voidResp,
+  },
+  set_portrait_full: {
+    args: z.object({ aspect: z.number(), full: z.boolean() }),
+    response: voidResp,
+  },
   set_incognito: { args: z.object({ enabled: z.boolean() }), response: voidResp },
   /** 关闭拦截就位（app-shell 监听挂上后调用，后端才开始拦 CloseRequested） */
   mark_window_ready: { args: noArgs, response: voidResp },

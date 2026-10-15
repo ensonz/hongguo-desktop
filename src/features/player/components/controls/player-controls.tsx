@@ -11,6 +11,8 @@ import {
   Pause,
   PictureInPicture2,
   Play,
+  RectangleHorizontal,
+  RectangleVertical,
   Settings2,
   SkipBack,
   SkipForward,
@@ -25,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWindowFullscreen } from '@/hooks/use-window-fullscreen';
+import { usePortraitWindow } from '../../hooks/use-portrait-window';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
 import { cn } from '@/lib/utils';
@@ -166,6 +169,10 @@ export function PlayerControls({
   const [rate, setRate] = useState(1);
   // 全屏：窗口级真值（Esc/绿按钮变化经 useWindowFullscreenSync 回流）
   const { fullscreen, toggleFullscreen } = useWindowFullscreen();
+  // 竖屏：窗口收窄成竖条（几何在后端，store 是镜像）；竖屏中全屏键让位给铺满切换
+  const { portrait, portraitFull, togglePortrait, togglePortraitFull } = usePortraitWindow({
+    videoRef,
+  });
   // 面板/浮层开合在全局播放 store：切集/切剧重挂载不丢
   const danmakuPanelOpen = usePlayerStore((s) => s.danmakuPanelOpen);
   const setDanmakuPanelOpen = usePlayerStore((s) => s.setDanmakuPanelOpen);
@@ -556,8 +563,43 @@ export function PlayerControls({
             <Eye className={cn('size-4', incognito ? 'text-white' : 'text-white/55')} aria-hidden />
           </IconButton>
 
-          <IconButton label={t('player.fullscreen')} onClick={toggleFullscreen}>
-            {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+          {/* 竖屏播放（hgplayer 同款）：窗口收窄成按视频宽高比算宽的竖条，
+              竖屏视频刚好包住画面不留两侧黑边。小屏里不出现（本组件不渲染
+              在小屏） */}
+          <IconButton
+            label={portrait ? t('player.exitPortrait') : t('player.portrait')}
+            onClick={togglePortrait}
+          >
+            {portrait ? (
+              <RectangleHorizontal className="size-4" />
+            ) : (
+              <RectangleVertical className="size-4" />
+            )}
+          </IconButton>
+
+          {/* 全屏键在竖屏中让位给「铺满」切换（hgplayer wu：portrait 时
+              全屏语义收编为 portraitFull 切换，Esc 退铺满回竖条） */}
+          <IconButton
+            label={
+              portrait
+                ? portraitFull
+                  ? t('player.exitPortraitFill')
+                  : t('player.portraitFill')
+                : t('player.fullscreen')
+            }
+            onClick={portrait ? togglePortraitFull : toggleFullscreen}
+          >
+            {portrait ? (
+              portraitFull ? (
+                <Minimize className="size-4" />
+              ) : (
+                <Maximize className="size-4" />
+              )
+            ) : fullscreen ? (
+              <Minimize className="size-4" />
+            ) : (
+              <Maximize className="size-4" />
+            )}
           </IconButton>
         </div>
       </div>
