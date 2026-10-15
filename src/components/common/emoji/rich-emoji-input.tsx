@@ -72,13 +72,23 @@ export function RichEmojiInput({
   }, []);
 
   // 外部 value 与 DOM 不一致才重建（清空 / 外部赋值）；自己打字引发的
-  // onChange 回流是相等的，不动 DOM，光标才稳
+  // onChange 回流是相等的，不动 DOM，光标才稳。重建期间字段若持焦
+  // （如选中 @ 候选后的整体替换），把光标放回末尾——开头落点会让
+  // 用户接续输入插到句子中间。
   useEffect(() => {
     const el = elRef.current;
     if (!el) return;
     if (serialize(el) !== value) {
       renderValue(el, value);
       savedRangeRef.current = null;
+      if (document.activeElement === el) {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(r);
+      }
     }
   }, [value]);
 

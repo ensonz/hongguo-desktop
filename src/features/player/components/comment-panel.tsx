@@ -14,7 +14,7 @@
 //! 正文行（@ 浅蓝高亮）、相对时间（N 天前）、头像 32px。
 
 import { useEffect, useMemo, useState } from 'react';
-import { AtSign, Heart, Loader2, X } from 'lucide-react';
+import { Heart, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -74,29 +74,22 @@ export function CommentPanel({ vid, onClose }: Props) {
   const total = data?.pages[0]?.total || comments?.length || 0;
   const send = useSendComment();
   const sendReply = useSendReply();
-  // @小果AI 快捷提及：relation/list 的 AI bot 条目（uid 动态取，勿硬编码）
-  const seriesId = vid.split(':')[0] ?? '';
+  // @ 提及（官方交互，2026-10-15 抓 player 实包）：输入 `@` 触发
+  // relation/list 候选弹层，选中小果插入提及段，发表时走 rich_text
+  // tp=15 + aibot_mention_context（AI bot 会回复剧情介绍）。
+  // ⚠️ vid 是「分集vid:seriesId」组合形态——relation/list 的 target 是
+  // seriesId（后半段）；取错段查出来恒空，@ 候选就是死的。
+  const seriesId = vid.split(':')[1] ?? '';
   const mentionQ = useMentionList(seriesId);
-  const aibotUid = mentionQ.data?.find((m) => m.isAiBot)?.userId ?? null;
-  /** 已点快捷图标待发送的提及（发送后清空） */
-  const [mentionUserId, setMentionUserId] = useState<string | null>(null);
-  const insertMention = () => {
-    if (!loggedIn) {
-      toast.info(t('player.interact.loginRequired'));
-      return;
-    }
-    if (!aibotUid) {
-      toast.info(t('player.comments.mentionUnavailable'));
-      return;
-    }
-    setMentionUserId(aibotUid);
-    setText((prev) => (prev.includes('@小果Ai') ? prev : `@小果Ai ${prev}`.trimStart()));
-  };
+  const aibot = mentionQ.data?.find((m) => m.isAiBot) ?? null;
   /** 点赞（缓存写回型乐观更新，hooks 内失败回滚）：评论与回复分走
    *  两个 hook——回复的乐观值要写进所属评论的回复缓存，key 不同 */
   const commentDigg = useCommentDigg(vid);
   const replyDigg = useReplyDigg(vid);
   const [text, setText] = useState('');
+  /** 输入以 `@词` 结尾 = 提及候选弹层开着（官方同款触发：打 @ 即弹；
+   *  \uFFFC 是提及段的结尾占位符，含它说明提及已插入，不再触发） */
+  const mentionOpen = /(^|\s)@([^\s@￼]*)$/.test(text);
   /** 回复输入框展开在哪条评论上（空 = 无） */
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   /** 回复「回复」时被回复对象（二级回复；name 供占位文案，id 供
@@ -146,20 +139,20 @@ export function CommentPanel({ vid, onClose }: Props) {
       toast.info(t('player.interact.loginRequired'));
       return;
     }
-    // @小果AI 提及（快捷图标）：草稿以 @小果Ai 开头时按提及评论发送
-    // （rich_text tp=15/uri=小果 uid + aibot_mention_context=当前集 vid）
-    const withMention = mentionUserId !== null && content.startsWith('@小果Ai');
+    // @ 提及（草稿含提及段占位符 \uFFFC 时按提及评论发送）：text 传剥掉
+    // 提及段后的正文（Rust 侧会重拼 `@小果\uFFFC 正文` + rich_text
+    // tp=15/uri=uid + aibot_mention_context=当前集 vid）
+    const withMention = content.includes('\uFFFC') && aibot != null;
     send.mutate(
       {
         vid,
-        text: withMention ? content.replace(/^@小果Ai\s*/, '') : content,
-        mentionUserId: withMention ? mentionUserId : undefined,
+        text: withMention ? content.replace(/@[^\s\uFFFC]*\uFFFC\s*/, '').trim() : content,
+        mentionUserId: withMention ? aibot.userId : undefined,
         aibotVids: withMention ? [vid.split(':')[0] ?? ''] : undefined,
       },
       {
         onSuccess: () => {
           setText('');
-          setMentionUserId(null);
         },
         onError: (e) => toast.error(String(e)),
       },
@@ -408,29 +401,59 @@ export function CommentPanel({ vid, onClose }: Props) {
 
       {/* 底部发评论 */}
       <div className="shrink-0 border-t border-white/10 p-3">
+        {/* @ 候选弹层（官方交互：输入 @ 触发 relation/list，点候选插入
+            提及段）。挂在输入行上方；点击候选用 onMouseDown 防输入框失焦 */}
+        {mentionOpen && (
+          <div className="relative">
+            <div className="absolute bottom-2 left-0 z-10 w-64 overflow-hidden rounded-lg border border-white/10 bg-neutral-800 shadow-lg">
+              {mentionQ.isPending ? (
+                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-white/60">
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  {t('player.comments.mentionLoading')}
+                </div>
+              ) : aibot ? (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    // 焦点纪律：不让输入框失焦（弹层选完还要继续打字）
+                    e.preventDefault();
+                    setText((prev) =>
+                      prev.replace(/(^|\s)@[^\s@￼]*$/, `$1@${aibot.userName}\uFFFC `),
+                    );
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/10"
+                >
+                  {aibot.avatar && (
+                    <img
+                      src={aibot.avatar}
+                      alt=""
+                      className="size-8 shrink-0 rounded-full object-cover"
+                    />
+                  )}
+                  <span className="min-w-0 leading-tight">
+                    <span className="block truncate text-sm text-white">{aibot.userName}</span>
+                    <span className="block text-[11px] text-sky-300">
+                      {t('player.comments.mentionAiBadge')}
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <div className="px-3 py-2.5 text-xs text-white/60">
+                  {loggedIn
+                    ? t('player.comments.mentionUnavailable')
+                    : t('player.interact.loginRequired')}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2">
-          {/* @小果AI 快捷提及（issue #9）：点击即把提及置入草稿，发表时走
-              rich_text tp=15 + aibot_mention_context（AI bot 会回复剧情介绍） */}
-          <button
-            type="button"
-            onClick={insertMention}
-            disabled={!aibotUid}
-            title={t('player.comments.mentionTitle')}
-            className={cn(
-              'flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition-colors',
-              mentionUserId !== null
-                ? 'border-sky-400/60 text-sky-300'
-                : 'border-white/15 text-white/70 hover:border-white/40 hover:text-white',
-            )}
-          >
-            <AtSign className="size-3.5" aria-hidden />
-            小果AI
-          </button>
           <div className="min-w-0 flex-1">
             <EmojiSendBox
               value={text}
               onChange={setText}
               onSubmit={submit}
+              onEscape={() => setText((prev) => prev.replace(/(^|\s)@[^\s@￼]*$/, '$1'))}
               placeholder={t('player.comments.placeholder')}
               maxLength={200}
               pending={send.isPending}
@@ -440,11 +463,6 @@ export function CommentPanel({ vid, onClose }: Props) {
             />
           </div>
         </div>
-        {mentionUserId !== null && (
-          <p className="mt-1.5 text-[11px] text-sky-300/80">
-            {t('player.comments.mentionPending')}
-          </p>
-        )}
       </div>
 
       {/* 删除确认（comment/del service_id=4：评论与回复同款） */}
