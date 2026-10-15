@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::component::Disableable;
 use gpui_kit::component::IconName;
+use gpui_kit::component::Selectable;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants;
@@ -822,19 +823,25 @@ impl super::HomeView {
                         div()
                             .id("dm-settings")
                             .relative()
-                            .child(
+                            .child({
+                                // 开=白（面板开着期间恒亮）：状态色走组件的
+                                // `open` 语义态（下拉触发钮的正规通道）——它
+                                // 渲染时跳过 hover 层，实例色不会被悬停色盖掉
+                                //（实例 text_color 直接写 hover 精修会 panic：
+                                // div 只许设一次 hover，组件内部已设）
                                 Button::new("stage-dm-settings")
                                     .icon(IconName::Settings2)
                                     .ghost()
                                     .small()
+                                    .open(self.dm_panel_open)
                                     .when(self.dm_panel_open, |b| {
-                                        b.text_color(gpui_kit::rgb(0xffffff))
+                                        b.text_color(gpui_kit::rgba(0xffffffff))
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.dm_panel_open = !this.dm_panel_open;
                                         cx.notify();
-                                    })),
-                            )
+                                    }))
+                            })
                             .children(self.dm_panel_open.then(|| {
                                 v_flex()
                                     .id("dm-settings-panel")
@@ -880,20 +887,24 @@ impl super::HomeView {
                             .into_any_element()
                     })
                     .child({
-                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
+                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）。
+                        // 状态色走组件的 `selected` 语义态（开关钮的正规通道）：
+                        // 渲染时跳过 hover 层，实例 text_color 不会被悬停色盖掉
+                        //——直接写 hover 精修会 panic（div 只许设一次 hover，
+                        // 组件内部已设），不写则指针停在按钮上时状态变化不可见
+                        //（用户实测「移走鼠标才变化」的根因）
                         Button::new("stage-danmaku")
                             .icon(gpui_kit::assets::IconName::MessageSquareText)
                             .ghost()
                             .small()
+                            .selected(self.danmaku_on)
                             .tooltip(if self.danmaku_on {
                                 "关闭弹幕"
                             } else {
                                 "开启弹幕"
                             })
-                            // 开=纯白 / 关=40% 白（Tauri 同款亮暗态；按钮必须
-                            // 随状态变，不然「点了没反应」）
                             .text_color(if self.danmaku_on {
-                                gpui_kit::rgb(0xffffff)
+                                gpui_kit::rgba(0xffffffff)
                             } else {
                                 gpui_kit::rgba(0xffffff66)
                             })
@@ -988,19 +999,20 @@ impl super::HomeView {
                     })
                     .child(
                         // 隐身模式（Tauri incognito 同款）：开着时光标脱离窗口 →
-                        // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播
+                        // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播。
+                        // 亮暗态走 `selected` 语义态（弹幕开关同款，悬停免疫）
                         Button::new("stage-incognito")
                             .icon(gpui_kit::assets::IconName::Eye)
                             .ghost()
                             .small()
+                            .selected(self.incognito)
                             .tooltip(if self.incognito {
                                 "退出隐身"
                             } else {
                                 "隐身模式"
                             })
-                            // 单图标亮暗态（Tauri 同款：白 / 55% 白）
                             .text_color(if self.incognito {
-                                gpui_kit::rgb(0xffffff)
+                                gpui_kit::rgba(0xffffffff)
                             } else {
                                 gpui_kit::rgba(0xffffff8c)
                             })
