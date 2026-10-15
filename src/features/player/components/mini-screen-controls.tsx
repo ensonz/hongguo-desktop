@@ -181,7 +181,7 @@ export function MiniScreenControls({
         >
           <SkipForward className="size-4" />
         </MiniButton>
-        <span className="whitespace-nowrap font-mono text-[10px] text-white/85 tabular-nums">
+        <span className="font-mono text-[10px] whitespace-nowrap text-white/85 tabular-nums">
           {formatDuration(current)} / {formatDuration(duration)}
         </span>
         <MiniButton label={t('player.playbackRate')} onClick={cycleRate}>
