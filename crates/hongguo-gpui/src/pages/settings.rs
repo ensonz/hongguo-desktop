@@ -23,9 +23,7 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Disableable, Sizable, WindowExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    App, ClipboardItem, Entity, RenderImage, SharedString, Window, div,
-};
+use gpui_kit::{App, ClipboardItem, Entity, RenderImage, SharedString, Window, div};
 use hongguo_common::model::settings::{NamingTemplate, ProxyMode};
 use hongguo_common::model::{AccountState, ProxyTestResult, Settings};
 use hongguo_media_platform::capability::probe::DecodeCapability;
@@ -208,15 +206,19 @@ impl SettingsView {
                 cx,
             )
         });
-        let concurrency =
-            cx.new(|_| SliderState::new().min(1.).max(10.).step(1.).default_value(3.));
+        let concurrency = cx.new(|_| {
+            SliderState::new()
+                .min(1.)
+                .max(10.)
+                .step(1.)
+                .default_value(3.)
+        });
         cx.subscribe_in(
             &naming_select,
             window,
             |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event
-                    && let Some(ix) =
-                        NAMING_LABELS.iter().position(|l| *l == value.as_str())
+                    && let Some(ix) = NAMING_LABELS.iter().position(|l| *l == value.as_str())
                 {
                     this.patch(cx, |s| s.naming = naming_from_index(ix));
                 }
@@ -228,8 +230,7 @@ impl SettingsView {
             window,
             |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event
-                    && let Some(ix) =
-                        PROXY_LABELS.iter().position(|l| *l == value.as_str())
+                    && let Some(ix) = PROXY_LABELS.iter().position(|l| *l == value.as_str())
                 {
                     this.patch(cx, |s| s.proxy.mode = proxy_from_index(ix));
                 }
@@ -275,9 +276,7 @@ impl SettingsView {
     }
 
     fn current(&self) -> Settings {
-        self.draft
-            .clone()
-            .unwrap_or_else(|| self.state.settings())
+        self.draft.clone().unwrap_or_else(|| self.state.settings())
     }
 
     fn patch(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Settings)) {
@@ -313,10 +312,9 @@ impl SettingsView {
                 view.cache_usage = Some(cache_usage);
                 view.capability = Some(capability);
                 // 快捷键映射从偏好文件带上（与播放器同一份）
-                let prefs_path = hongguo_store::paths::data_dir()
-                    .join(crate::playback_prefs::FILE_NAME);
-                view.shortcut_keys =
-                    crate::playback_prefs::load_from(&prefs_path).keys;
+                let prefs_path =
+                    hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
+                view.shortcut_keys = crate::playback_prefs::load_from(&prefs_path).keys;
                 // 表单初值跟随服务端
                 let settings = view.state.settings();
                 let dir = settings.download_dir.clone();
@@ -355,8 +353,9 @@ impl SettingsView {
                 if let Ok(bytes) = bytes
                     && let Ok(decoded) = image::load_from_memory(&bytes)
                 {
-                    view.account_avatar =
-                        Some(Arc::new(crate::image_upload::render_image(decoded.to_rgba8())));
+                    view.account_avatar = Some(Arc::new(crate::image_upload::render_image(
+                        decoded.to_rgba8(),
+                    )));
                     cx.notify();
                 }
             });
@@ -423,8 +422,7 @@ impl SettingsView {
                     }
                     Err(e) => {
                         log::warn!("[Settings] 代理测试失败: {e}");
-                        window
-                            .push_notification(Notification::error(format!("连接失败：{e}")), cx);
+                        window.push_notification(Notification::error(format!("连接失败：{e}")), cx);
                     }
                 }
                 cx.notify();
@@ -592,10 +590,7 @@ impl SettingsView {
             .find(|a| **a != action && a.get(&self.shortcut_keys) == key)
         {
             window.push_notification(
-                Notification::error(format!(
-                    "「{}」已被其他动作占用",
-                    shortcut_key_label(&key)
-                )),
+                Notification::error(format!("「{}」已被其他动作占用", shortcut_key_label(&key))),
                 cx,
             );
             // 冲突时保留捕获态（换一个键再试），与 Tauri 的「当场拦截」同效
@@ -615,8 +610,7 @@ impl SettingsView {
         let keys = self.shortcut_keys.clone();
         crate::bridge::spawn(async move {
             tokio::task::spawn_blocking(move || {
-                let path = hongguo_store::paths::data_dir()
-                    .join(crate::playback_prefs::FILE_NAME);
+                let path = hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
                 let mut prefs = crate::playback_prefs::load_from(&path);
                 prefs.keys = keys;
                 crate::playback_prefs::save_to(&path, &prefs);
@@ -647,13 +641,10 @@ impl SettingsView {
                             .ghost()
                             .small()
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.shortcut_keys =
-                                    crate::playback_prefs::ShortcutKeys::default();
+                                this.shortcut_keys = crate::playback_prefs::ShortcutKeys::default();
                                 this.capturing = None;
                                 this.persist_shortcut_keys(cx);
-                                cx.emit(SettingsEvent::ShortcutKeys(
-                                    this.shortcut_keys.clone(),
-                                ));
+                                cx.emit(SettingsEvent::ShortcutKeys(this.shortcut_keys.clone()));
                                 cx.notify();
                             })),
                     ),
@@ -736,12 +727,12 @@ impl SettingsView {
                         .items_center()
                         .gap_3()
                         .child(match &self.account_avatar {
-                            Some(bitmap) => gpui_kit::img(gpui_kit::ImageSource::Render(
-                                Arc::clone(bitmap),
-                            ))
-                            .size_8()
-                            .rounded_full()
-                            .into_any_element(),
+                            Some(bitmap) => {
+                                gpui_kit::img(gpui_kit::ImageSource::Render(Arc::clone(bitmap)))
+                                    .size_8()
+                                    .rounded_full()
+                                    .into_any_element()
+                            }
                             None => div()
                                 .size_8()
                                 .rounded_full()
@@ -871,7 +862,9 @@ impl SettingsView {
                     .child("网络代理"),
             )
             .child(Select::new(&self.proxy_select).w_full())
-            .children((current.proxy.mode == ProxyMode::Manual).then(|| Input::new(&self.proxy_input)))
+            .children(
+                (current.proxy.mode == ProxyMode::Manual).then(|| Input::new(&self.proxy_input)),
+            )
             .child(
                 h_flex()
                     .items_center()
@@ -1210,11 +1203,13 @@ impl gpui_kit::Render for SettingsView {
             // 捕获态键盘归属：焦点锚在根元素上，捕获中接管按键
             .track_focus(&self.keys_focus)
             .key_context("SettingsKeys")
-            .on_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
-                if this.capturing.is_some() {
-                    this.on_capture_key(ev, window, cx);
-                }
-            }))
+            .on_key_down(
+                cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                    if this.capturing.is_some() {
+                        this.on_capture_key(ev, window, cx);
+                    }
+                }),
+            )
             .child(body)
     }
 }

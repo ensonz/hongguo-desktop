@@ -585,13 +585,10 @@ impl MergeView {
                     .flex_shrink_0()
                     .items_center()
                     .gap_2()
-                                    .child(
-                                        Progress::new(ElementId::from(format!(
-                                            "merge-progress-{}",
-                                            task.id
-                                        )))
-                                        .value(task.percent as f32),
-                                    )
+                    .child(
+                        Progress::new(ElementId::from(format!("merge-progress-{}", task.id)))
+                            .value(task.percent as f32),
+                    )
                     .child(
                         div()
                             .w_9()
@@ -735,4 +732,3 @@ fn merge_warning_text(key: &str, mismatch_episode: Option<u32>) -> String {
         other => other.to_string(),
     }
 }
-

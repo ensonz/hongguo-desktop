@@ -17,7 +17,9 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Sizable, WindowExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img};
+use gpui_kit::{
+    App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
+};
 use hongguo_api::interact::BookshelfEntry;
 use hongguo_service::app_state::AppStateInner;
 
@@ -191,8 +193,7 @@ impl CollectionView {
                 this.update(cx, |view, cx| {
                     view.covers_pending.remove(&visual.series_id);
                     if !visual.title.is_empty() {
-                        view.titles
-                            .insert(visual.series_id.clone(), visual.title);
+                        view.titles.insert(visual.series_id.clone(), visual.title);
                         view.episode_counts
                             .insert(visual.series_id.clone(), visual.episode_count);
                     }
@@ -368,7 +369,11 @@ impl CollectionView {
             .child(search_box(&self.search, cx))
             .child(
                 Button::new("collections-manage")
-                    .label(if self.managing { "退出管理" } else { "管理" })
+                    .label(if self.managing {
+                        "退出管理"
+                    } else {
+                        "管理"
+                    })
                     .outline()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -567,9 +572,9 @@ impl CollectionView {
             crate::preview::fixtures::bookshelf_entries()
         };
         for (i, entry) in self.entries.iter().enumerate() {
-            let title = crate::preview::fixtures::SERIES[i % crate::preview::fixtures::SERIES.len()].1;
-            self.titles
-                .insert(entry.series_id.clone(), title.into());
+            let title =
+                crate::preview::fixtures::SERIES[i % crate::preview::fixtures::SERIES.len()].1;
+            self.titles.insert(entry.series_id.clone(), title.into());
             self.episode_counts
                 .insert(entry.series_id.clone(), 24 + i as u32 * 6);
             self.covers
@@ -592,117 +597,114 @@ impl gpui_kit::EventEmitter<CollectionEvent> for CollectionView {}
 
 impl gpui_kit::Render for CollectionView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let body = match &self.phase {
-            Phase::Loading => h_flex()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .child(Spinner::new().small())
-                .into_any_element(),
-            Phase::LoginRequired => {
-                let theme = cx.theme();
-                v_flex()
+        let body =
+            match &self.phase {
+                Phase::Loading => h_flex()
                     .flex_1()
                     .items_center()
                     .justify_center()
-                    .gap_3()
-                    .child(
-                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Star)
-                            .with_size(gpui_kit::px(32.0))
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("登录后可查看收藏（书架与官方 App 同步）"),
-                    )
-                    .child(
-                        Button::new("collections-retry-login")
-                            .label("重试")
-                            .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
-                    )
-                    .into_any_element()
-            }
-            Phase::Failed(msg) => {
-                let detail = msg.clone();
-                let theme = cx.theme();
-                v_flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("收藏列表加载失败"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(SharedString::from(detail)),
-                    )
-                    .child(
-                        Button::new("collections-retry")
-                            .label("重试")
-                            .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
-                    )
-                    .into_any_element()
-            }
-            Phase::Loaded if self.entries.is_empty() => {
-                let theme = cx.theme();
-                v_flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .gap_2()
-                    .child(
-                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Star)
-                            .with_size(gpui_kit::px(32.0))
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("还没有收藏"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child("在推荐页点 ☆ 收藏喜欢的剧，就会出现在这里"),
-                    )
-                    .into_any_element()
-            }
-            Phase::Loaded => {
-                let managing = self.managing;
-                let hovered = self.hovered.clone();
-                let visible = self.visible_entries(cx);
-                div()
-                    .id("collections-grid")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .p_4()
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .items_start()
-                            .gap_3()
-                            .children(visible.iter().map(|entry| {
+                    .child(Spinner::new().small())
+                    .into_any_element(),
+                Phase::LoginRequired => {
+                    let theme = cx.theme();
+                    v_flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .child(
+                            gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Star)
+                                .with_size(gpui_kit::px(32.0))
+                                .text_color(theme.muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("登录后可查看收藏（书架与官方 App 同步）"),
+                        )
+                        .child(
+                            Button::new("collections-retry-login")
+                                .label("重试")
+                                .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
+                        )
+                        .into_any_element()
+                }
+                Phase::Failed(msg) => {
+                    let detail = msg.clone();
+                    let theme = cx.theme();
+                    v_flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("收藏列表加载失败"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(SharedString::from(detail)),
+                        )
+                        .child(
+                            Button::new("collections-retry")
+                                .label("重试")
+                                .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
+                        )
+                        .into_any_element()
+                }
+                Phase::Loaded if self.entries.is_empty() => {
+                    let theme = cx.theme();
+                    v_flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .child(
+                            gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Star)
+                                .with_size(gpui_kit::px(32.0))
+                                .text_color(theme.muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("还没有收藏"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("在推荐页点 ☆ 收藏喜欢的剧，就会出现在这里"),
+                        )
+                        .into_any_element()
+                }
+                Phase::Loaded => {
+                    let managing = self.managing;
+                    let hovered = self.hovered.clone();
+                    let visible = self.visible_entries(cx);
+                    div()
+                        .id("collections-grid")
+                        .flex_1()
+                        .overflow_y_scroll()
+                        .p_4()
+                        .child(h_flex().flex_wrap().items_start().gap_3().children(
+                            visible.iter().map(|entry| {
                                 let picked = self.selected.contains(&entry.series_id);
                                 let is_hovered =
                                     hovered.as_deref() == Some(entry.series_id.as_str());
-                                div()
-                                    .w(gpui_kit::px(172.0))
-                                    .child(self.render_card(entry, managing, picked, is_hovered, cx))
-                            })),
-                    )
-                    .into_any_element()
-            }
-        };
+                                div().w(gpui_kit::px(172.0)).child(
+                                    self.render_card(entry, managing, picked, is_hovered, cx),
+                                )
+                            }),
+                        ))
+                        .into_any_element()
+                }
+            };
         let toolbar = (matches!(self.phase, Phase::Loaded) && !self.entries.is_empty())
             .then(|| self.render_toolbar(cx));
         let batch_bar = self.managing.then(|| {

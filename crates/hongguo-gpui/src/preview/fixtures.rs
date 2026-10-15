@@ -8,14 +8,14 @@
 use std::sync::Arc;
 
 use gpui_kit::RenderImage;
+use hongguo_api::calendar::CalendarItem;
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedItem;
 use hongguo_api::discover::{FeedItem, SelectorItem, SelectorRow};
-use hongguo_api::search::SearchResult;
-use hongguo_api::calendar::CalendarItem;
 use hongguo_api::history::WatchHistoryItem;
 use hongguo_api::interact::{BookshelfEntry, InteractionItem};
 use hongguo_api::rank::RankItem;
+use hongguo_api::search::SearchResult;
 use hongguo_common::model::{
     DownloadTask, MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask, TaskStatus,
     VideoDefinition,
@@ -180,7 +180,11 @@ pub(crate) fn reservation_items(online: bool) -> Vec<CalendarItem> {
             cover: String::new(), // 预览封面直接灌 covers
             vid: String::new(),
             score: if online { 8.6 - i as f64 * 0.3 } else { 0.0 },
-            play_cnt: if online { 4_030_000 + i as i64 * 120_000 } else { 0 },
+            play_cnt: if online {
+                4_030_000 + i as i64 * 120_000
+            } else {
+                0
+            },
             episode_cnt: if online { 24 + i as u32 * 6 } else { 0 },
             description: "战乱年代，一介孤女在渡口撑起商行，卷入朝堂风云。".into(),
             category: "古装".into(),

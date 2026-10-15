@@ -86,9 +86,7 @@ impl TasksView {
                 if !relevant {
                     continue;
                 }
-                let ok = this
-                    .update(cx, |view, cx| view.refresh(cx))
-                    .is_ok();
+                let ok = this.update(cx, |view, cx| view.refresh(cx)).is_ok();
                 if !ok {
                     break; // 视图已销毁
                 }
@@ -148,11 +146,8 @@ impl TasksView {
         }
         self.deleting = true;
         cx.notify();
-        let result = hongguo_service::download_service::actions::delete_tasks(
-            &self.state,
-            &ids,
-            with_files,
-        );
+        let result =
+            hongguo_service::download_service::actions::delete_tasks(&self.state, &ids, with_files);
         self.deleting = false;
         match result {
             Ok(_) => {
@@ -349,8 +344,7 @@ impl TasksView {
                     .outline()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| {
-                        let _ =
-                            hongguo_service::download_service::actions::resume_all(&this.state);
+                        let _ = hongguo_service::download_service::actions::resume_all(&this.state);
                         this.refresh(cx);
                     })),
             )
@@ -361,8 +355,7 @@ impl TasksView {
                     .outline()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| {
-                        let _ =
-                            hongguo_service::download_service::actions::pause_all(&this.state);
+                        let _ = hongguo_service::download_service::actions::pause_all(&this.state);
                         this.refresh(cx);
                     })),
             )
@@ -383,7 +376,11 @@ impl TasksView {
             )
             .child(
                 Button::new("tasks-select-all")
-                    .label(if all_checked { "取消全选" } else { "全选" })
+                    .label(if all_checked {
+                        "取消全选"
+                    } else {
+                        "全选"
+                    })
                     .outline()
                     .small()
                     .disabled(all_empty)
@@ -403,7 +400,11 @@ impl TasksView {
             .child(
                 Button::new("tasks-rescan")
                     .icon(gpui_kit::assets::IconName::ScanSearch)
-                    .label(if self.rescanning { "加载中…" } else { "扫描补登记" })
+                    .label(if self.rescanning {
+                        "加载中…"
+                    } else {
+                        "扫描补登记"
+                    })
                     .outline()
                     .small()
                     .disabled(self.rescanning)
@@ -483,32 +484,25 @@ impl TasksView {
                     .flex_shrink_0()
                     .child(tag.child(SharedString::from(Self::status_tag(task.status).0))),
             )
-            .child(
-                div()
-                    .w(gpui_kit::px(128.0))
-                    .flex_shrink_0()
-                    .map(|s| {
-                        if task.status == TaskStatus::Running {
-                            s.child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(Progress::new("task-progress").value(percent))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .child(SharedString::from(format!(
-                                                "{} / {}",
-                                                format_bytes(task.downloaded),
-                                                format_bytes(task.total)
-                                            ))),
-                                    ),
-                            )
-                        } else {
-                            s.text_xs().child(SharedString::from(format_bytes(task.total)))
-                        }
-                    }),
-            )
+            .child(div().w(gpui_kit::px(128.0)).flex_shrink_0().map(|s| {
+                if task.status == TaskStatus::Running {
+                    s.child(
+                        v_flex()
+                            .gap_1()
+                            .child(Progress::new("task-progress").value(percent))
+                            .child(div().text_xs().text_color(theme.muted_foreground).child(
+                                SharedString::from(format!(
+                                    "{} / {}",
+                                    format_bytes(task.downloaded),
+                                    format_bytes(task.total)
+                                )),
+                            )),
+                    )
+                } else {
+                    s.text_xs()
+                        .child(SharedString::from(format_bytes(task.total)))
+                }
+            }))
             .child(
                 h_flex()
                     .w(gpui_kit::px(120.0))
@@ -531,25 +525,26 @@ impl TasksView {
                                 this.refresh(cx);
                             }))
                     }))
-                    .children(matches!(
-                        task.status,
-                        TaskStatus::Failed | TaskStatus::Stopped
+                    .children(
+                        matches!(task.status, TaskStatus::Failed | TaskStatus::Stopped).then(
+                            || {
+                                let id = task.id.clone();
+                                Button::new(ElementId::from(format!("tasks-retry-{}", task.id)))
+                                    .icon(gpui_kit::assets::IconName::RotateCcw)
+                                    .ghost()
+                                    .small()
+                                    .tooltip("重试")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        let _ =
+                                            hongguo_service::download_service::actions::retry_task(
+                                                &this.state,
+                                                &id,
+                                            );
+                                        this.refresh(cx);
+                                    }))
+                            },
+                        ),
                     )
-                    .then(|| {
-                        let id = task.id.clone();
-                        Button::new(ElementId::from(format!("tasks-retry-{}", task.id)))
-                            .icon(gpui_kit::assets::IconName::RotateCcw)
-                            .ghost()
-                            .small()
-                            .tooltip("重试")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let _ = hongguo_service::download_service::actions::retry_task(
-                                    &this.state,
-                                    &id,
-                                );
-                                this.refresh(cx);
-                            }))
-                    }))
                     .children((task.status == TaskStatus::Completed).then(|| {
                         let series_id = task.series_id.clone();
                         Button::new(ElementId::from(format!("tasks-folder-{}", task.id)))
@@ -648,56 +643,53 @@ impl gpui_kit::Render for TasksView {
         };
         let selected_count = self.selected.len();
         let freeable = self.freeable_of(&self.selected.iter().cloned().collect::<Vec<_>>());
-        let bottom_bar = (selected_count > 0).then(|| {
-            let theme = cx.theme();
-            let ids: Vec<String> = self.selected.iter().cloned().collect();
-            h_flex()
-                .w_full()
-                .flex_shrink_0()
-                .items_center()
-                .gap_3()
-                .border_t_1()
-                .border_color(theme.border)
-                .bg(theme.background)
-                .px_4()
-                .py_3()
-                .child(
-                    div()
-                        .text_sm()
-                        .child(SharedString::from(selected_count.to_string())),
-                )
-                .children((freeable > 0).then(|| {
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(SharedString::from(format!(
-                            "可释放 {}",
-                            format_bytes(freeable)
-                        )))
-                }))
-                .child(div().flex_1())
-                .child(
-                    Button::new("tasks-clear-selection")
-                        .icon(gpui_kit::assets::IconName::X)
-                        .ghost()
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.selected.clear();
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("tasks-delete-selected")
-                        .icon(gpui_kit::assets::IconName::Trash)
-                        .label("删除")
-                        .danger()
-                        .small()
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.confirm_delete(ids.clone(), window, cx);
-                        })),
-                )
-                .into_any_element()
-        });
+        let bottom_bar =
+            (selected_count > 0).then(|| {
+                let theme = cx.theme();
+                let ids: Vec<String> = self.selected.iter().cloned().collect();
+                h_flex()
+                    .w_full()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_3()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .bg(theme.background)
+                    .px_4()
+                    .py_3()
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(SharedString::from(selected_count.to_string())),
+                    )
+                    .children((freeable > 0).then(|| {
+                        div().text_xs().text_color(theme.muted_foreground).child(
+                            SharedString::from(format!("可释放 {}", format_bytes(freeable))),
+                        )
+                    }))
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("tasks-clear-selection")
+                            .icon(gpui_kit::assets::IconName::X)
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.selected.clear();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("tasks-delete-selected")
+                            .icon(gpui_kit::assets::IconName::Trash)
+                            .label("删除")
+                            .danger()
+                            .small()
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.confirm_delete(ids.clone(), window, cx);
+                            })),
+                    )
+                    .into_any_element()
+            });
         let theme = cx.theme();
         v_flex()
             .size_full()
@@ -734,7 +726,9 @@ fn task_error_text(key: &str) -> String {
         "error.busy" => "上一个任务还在跑，请等它完成".into(),
         "error.internal" => "操作失败，请重试".into(),
         "error.badPayload" => "数据格式异常，请重试".into(),
-        "error.storeLocked" => "应用已在运行（可能被隐身模式隐藏了窗口），请从 Dock/任务栏打开它".into(),
+        "error.storeLocked" => {
+            "应用已在运行（可能被隐身模式隐藏了窗口），请从 Dock/任务栏打开它".into()
+        }
         other => other.to_string(),
     }
 }
@@ -749,9 +743,8 @@ impl TasksView {
         } else {
             crate::preview::fixtures::download_tasks()
         };
-        let count = |status: TaskStatus| {
-            tasks.iter().filter(|t| t.status == status).count() as usize
-        };
+        let count =
+            |status: TaskStatus| tasks.iter().filter(|t| t.status == status).count() as usize;
         self.queue_status = Some(QueueStatus {
             pending: count(TaskStatus::Pending),
             running: count(TaskStatus::Running),

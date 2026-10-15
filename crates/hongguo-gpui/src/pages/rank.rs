@@ -146,7 +146,12 @@ impl RankView {
         let rx = bridge::spawn(async move {
             let env = state.api_env();
             hongguo_api::rank::fetch_rank_ex(
-                &selected, &sub, panel.as_deref(), offset, &session, &env,
+                &selected,
+                &sub,
+                panel.as_deref(),
+                offset,
+                &session,
+                &env,
             )
             .await
         });
@@ -316,16 +321,17 @@ impl RankView {
                     Ok(()) => {
                         view.reserved_local.insert(sid.clone(), next);
                         window.push_notification(
-                            Notification::success(if next { "预约成功" } else { "已取消预约" }),
+                            Notification::success(if next {
+                                "预约成功"
+                            } else {
+                                "已取消预约"
+                            }),
                             cx,
                         );
                     }
                     Err(e) => {
                         log::warn!("[Rank] 预约失败: {e}");
-                        window.push_notification(
-                            Notification::error(format!("操作失败：{e}")),
-                            cx,
-                        );
+                        window.push_notification(Notification::error(format!("操作失败：{e}")), cx);
                     }
                 }
                 cx.notify();
@@ -379,10 +385,7 @@ impl RankView {
 
     fn render_sub_nav(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let theme = cx.theme();
-        let subs = self
-            .current_tab()
-            .map(|t| t.subs)
-            .unwrap_or_default();
+        let subs = self.current_tab().map(|t| t.subs).unwrap_or_default();
         v_flex()
             .id("rank-sub-nav")
             .w(gpui_kit::px(144.0))
@@ -610,32 +613,34 @@ impl RankView {
                             .text_color(theme.muted_foreground)
                             .child(SharedString::from(item.description.clone()))
                     }))
-                    .children((!item.rec_text.is_empty() || !secondary.is_empty()).then(|| {
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .text_xs()
-                            .children((!item.rec_text.is_empty()).then(|| {
-                                h_flex()
-                                    .flex_shrink_0()
-                                    .items_center()
-                                    .gap_0p5()
-                                    .text_color(theme.muted_foreground)
-                                    .child(
-                                        gpui_kit::component::Icon::new(
-                                            gpui_kit::assets::IconName::Flame,
+                    .children(
+                        (!item.rec_text.is_empty() || !secondary.is_empty()).then(|| {
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .text_xs()
+                                .children((!item.rec_text.is_empty()).then(|| {
+                                    h_flex()
+                                        .flex_shrink_0()
+                                        .items_center()
+                                        .gap_0p5()
+                                        .text_color(theme.muted_foreground)
+                                        .child(
+                                            gpui_kit::component::Icon::new(
+                                                gpui_kit::assets::IconName::Flame,
+                                            )
+                                            .small(),
                                         )
-                                        .small(),
-                                    )
-                                    .child(SharedString::from(item.rec_text.clone()))
-                            }))
-                            .children((!secondary.is_empty()).then(|| {
-                                div()
-                                    .truncate()
-                                    .text_color(theme.muted_foreground)
-                                    .child(SharedString::from(secondary.join("  ")))
-                            }))
-                    })),
+                                        .child(SharedString::from(item.rec_text.clone()))
+                                }))
+                                .children((!secondary.is_empty()).then(|| {
+                                    div()
+                                        .truncate()
+                                        .text_color(theme.muted_foreground)
+                                        .child(SharedString::from(secondary.join("  ")))
+                                }))
+                        }),
+                    ),
             )
             .child(
                 v_flex()
@@ -669,31 +674,25 @@ impl RankView {
                         let sid = item.series_id.clone();
                         let item_clone = item.clone();
                         vec![
-                            Button::new(ElementId::from(format!(
-                                "rank-play-{}",
-                                item.series_id
-                            )))
-                            .icon(gpui_kit::assets::IconName::Play)
-                            .label("播放")
-                            .outline()
-                            .small()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.play_series(sid.clone(), cx);
-                            }))
-                            .into_any_element(),
-                            Button::new(ElementId::from(format!(
-                                "rank-detail-{}",
-                                item.series_id
-                            )))
-                            .label("详情")
-                            .ghost()
-                            .small()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.open_detail(&item_clone, cx);
-                            }))
-                            .into_any_element(),
+                            Button::new(ElementId::from(format!("rank-play-{}", item.series_id)))
+                                .icon(gpui_kit::assets::IconName::Play)
+                                .label("播放")
+                                .outline()
+                                .small()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.play_series(sid.clone(), cx);
+                                }))
+                                .into_any_element(),
+                            Button::new(ElementId::from(format!("rank-detail-{}", item.series_id)))
+                                .label("详情")
+                                .ghost()
+                                .small()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.open_detail(&item_clone, cx);
+                                }))
+                                .into_any_element(),
                         ]
                     }),
             )
@@ -735,9 +734,13 @@ impl gpui_kit::Render for RankView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tabs_row = self.render_tabs_row(cx);
         let sub_nav = self.render_sub_nav(cx);
-        let filter_panel = self.filter_open.then(|| self.render_filter_panel(cx)).flatten();
-        let filter_button =
-            self.current_tab().and_then(|t| t.subs.into_iter().find(|s| s.id == self.sub));
+        let filter_panel = self
+            .filter_open
+            .then(|| self.render_filter_panel(cx))
+            .flatten();
+        let filter_button = self
+            .current_tab()
+            .and_then(|t| t.subs.into_iter().find(|s| s.id == self.sub));
         let has_panel = filter_button
             .as_ref()
             .map(|s| !s.panel.is_empty())
@@ -789,7 +792,11 @@ impl gpui_kit::Render for RankView {
             let loading_more = self.loading;
             h_flex().w_full().justify_center().py_2().child(
                 Button::new("rank-more")
-                    .label(if loading_more { "正在加载更多…" } else { "加载更多" })
+                    .label(if loading_more {
+                        "正在加载更多…"
+                    } else {
+                        "加载更多"
+                    })
                     .ghost()
                     .small()
                     .disabled(loading_more)
@@ -860,61 +867,63 @@ impl gpui_kit::Render for RankView {
                                             .w_full()
                                             .gap_2()
                                             .children(if loading {
-                                                vec![h_flex()
-                                                    .w_full()
-                                                    .justify_center()
-                                                    .py_8()
-                                                    .child(Spinner::new().small())
-                                                    .into_any_element()]
+                                                vec![
+                                                    h_flex()
+                                                        .w_full()
+                                                        .justify_center()
+                                                        .py_8()
+                                                        .child(Spinner::new().small())
+                                                        .into_any_element(),
+                                                ]
                                             } else if failed {
-                                                vec![v_flex()
-                                                    .w_full()
-                                                    .items_center()
-                                                    .py_16()
-                                                    .gap_3()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(theme.muted_foreground)
-                                                            .child("排行榜加载失败"),
-                                                    )
-                                                    .child(
-                                                        Button::new("rank-retry")
-                                                            .label("重试")
-                                                            .on_click(cx.listener(
-                                                                |this, _, _, cx| {
-                                                                    this.load_page(false, cx)
-                                                                },
-                                                            )),
-                                                    )
-                                                    .into_any_element()]
+                                                vec![
+                                                    v_flex()
+                                                        .w_full()
+                                                        .items_center()
+                                                        .py_16()
+                                                        .gap_3()
+                                                        .child(
+                                                            div()
+                                                                .text_sm()
+                                                                .text_color(theme.muted_foreground)
+                                                                .child("排行榜加载失败"),
+                                                        )
+                                                        .child(
+                                                            Button::new("rank-retry")
+                                                                .label("重试")
+                                                                .on_click(cx.listener(
+                                                                    |this, _, _, cx| {
+                                                                        this.load_page(false, cx)
+                                                                    },
+                                                                )),
+                                                        )
+                                                        .into_any_element(),
+                                                ]
                                             } else if empty {
-                                                vec![v_flex()
-                                                    .w_full()
-                                                    .items_center()
-                                                    .py_16()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(theme.muted_foreground)
-                                                            .child("暂无内容"),
-                                                    )
-                                                    .into_any_element()]
+                                                vec![
+                                                    v_flex()
+                                                        .w_full()
+                                                        .items_center()
+                                                        .py_16()
+                                                        .child(
+                                                            div()
+                                                                .text_sm()
+                                                                .text_color(theme.muted_foreground)
+                                                                .child("暂无内容"),
+                                                        )
+                                                        .into_any_element(),
+                                                ]
                                             } else {
                                                 rows
                                             })
                                             .children(more_button)
                                             .children((!has_more && count > 0).then(|| {
-                                                h_flex()
-                                                    .w_full()
-                                                    .justify_center()
-                                                    .py_2()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(theme.muted_foreground)
-                                                            .child("没有更多了"),
-                                                    )
+                                                h_flex().w_full().justify_center().py_2().child(
+                                                    div()
+                                                        .text_sm()
+                                                        .text_color(theme.muted_foreground)
+                                                        .child("没有更多了"),
+                                                )
                                             })),
                                     ),
                             ),

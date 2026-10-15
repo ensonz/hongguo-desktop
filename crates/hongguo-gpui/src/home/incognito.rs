@@ -29,7 +29,10 @@ impl super::HomeView {
     /// 同款——它对「挂载同步」的防重入在这里不存在：本壳只有这一个开关入口，
     /// 关的时候窗口一定在恢复路径上）。
     /// `window` 只在 Windows 的句柄探测里用；mac 降级路径用不上。
-    #[cfg_attr(not(target_os = "windows"), expect(unused_variables, reason = "mac 侧无窗口藏显 FFI，句柄探测分支未编译"))]
+    #[cfg_attr(
+        not(target_os = "windows"),
+        expect(unused_variables, reason = "mac 侧无窗口藏显 FFI，句柄探测分支未编译")
+    )]
     pub(super) fn set_incognito(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.incognito == on {
             return;
