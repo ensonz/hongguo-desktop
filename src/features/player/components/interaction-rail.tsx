@@ -18,7 +18,7 @@ import { Tv } from 'lucide-react';
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 import { ChromeSurface } from './chrome-surface';
-import { useAccount, useInteractionState, useSeriesCollect, useVideoDigg } from '@/service/queries';
+import { useAccount, useFollowUpdates, useInteractionState, useSeriesCollect, useVideoDigg } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
 import { useFollowState } from '@/hooks/use-follow-state';
 
@@ -130,6 +130,13 @@ export function InteractionRail({
   const collectCount =
     (publicFollowCount ?? 0) > 0 ? publicFollowCount! : (seriesHit?.followedCnt ?? 0);
 
+  // 追更按钮按完结状态条件显示：已完结剧不会有新集，追更无意义
+  const followList = useFollowUpdates();
+  const followedItem = followList.data?.pages
+    .flatMap((p) => p.items)
+    .find((i) => i.seriesId === seriesId);
+  const showFollow = !followedItem || !followedItem.finished;
+
   const digg = useVideoDigg();
   const collect = useSeriesCollect();
   const setCommentPanelOpen = usePlayerStore((s) => s.setCommentPanelOpen);
@@ -208,13 +215,15 @@ export function InteractionRail({
         text={diggCount > 0 ? fmtCount(diggCount) : undefined}
         onClick={onDigg}
       />
-      {/* 追更（📺 + 已追态高亮）：对齐第三方 player 播放页的追更入口 */}
-      <RailItem
-        icon={<Tv className={cn('size-7', follow.isOn && 'text-primary')} />}
-        label={t(follow.isOn ? 'player.interact.following' : 'player.interact.follow')}
-        text={follow.isOn ? t('player.interact.following') : t('player.interact.follow')}
-        onClick={onFollow}
-      />
+      {/* 追更（📺 + 已追态高亮）：仅连载中的剧显示——已完结剧不会有新集 */}
+      {showFollow && (
+        <RailItem
+          icon={<Tv className={cn('size-7', follow.isOn && 'text-primary')} />}
+          label={t(follow.isOn ? 'player.interact.following' : 'player.interact.follow')}
+          text={follow.isOn ? t('player.interact.following') : t('player.interact.follow')}
+          onClick={onFollow}
+        />
+      )}
       <RailItem
         icon={<DouyinShareIcon className="size-7" />}
         label={t('player.interact.share')}
