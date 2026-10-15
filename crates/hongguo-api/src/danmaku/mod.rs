@@ -18,12 +18,13 @@ mod comments;
 mod model;
 
 pub use comments::{
-    fetch_comment_replies, fetch_comments_page, fetch_review_replies, fetch_series_comments_page,
-    send_series_review,
+    fetch_comment_replies, fetch_comments_page, fetch_creator_profile, fetch_creator_works,
+    fetch_review_replies, fetch_series_comments_page, send_series_review,
 };
 pub(crate) use comments::{parse_comment_item, parse_reply_item};
 pub use model::{
-    CommentItem, CommentPage, CommentTagStat, Danmaku, ReplyItem, ReplyPage, SeriesReviewPage,
+    CommentItem, CommentPage, CommentTagStat, CreatorProfile, CreatorWork, CreatorWorksPage,
+    Danmaku, ReplyItem, ReplyPage, SeriesReviewPage,
 };
 
 #[cfg(test)]

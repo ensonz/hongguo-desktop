@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './__root'
 import { Route as IndexRouteImport } from './index'
 import { Route as BrowseRouteImport } from './browse'
 import { Route as CollectionsRouteImport } from './collections'
+import { Route as CreatorRouteImport } from './creator'
 import { Route as DetailRouteImport } from './detail'
 import { Route as FollowsRouteImport } from './follows'
 import { Route as HistoryRouteImport } from './history'
@@ -37,6 +38,11 @@ const BrowseRoute = BrowseRouteImport.update({
 const CollectionsRoute = CollectionsRouteImport.update({
   id: '/collections',
   path: '/collections',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorRoute = CreatorRouteImport.update({
+  id: '/creator',
+  path: '/creator',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DetailRoute = DetailRouteImport.update({
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
+  '/creator': typeof CreatorRoute
   '/detail': typeof DetailRoute
   '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
+  '/creator': typeof CreatorRoute
   '/detail': typeof DetailRoute
   '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
@@ -132,6 +140,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
+  '/creator': typeof CreatorRoute
   '/detail': typeof DetailRoute
   '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
@@ -150,6 +159,7 @@ export interface FileRouteTypes {
     | '/'
     | '/browse'
     | '/collections'
+    | '/creator'
     | '/detail'
     | '/follows'
     | '/history'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
     | '/'
     | '/browse'
     | '/collections'
+    | '/creator'
     | '/detail'
     | '/follows'
     | '/history'
@@ -182,6 +193,7 @@ export interface FileRouteTypes {
     | '/'
     | '/browse'
     | '/collections'
+    | '/creator'
     | '/detail'
     | '/follows'
     | '/history'
@@ -199,6 +211,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BrowseRoute: typeof BrowseRoute
   CollectionsRoute: typeof CollectionsRoute
+  CreatorRoute: typeof CreatorRoute
   DetailRoute: typeof DetailRoute
   FollowsRoute: typeof FollowsRoute
   HistoryRoute: typeof HistoryRoute
@@ -233,6 +246,13 @@ declare module '@tanstack/react-router' {
       path: '/collections'
       fullPath: '/collections'
       preLoaderRoute: typeof CollectionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator': {
+      id: '/creator'
+      path: '/creator'
+      fullPath: '/creator'
+      preLoaderRoute: typeof CreatorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/detail': {
@@ -319,6 +339,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BrowseRoute: BrowseRoute,
   CollectionsRoute: CollectionsRoute,
+  CreatorRoute: CreatorRoute,
   DetailRoute: DetailRoute,
   FollowsRoute: FollowsRoute,
   HistoryRoute: HistoryRoute,

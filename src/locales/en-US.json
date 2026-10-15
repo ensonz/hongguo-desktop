@@ -633,6 +633,11 @@
     "undo": "Undo like",
     "batchUndoTitle": "Undo selected likes?"
   },
+  "creator": {
+    "works": "Works · {count}",
+    "empty": "No published works yet",
+    "loadFailed": "Failed to load homepage"
+  },
   "follow": {
     "tabFollows": "Following",
     "tabNotices": "Updates",
@@ -677,6 +682,7 @@
     "collect": "Collect",
     "collected": "Collected",
     "creatorWorks": "Works by {name}",
+    "creatorHome": "{name}'s homepage",
     "tabEpisodes": "Episodes",
     "tabComments": "Comments",
     "tabRecommend": "Related",

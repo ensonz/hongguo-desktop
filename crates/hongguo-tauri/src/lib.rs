@@ -192,6 +192,8 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::danmaku_cmd::series_review_send,
             commands::danmaku_cmd::comment_replies,
             commands::danmaku_cmd::review_replies,
+            commands::danmaku_cmd::creator_profile,
+            commands::danmaku_cmd::creator_works,
             // 互动（点赞/收藏/发弹幕/回复，2026-10-05/06 抓包端点）
             commands::interact_cmd::danmaku_send,
             commands::interact_cmd::comment_send,

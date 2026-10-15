@@ -3,8 +3,9 @@
 use tauri::State;
 
 use hongguo_api::danmaku::{
-    CommentItem, CommentPage, Danmaku, ReplyPage, SeriesReviewPage, fetch_comment_replies,
-    fetch_comments_page, fetch_danmaku_all, fetch_review_replies, fetch_series_comments_page,
+    CommentItem, CommentPage, CreatorProfile, CreatorWorksPage, Danmaku, ReplyPage,
+    SeriesReviewPage, fetch_comment_replies, fetch_comments_page, fetch_creator_profile,
+    fetch_creator_works, fetch_danmaku_all, fetch_review_replies, fetch_series_comments_page,
     send_series_review,
 };
 use hongguo_common::{AppError, AppResult};
@@ -153,6 +154,27 @@ pub async fn review_replies(
 ) -> AppResult<ReplyPage> {
     let env = state.api_env();
     fetch_review_replies(&series_id, &comment_id, &cursor.unwrap_or_default(), &env).await
+}
+
+/// 创作者主页资料头（详情页点创作者 → 主页；2026-10-15 官方实包）。
+#[tauri::command]
+pub async fn creator_profile(
+    state: State<'_, AppState>,
+    user_id: String,
+) -> AppResult<CreatorProfile> {
+    let env = state.api_env();
+    fetch_creator_profile(&user_id, &env).await
+}
+
+/// 创作者主页作品列表一页（cursor 传上一页返回的原样游标，首页空串）。
+#[tauri::command]
+pub async fn creator_works(
+    state: State<'_, AppState>,
+    user_id: String,
+    cursor: Option<String>,
+) -> AppResult<CreatorWorksPage> {
+    let env = state.api_env();
+    fetch_creator_works(&user_id, &cursor.unwrap_or_default(), &env).await
 }
 
 #[cfg(test)]

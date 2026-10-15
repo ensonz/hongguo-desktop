@@ -87,3 +87,36 @@ export const replyPageSchema = z.object({
   nextCursor: z.string(),
 });
 export type ReplyPage = z.infer<typeof replyPageSchema>;
+
+/** 创作者主页资料头（Rust `danmaku::CreatorProfile`，2026-10-15 官方实包）。 */
+export const creatorProfileSchema = z.object({
+  userId: z.string(),
+  userName: z.string(),
+  /** 头像 CDN 地址规整（同评论头像：heic→代理/jpeg） */
+  avatar: z.string().transform(normalizeAvatarUrl),
+  description: z.string().default(''),
+});
+export type CreatorProfile = z.infer<typeof creatorProfileSchema>;
+
+/** 创作者主页的一部作品（Rust `danmaku::CreatorWork`；seriesId 即播放目标）。
+ *  旧后端窗口期缺字段 → 各数值/数组走 default。 */
+export const creatorWorkSchema = z.object({
+  seriesId: z.string(),
+  title: z.string(),
+  cover: z.string().transform(normalizeAvatarUrl),
+  intro: z.string().default(''),
+  episodeCnt: z.number().default(0),
+  playCnt: z.number().default(0),
+  hot: z.number().default(0),
+  tags: z.array(z.string()).default([]),
+});
+export type CreatorWork = z.infer<typeof creatorWorkSchema>;
+
+/** 创作者主页作品列表一页（Rust `danmaku::CreatorWorksPage`；cursor 翻页）。 */
+export const creatorWorksPageSchema = z.object({
+  works: z.array(creatorWorkSchema),
+  cursor: z.string().default(''),
+  hasMore: z.boolean(),
+  total: z.number().default(0),
+});
+export type CreatorWorksPage = z.infer<typeof creatorWorksPageSchema>;

@@ -19,6 +19,8 @@ import {
   calendarPageSchema,
   commentItemSchema,
   commentPageSchema,
+  creatorProfileSchema,
+  creatorWorksPageSchema,
   danmakuSchema,
   decodeCapabilitySchema,
   downloadTaskSchema,
@@ -149,6 +151,14 @@ export const COMMANDS = {
   series_comment_list: {
     args: z.object({ seriesId: z.string(), cursor: z.string().optional() }),
     response: seriesReviewPageSchema,
+  },
+  creator_profile: {
+    args: z.object({ userId: z.string() }),
+    response: creatorProfileSchema,
+  },
+  creator_works: {
+    args: z.object({ userId: z.string(), cursor: z.string().optional() }),
+    response: creatorWorksPageSchema,
   },
   series_review_send: {
     args: z.object({ seriesId: z.string(), text: z.string(), score: z.number() }),

@@ -633,6 +633,11 @@
     "undo": "取消赞",
     "batchUndoTitle": "批量取消点赞？"
   },
+  "creator": {
+    "works": "作品 · {count}",
+    "empty": "TA 还没有发布作品",
+    "loadFailed": "主页加载失败"
+  },
   "follow": {
     "tabFollows": "追更的剧",
     "tabNotices": "更新提醒",
@@ -677,6 +682,7 @@
     "collect": "收藏",
     "collected": "已收藏",
     "creatorWorks": "看「{name}」的作品",
+    "creatorHome": "看「{name}」的主页",
     "tabEpisodes": "选集",
     "tabComments": "剧评",
     "tabRecommend": "相关推荐",

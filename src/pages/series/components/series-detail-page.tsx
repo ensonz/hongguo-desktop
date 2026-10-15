@@ -141,15 +141,6 @@ export function SeriesDetailPage({
     );
   };
 
-  /** 出品人 → 找剧页按名字搜其作品（官方的「出品人全部剧集」是 Lynx
-   *  模板页没有 JSON 端点；搜索接口已抓包实现，用它做近义能力）。
-   *  browse 页的关键词是 sessionStorage 会话态，先种再导航。 */
-  const seedBrowseSearch = (name: string) => {
-    sessionStorage.setItem('hongguo.browse.keyword', JSON.stringify(name));
-    sessionStorage.setItem('hongguo.browse.submitted', JSON.stringify(name));
-    void navigate({ to: '/browse' });
-  };
-
   const onDigg = () => {
     if (!loggedIn) return requireLogin();
     if (!continueEp) return;
@@ -304,18 +295,31 @@ export function SeriesDetailPage({
                 <p className="text-muted-foreground mt-4 text-sm leading-relaxed">{intro}</p>
               )}
 
-              {/* 出品方 / 演职员（main_creator_users，对齐第三方详情页 creators
-                  块：头像 + 名字 + 角色行）。官方点击开 Lynx 模板页（无 JSON
-                  端点），这里点击跳找剧页按名字搜其作品（搜索端点已抓包） */}
+              {/* 出品方 / 演职员（main_creator_users，对齐官方详情页 creators
+                  块：头像 + 名字 + 角色行）。点击跳**创作者主页**（2026-10-15
+                  官方实包：commentapi/user/profile，非搜索；userId 是条目
+                  自带的 user_id）。旧条目无 uid 时不可点（仅展示） */}
               {meta && meta.creators.length > 0 && (
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   {meta.creators.map((c) => (
                     <button
                       key={c.userId + c.name}
                       type="button"
-                      onClick={() => seedBrowseSearch(c.name)}
-                      className="hover:bg-sidebar-accent flex items-center gap-2 rounded-full border py-1 pr-3 pl-1 transition-colors"
-                      title={tf('detail.creatorWorks', { name: c.name })}
+                      onClick={
+                        c.userId
+                          ? () =>
+                              void navigate({
+                                to: '/creator',
+                                search: { userId: c.userId },
+                              })
+                          : undefined
+                      }
+                      disabled={!c.userId}
+                      className={cn(
+                        'flex items-center gap-2 rounded-full border py-1 pr-3 pl-1 transition-colors',
+                        c.userId && 'hover:bg-sidebar-accent cursor-pointer',
+                      )}
+                      title={tf('detail.creatorHome', { name: c.name })}
                     >
                       {c.avatar ? (
                         <img

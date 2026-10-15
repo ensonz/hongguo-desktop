@@ -26,4 +26,12 @@ export const danmaku = {
    */
   seriesReviewSend: (seriesId: string, text: string, score: number) =>
     call('series_review_send', { seriesId, text, score }),
+
+  // ------------------------------------------------------------ 创作者主页
+
+  /** 主页资料头（详情页点创作者 → 主页；2026-10-15 官方实包）。 */
+  creatorProfile: (userId: string) => call('creator_profile', { userId }),
+  /** 主页作品列表一页（cursor 传上一页返回的原样游标，首页空串）。 */
+  creatorWorks: (userId: string, cursor = '') =>
+    call('creator_works', { userId, cursor: cursor || undefined }),
 };

@@ -1,7 +1,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData } from '@tanstack/react-query';
 import { danmaku as danmakuCmd, interact as interactCmd } from '../commands';
-import type { CommentPage, Danmaku, ReplyPage, SeriesReviewPage } from '../schema';
+import type {
+  CommentPage,
+  CreatorProfile,
+  CreatorWorksPage,
+  Danmaku,
+  ReplyPage,
+  SeriesReviewPage,
+} from '../schema';
 import { keys } from './common';
 import { useAccount } from './interact';
 
@@ -386,6 +393,37 @@ export function useMentionList(seriesId: string) {
     queryKey: keys.mentionList(seriesId),
     queryFn: () => interactCmd.mentionList(seriesId),
     enabled: !!account && !!seriesId,
+    staleTime: 0,
+  });
+}
+
+// ---------------------------------------------------------------- 创作者主页
+
+/**
+ * 创作者主页资料头（详情页点创作者 → 主页，2026-10-15 官方实包对齐）。
+ * 失败交页面降级（头部行不渲染，作品列表照常）。
+ */
+export function useCreatorProfile(userId: string) {
+  return useQuery({
+    queryKey: keys.creatorProfile(userId),
+    queryFn: (): Promise<CreatorProfile> => danmakuCmd.creatorProfile(userId),
+    enabled: !!userId,
+    staleTime: 0,
+  });
+}
+
+/**
+ * 创作者主页作品列表（无限翻页；一页 18 条，cursor 原样回传续拉）。
+ * 作品的 seriesId 即播放目标（与追更列表同构，实测可直连 resolve）。
+ */
+export function useCreatorWorks(userId: string) {
+  return useInfiniteQuery({
+    queryKey: keys.creatorWorks(userId),
+    queryFn: ({ pageParam }): Promise<CreatorWorksPage> =>
+      danmakuCmd.creatorWorks(userId, pageParam),
+    initialPageParam: '',
+    getNextPageParam: (last) => (last.hasMore && last.cursor ? last.cursor : undefined),
+    enabled: !!userId,
     staleTime: 0,
   });
 }

@@ -44,6 +44,9 @@ export const keys = {
   comments: (vid: string) => ['comments', vid] as const,
   /** 评论 @ 提及候选（登录态，含官方 AI bot 小果） */
   mentionList: (seriesId: string) => ['mention-list', seriesId] as const,
+  /** 创作者主页（详情页点创作者进入：资料头 + 作品列表） */
+  creatorProfile: (userId: string) => ['creator-profile', userId] as const,
+  creatorWorks: (userId: string) => ['creator-works', userId] as const,
   interactState: ['interact-state'] as const,
   bookshelf: ['bookshelf'] as const,
   /** 追更整组失效用根 key（追更/取消后列表与「是否已追」一起翻面） */
