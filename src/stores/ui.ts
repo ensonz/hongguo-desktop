@@ -8,6 +8,9 @@ interface UiState {
   /** 找剧筛选面板是否折叠（第三方同款：可整块收起只留开关行） */
   browseFiltersCollapsed: boolean;
   setBrowseFiltersCollapsed: (collapsed: boolean) => void;
+  /** 追更更新提醒的弹出开关（第三方 popupOn 同款）：关 = 只进提醒列表不弹 toast */
+  aibotPopupOn: boolean;
+  setAibotPopupOn: (on: boolean) => void;
   /** 小屏播放中（对齐 hgplayer：同一窗口缩成 480×270，侧栏隐藏、
    *  播放器换紧凑控件；退出恢复）。瞬态：不持久化，重启即常规窗口。 */
   miniScreen: boolean;
@@ -39,6 +42,8 @@ export const useUiStore = create<UiState>()(
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
       browseFiltersCollapsed: false,
       setBrowseFiltersCollapsed: (collapsed) => set({ browseFiltersCollapsed: collapsed }),
+      aibotPopupOn: true,
+      setAibotPopupOn: (on) => set({ aibotPopupOn: on }),
       miniScreen: false,
       setMiniScreen: (on) => set({ miniScreen: on }),
       pinned: false,
@@ -61,6 +66,7 @@ export const useUiStore = create<UiState>()(
       partialize: (s) => ({
         sidebarCollapsed: s.sidebarCollapsed,
         browseFiltersCollapsed: s.browseFiltersCollapsed,
+        aibotPopupOn: s.aibotPopupOn,
       }),
     },
   ),

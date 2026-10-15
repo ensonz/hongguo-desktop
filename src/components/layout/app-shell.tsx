@@ -42,19 +42,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     useCallback(() => setExitOpen(true), []),
   );
 
-  // 追更更新提醒到达（后端定时检查出新集）：弹一条 + 刷新角标/列表缓存。
-  // 弹在应用壳（不在追更页）——无论用户此刻在哪个页面都能看到。
+  // 追更更新提醒到达（后端定时检查出新集）：刷新角标/列表缓存；弹出开关
+  // 开着才弹 toast（hgplayer「弹出提醒」同款，开关在追更页提醒 tab）
   const refreshFollow = useFollowNoticesInvalidator();
+  const aibotPopupOn = useUiStore((s) => s.aibotPopupOn);
   useEvent(
     EVENTS.followNotices,
     useCallback(
       (payload) => {
         refreshFollow();
+        if (!aibotPopupOn) return;
         for (const n of payload.notices) {
           toast.message(n.title, { description: n.detail });
         }
       },
-      [refreshFollow],
+      [refreshFollow, aibotPopupOn],
     ),
   );
 

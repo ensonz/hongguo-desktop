@@ -656,6 +656,7 @@
     "batchCancelTitle": "Unfollow selected series?",
     "noticesEmpty": "No alerts",
     "noticesEmptyHint": "When a followed series updates or a reserved one goes live, alerts show up here (checked every 20 minutes)",
+    "popupOn": "Popup alerts",
     "checkUpdate": "Check now",
     "checking": "Checking…",
     "checkResult": "{count} new alerts",

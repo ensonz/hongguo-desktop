@@ -87,6 +87,7 @@ node scripts/cdp.mjs probe browse   # 裂图+网络失败体检，退出码可�
 5. updater 走 GitHub Releases（`endpoints` 指向 `latest.json`），Windows `installMode: quiet`，NSIS 用仓库自带模板 + installerHooks（`make nsis` 保持模板同步）。
 6. 改应用名/图标后：`make assets` 重新生成并**提交产物**（构建不依赖本机 Python/网络）。
 7. capabilities 是最小权限集（自绘标题栏的逐条 window 动作放行），新增窗口操作要同步 `crates/hongguo-tauri-app/capabilities/default.json`。
+8. **issue 回复在发版后再回**：修复/功能合入 dev ≠ 用户可用——回复「已实现/已修复」时用户更新不到就会追问。顺序：合入 dev → 发版（tag + CHANGELOG）→ 再到 issue 附版本号回复（2026-10-15 教训：@小果AI 未完成时提前回了「其余已实现」，用户实测发现与回复不符）。
 
 ## 工程背景（改构建配置前必知）
 

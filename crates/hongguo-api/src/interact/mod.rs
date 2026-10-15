@@ -83,13 +83,15 @@ pub async fn send_danmaku(
     env: &ApiEnv,
 ) -> AppResult<String> {
     Ok(comment_add(
-        group_id,
-        book_id,
-        text,
-        DATA_TYPE_DANMAKU,
-        COMMIT_SOURCE_DANMAKU,
-        offset_ms,
-        None,
+        CommentAddArgs {
+            group_id,
+            book_id,
+            text,
+            data_type: DATA_TYPE_DANMAKU,
+            commit_source: COMMIT_SOURCE_DANMAKU,
+            offset_ms,
+            mention: None,
+        },
         env,
     )
     .await?
@@ -107,13 +109,15 @@ pub async fn send_comment(
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
     comment_add(
-        group_id,
-        book_id,
-        text,
-        DATA_TYPE_COMMENT,
-        COMMIT_SOURCE_COMMENT,
-        0,
-        None,
+        CommentAddArgs {
+            group_id,
+            book_id,
+            text,
+            data_type: DATA_TYPE_COMMENT,
+            commit_source: COMMIT_SOURCE_COMMENT,
+            offset_ms: 0,
+            mention: None,
+        },
         env,
     )
     .await
@@ -131,13 +135,15 @@ pub async fn send_comment_mention(
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
     comment_add(
-        group_id,
-        book_id,
-        text,
-        DATA_TYPE_COMMENT,
-        COMMIT_SOURCE_COMMENT,
-        0,
-        Some(mention),
+        CommentAddArgs {
+            group_id,
+            book_id,
+            text,
+            data_type: DATA_TYPE_COMMENT,
+            commit_source: COMMIT_SOURCE_COMMENT,
+            offset_ms: 0,
+            mention: Some(mention),
+        },
         env,
     )
     .await
@@ -227,16 +233,29 @@ fn check_interact_code(value: &Value) -> AppResult<()> {
 /// - 评论 `data_type=4`：business_param 另有 has_aigc_content/log_extra/
 ///   preset_text_id/text_feature，shark 是素形态——2026-10-06 实测评论
 ///   形态服务端有独立校验，缺新字段或混入弹幕字段有 103001 风险。
-async fn comment_add(
-    group_id: &str,
-    book_id: &str,
-    text: &str,
+///
+/// comment/add 的发送参数（弹幕/评论双形态共用的收口，避免参数表随
+/// 功能追加无限膨胀——mention 载荷随业务挂进 business_param）。
+struct CommentAddArgs<'a> {
+    group_id: &'a str,
+    book_id: &'a str,
+    text: &'a str,
     data_type: i64,
     commit_source: i64,
     offset_ms: u64,
-    mention: Option<&CommentMention>,
-    env: &ApiEnv,
-) -> AppResult<CommentItem> {
+    mention: Option<&'a CommentMention>,
+}
+
+async fn comment_add(args: CommentAddArgs<'_>, env: &ApiEnv) -> AppResult<CommentItem> {
+    let CommentAddArgs {
+        group_id,
+        book_id,
+        text,
+        data_type,
+        commit_source,
+        offset_ms,
+        mention,
+    } = args;
     let mut business_param = if data_type == DATA_TYPE_DANMAKU {
         serde_json::json!({
             "book_id": book_id,
@@ -259,27 +278,21 @@ async fn comment_add(
     // @小果AI 提及（2026-10-15 抓 player 登录态实包）：text 前置
     // `@小果\u{FFFC}`，rich_text 段 tp=15/uri=uid，business_param 另带
     // aibot_mention_context（最近观看剧集 vid 的嵌套数组，JSON 字符串形态）
-    let final_text = match mention {
-        Some(_) if data_type == DATA_TYPE_COMMENT => {
-            if text.trim().is_empty() {
-                MENTION_TEXT.to_string()
-            } else {
-                format!("{MENTION_TEXT} {text}")
-            }
-        }
+    let is_comment = data_type == DATA_TYPE_COMMENT;
+    let final_text = match (mention, is_comment, text.trim().is_empty()) {
+        (Some(_), true, true) => MENTION_TEXT.to_string(),
+        (Some(_), true, false) => format!("{MENTION_TEXT} {text}"),
         _ => text.to_string(),
     };
-    if let Some(m) = mention {
-        if data_type == DATA_TYPE_COMMENT {
-            let ctx = serde_json::to_string(
-                &m.vids
-                    .iter()
-                    .map(|v| serde_json::json!([v]))
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap_or_default();
-            business_param["aibot_mention_context"] = serde_json::Value::String(ctx);
-        }
+    if let (Some(m), true) = (mention, is_comment) {
+        let ctx = serde_json::to_string(
+            &m.vids
+                .iter()
+                .map(|v| serde_json::json!([v]))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_default();
+        business_param["aibot_mention_context"] = serde_json::Value::String(ctx);
     }
     let mut payload = serde_json::json!({
         "aid": 8662,
@@ -290,16 +303,14 @@ async fn comment_add(
         "group_type": GROUP_TYPE_COMMENT,
         "text": final_text,
     });
-    if let Some(m) = mention {
-        if data_type == DATA_TYPE_COMMENT {
-            payload["rich_text"] = serde_json::json!([{
-                "s": 0,
-                "e": MENTION_TEXT_UNITS,
-                "tp": 15,
-                "uri": m.user_id,
-                "text": MENTION_TEXT,
-            }]);
-        }
+    if let (Some(m), true) = (mention, is_comment) {
+        payload["rich_text"] = serde_json::json!([{
+            "s": 0,
+            "e": MENTION_TEXT_UNITS,
+            "tp": 15,
+            "uri": m.user_id,
+            "text": MENTION_TEXT,
+        }]);
     }
     let raw = serde_json::to_vec(&payload)
         .map_err(|e| AppError::Media(format!("构造弹幕/评论请求失败: {e}")))?;

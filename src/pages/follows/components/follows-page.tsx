@@ -20,6 +20,7 @@ import { FollowButton } from '@/components/common/follow-button';
 import { BatchBar, ManageToggle, PickDot } from '@/components/common/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useSessionState } from '@/hooks/use-scroll-restore';
+import { useUiStore } from '@/stores/ui';
 import { usePlaySeries } from '@/hooks/use-play-series';
 import {
   keys,
@@ -330,6 +331,8 @@ function NoticesTab({ notices }: { notices: FollowNotice[] }) {
   const check = useFollowCheck();
   // 打开 tab 即全部已读（player 同款：tab 切到 notice 时 $o()）
   const [readAll, setReadAll] = useState(false);
+  const popupOn = useUiStore((s) => s.aibotPopupOn);
+  const setPopupOn = useUiStore((s) => s.setAibotPopupOn);
 
   const open = (n: FollowNotice) => {
     if (!n.read) {
@@ -342,6 +345,15 @@ function NoticesTab({ notices }: { notices: FollowNotice[] }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
+        <label className="flex cursor-pointer items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={popupOn}
+            onChange={(e) => setPopupOn(e.target.checked)}
+            className="accent-primary size-3.5"
+          />
+          {t('follow.popupOn')}
+        </label>
         <Button
           size="sm"
           variant="outline"

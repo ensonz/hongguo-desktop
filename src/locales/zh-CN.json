@@ -656,6 +656,7 @@
     "batchCancelTitle": "批量取消追更？",
     "noticesEmpty": "暂无提醒",
     "noticesEmptyHint": "追的剧更新、预约的剧上线后，会在这里提醒你（每 20 分钟自动检查）",
+    "popupOn": "弹出提醒",
     "checkUpdate": "检查更新",
     "checking": "检查中…",
     "checkResult": "有 {count} 条新提醒",
