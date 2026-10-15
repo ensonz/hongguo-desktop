@@ -29,3 +29,13 @@ export const interactionStateSchema = z.object({
   items: z.array(interactionItemSchema),
 });
 export type InteractionState = z.infer<typeof interactionStateSchema>;
+
+/** 评论 @ 提及候选里的一条（Rust `interact::MentionUser`；列表含官方
+ *  AI bot「小果」，isAiBot=true）。 */
+export const mentionUserSchema = z.object({
+  userId: z.string(),
+  userName: z.string(),
+  avatar: z.string(),
+  isAiBot: z.boolean(),
+});
+export type MentionUser = z.infer<typeof mentionUserSchema>;

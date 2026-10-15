@@ -28,6 +28,7 @@ import {
   followUpdatePageSchema,
   hevcInstallResultSchema,
   interactionStateSchema,
+  mentionUserSchema,
   loginResultSchema,
   mergeCandidateSchema,
   mergePreflightSchema,
@@ -204,8 +205,19 @@ export const COMMANDS = {
     response: z.string(),
   },
   comment_send: {
-    args: z.object({ groupId: z.string(), bookId: z.string(), text: z.string() }),
+    args: z.object({
+      groupId: z.string(),
+      bookId: z.string(),
+      text: z.string(),
+      // @小果AI 提及评论（可选；两字段同时在场才生效）
+      mentionUserId: z.string().optional(),
+      aibotVids: z.array(z.string()).optional(),
+    }),
     response: commentItemSchema,
+  },
+  mention_list: {
+    args: z.object({ seriesId: z.string() }),
+    response: mentionUserSchema.array(),
   },
   comment_reply: {
     args: z.object({

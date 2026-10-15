@@ -80,3 +80,18 @@ pub struct FollowUpdatePage {
     pub cursor: String,
     pub has_more: bool,
 }
+
+/// 评论 @ 提及候选里的一条（relation/list 的 ugc_user_list 摘要，
+/// 2026-10-15 抓 player 登录态实包；列表含官方 AI bot「小果」）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MentionUser {
+    pub user_id: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub avatar: String,
+    /// true = 官方 AI bot（@ 它会触发 AI 回复）
+    #[serde(default)]
+    pub is_ai_bot: bool,
+}

@@ -30,6 +30,7 @@ export {
   useReviewDigg,
   useReviewReplyDigg,
   useSendReviewReply,
+  useMentionList,
 } from './danmaku';
 export {
   useInteractionState,

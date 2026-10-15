@@ -14,7 +14,7 @@
 //! 正文行（@ 浅蓝高亮）、相对时间（N 天前）、头像 32px。
 
 import { useEffect, useMemo, useState } from 'react';
-import { Heart, Loader2, X } from 'lucide-react';
+import { AtSign, Heart, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import {
   useAccount,
   useCommentDigg,
   useComments,
+  useMentionList,
   useReplyDigg,
   useSendComment,
   useSendReply,
@@ -73,6 +74,24 @@ export function CommentPanel({ vid, onClose }: Props) {
   const total = data?.pages[0]?.total || comments?.length || 0;
   const send = useSendComment();
   const sendReply = useSendReply();
+  // @小果AI 快捷提及：relation/list 的 AI bot 条目（uid 动态取，勿硬编码）
+  const seriesId = vid.split(':')[0] ?? '';
+  const mentionQ = useMentionList(seriesId);
+  const aibotUid = mentionQ.data?.find((m) => m.isAiBot)?.userId ?? null;
+  /** 已点快捷图标待发送的提及（发送后清空） */
+  const [mentionUserId, setMentionUserId] = useState<string | null>(null);
+  const insertMention = () => {
+    if (!loggedIn) {
+      toast.info(t('player.interact.loginRequired'));
+      return;
+    }
+    if (!aibotUid) {
+      toast.info(t('player.comments.mentionUnavailable'));
+      return;
+    }
+    setMentionUserId(aibotUid);
+    setText((prev) => (prev.includes('@小果Ai') ? prev : `@小果Ai ${prev}`.trimStart()));
+  };
   /** 点赞（缓存写回型乐观更新，hooks 内失败回滚）：评论与回复分走
    *  两个 hook——回复的乐观值要写进所属评论的回复缓存，key 不同 */
   const commentDigg = useCommentDigg(vid);
@@ -127,11 +146,20 @@ export function CommentPanel({ vid, onClose }: Props) {
       toast.info(t('player.interact.loginRequired'));
       return;
     }
+    // @小果AI 提及（快捷图标）：草稿以 @小果Ai 开头时按提及评论发送
+    // （rich_text tp=15/uri=小果 uid + aibot_mention_context=当前集 vid）
+    const withMention = mentionUserId !== null && content.startsWith('@小果Ai');
     send.mutate(
-      { vid, text: content },
+      {
+        vid,
+        text: withMention ? content.replace(/^@小果Ai\s*/, '') : content,
+        mentionUserId: withMention ? mentionUserId : undefined,
+        aibotVids: withMention ? [vid.split(':')[0] ?? ''] : undefined,
+      },
       {
         onSuccess: () => {
           setText('');
+          setMentionUserId(null);
         },
         onError: (e) => toast.error(String(e)),
       },
@@ -380,17 +408,43 @@ export function CommentPanel({ vid, onClose }: Props) {
 
       {/* 底部发评论 */}
       <div className="shrink-0 border-t border-white/10 p-3">
-        <EmojiSendBox
-          value={text}
-          onChange={setText}
-          onSubmit={submit}
-          placeholder={t('player.comments.placeholder')}
-          maxLength={200}
-          pending={send.isPending}
-          pickerAlign="right"
-          inputClassName="h-9 min-w-0 flex-1 scrollbar-none overflow-x-auto rounded-md bg-neutral-800/80 px-3 text-sm leading-9 whitespace-pre text-white"
-          sendClassName="h-9 px-4"
-        />
+        <div className="flex items-center gap-2">
+          {/* @小果AI 快捷提及（issue #9）：点击即把提及置入草稿，发表时走
+              rich_text tp=15 + aibot_mention_context（AI bot 会回复剧情介绍） */}
+          <button
+            type="button"
+            onClick={insertMention}
+            disabled={!aibotUid}
+            title={t('player.comments.mentionTitle')}
+            className={cn(
+              'flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs transition-colors',
+              mentionUserId !== null
+                ? 'border-sky-400/60 text-sky-300'
+                : 'border-white/15 text-white/70 hover:border-white/40 hover:text-white',
+            )}
+          >
+            <AtSign className="size-3.5" aria-hidden />
+            小果AI
+          </button>
+          <div className="min-w-0 flex-1">
+            <EmojiSendBox
+              value={text}
+              onChange={setText}
+              onSubmit={submit}
+              placeholder={t('player.comments.placeholder')}
+              maxLength={200}
+              pending={send.isPending}
+              pickerAlign="right"
+              inputClassName="h-9 min-w-0 flex-1 scrollbar-none overflow-x-auto rounded-md bg-neutral-800/80 px-3 text-sm leading-9 whitespace-pre text-white"
+              sendClassName="h-9 px-4"
+            />
+          </div>
+        </div>
+        {mentionUserId !== null && (
+          <p className="mt-1.5 text-[11px] text-sky-300/80">
+            {t('player.comments.mentionPending')}
+          </p>
+        )}
       </div>
 
       {/* 删除确认（comment/del service_id=4：评论与回复同款） */}

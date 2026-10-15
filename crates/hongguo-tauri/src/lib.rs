@@ -203,6 +203,8 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::interact_cmd::comment_delete,
             commands::interact_cmd::series_collect,
             commands::interact_cmd::series_collect_batch,
+            // @小果AI 提及（评论区快捷图标）
+            commands::interact_cmd::mention_list,
             // 追更（开关 / 列表 / 是否已追 / 更新提醒）
             commands::follow_cmd::follow_update,
             commands::follow_cmd::follow_updates,
@@ -386,4 +388,3 @@ mod alloc_stress {
         assert!(sum > 0);
     }
 }
-

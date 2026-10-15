@@ -6,10 +6,12 @@
 use serde::Deserialize;
 use tauri::State;
 
+use hongguo_api::interact::CommentMention;
 use hongguo_api::interact::{
-    BookshelfEntry, CommentItem, InteractionState, ReplyItem, collect_series, collect_series_batch,
-    delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
-    fetch_interaction_state, send_comment, send_danmaku, send_reply, send_review_reply,
+    BookshelfEntry, CommentItem, InteractionState, MentionUser, ReplyItem, collect_series,
+    collect_series_batch, delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
+    fetch_interaction_state, fetch_mention_list, send_comment, send_comment_mention, send_danmaku,
+    send_reply, send_review_reply,
 };
 use hongguo_common::{AppError, AppResult};
 use hongguo_service::app_state::AppState;
@@ -44,19 +46,47 @@ pub async fn danmaku_send(
 
 /// 发一条评论（offset 恒 0）。返回**服务端回显的完整评论对象**
 /// （头像/昵称/uid/时间齐全）——前端直接插列表顶部。
+///
+/// `mention_user_id` + `aibot_vids` 同时在场 = **@小果AI 提及评论**
+/// （2026-10-15 抓 player 实包：rich_text tp=15/uri=uid +
+/// business_param.aibot_mention_context=最近观看剧集 vid）。
 #[tauri::command]
 pub async fn comment_send(
     state: State<'_, AppState>,
     group_id: String,
     book_id: String,
     text: String,
+    mention_user_id: Option<String>,
+    aibot_vids: Option<Vec<String>>,
 ) -> AppResult<CommentItem> {
     let env = state.api_env();
     let text = text.trim().to_string();
-    if text.is_empty() {
+    let mention = match (mention_user_id, aibot_vids) {
+        (Some(uid), Some(vids)) if !uid.trim().is_empty() && !vids.is_empty() => {
+            Some(CommentMention {
+                user_id: uid.trim().to_string(),
+                vids,
+            })
+        }
+        _ => None,
+    };
+    if text.is_empty() && mention.is_none() {
         return Err(hongguo_common::AppError::Media("评论内容为空".into()));
     }
-    send_comment(&group_id, &book_id, &text, &env).await
+    match &mention {
+        Some(m) => send_comment_mention(&group_id, &book_id, m, &text, &env).await,
+        None => send_comment(&group_id, &book_id, &text, &env).await,
+    }
+}
+
+/// 评论 @ 提及候选列表（含官方 AI bot「小果」，is_ai_bot=true）。
+#[tauri::command]
+pub async fn mention_list(
+    state: State<'_, AppState>,
+    series_id: String,
+) -> AppResult<Vec<MentionUser>> {
+    let env = state.api_env();
+    fetch_mention_list(&series_id, &env).await
 }
 
 /// 回复一条评论（或一条回复）。`reply_to_reply_id` 回复「回复」时传

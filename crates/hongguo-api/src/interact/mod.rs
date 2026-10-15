@@ -23,6 +23,7 @@ mod model;
 
 pub use model::{
     BookshelfEntry, FollowUpdateItem, FollowUpdatePage, InteractionItem, InteractionState,
+    MentionUser,
 };
 
 pub use super::danmaku::{CommentItem, ReplyItem};
@@ -88,6 +89,7 @@ pub async fn send_danmaku(
         DATA_TYPE_DANMAKU,
         COMMIT_SOURCE_DANMAKU,
         offset_ms,
+        None,
         env,
     )
     .await?
@@ -111,6 +113,31 @@ pub async fn send_comment(
         DATA_TYPE_COMMENT,
         COMMIT_SOURCE_COMMENT,
         0,
+        None,
+        env,
+    )
+    .await
+}
+
+/// 发一条 **@小果AI** 的评论（快捷图标链路，2026-10-15 抓 player 登录态
+/// 实包锁定）：text 为用户正文（可空），最终请求 text 前置 `@小果\u{FFFC}`，
+/// rich_text 段 tp=15/uri=小果 uid，business_param 另带
+/// aibot_mention_context（最近观看剧集 vid）。返回完整评论回显。
+pub async fn send_comment_mention(
+    group_id: &str,
+    book_id: &str,
+    mention: &CommentMention,
+    text: &str,
+    env: &ApiEnv,
+) -> AppResult<CommentItem> {
+    comment_add(
+        group_id,
+        book_id,
+        text,
+        DATA_TYPE_COMMENT,
+        COMMIT_SOURCE_COMMENT,
+        0,
+        Some(mention),
         env,
     )
     .await
@@ -207,9 +234,10 @@ async fn comment_add(
     data_type: i64,
     commit_source: i64,
     offset_ms: u64,
+    mention: Option<&CommentMention>,
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
-    let business_param = if data_type == DATA_TYPE_DANMAKU {
+    let mut business_param = if data_type == DATA_TYPE_DANMAKU {
         serde_json::json!({
             "book_id": book_id,
             "ignore_urge_rule": false,
@@ -228,15 +256,51 @@ async fn comment_add(
             "text_feature": {},
         })
     };
-    let payload = serde_json::json!({
+    // @小果AI 提及（2026-10-15 抓 player 登录态实包）：text 前置
+    // `@小果\u{FFFC}`，rich_text 段 tp=15/uri=uid，business_param 另带
+    // aibot_mention_context（最近观看剧集 vid 的嵌套数组，JSON 字符串形态）
+    let final_text = match mention {
+        Some(_) if data_type == DATA_TYPE_COMMENT => {
+            if text.trim().is_empty() {
+                MENTION_TEXT.to_string()
+            } else {
+                format!("{MENTION_TEXT} {text}")
+            }
+        }
+        _ => text.to_string(),
+    };
+    if let Some(m) = mention {
+        if data_type == DATA_TYPE_COMMENT {
+            let ctx = serde_json::to_string(
+                &m.vids
+                    .iter()
+                    .map(|v| serde_json::json!([v]))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_default();
+            business_param["aibot_mention_context"] = serde_json::Value::String(ctx);
+        }
+    }
+    let mut payload = serde_json::json!({
         "aid": 8662,
         "business_param": business_param,
         "commit_source": commit_source,
         "data_type": data_type,
         "group_id": group_id,
         "group_type": GROUP_TYPE_COMMENT,
-        "text": text,
+        "text": final_text,
     });
+    if let Some(m) = mention {
+        if data_type == DATA_TYPE_COMMENT {
+            payload["rich_text"] = serde_json::json!([{
+                "s": 0,
+                "e": MENTION_TEXT_UNITS,
+                "tp": 15,
+                "uri": m.user_id,
+                "text": MENTION_TEXT,
+            }]);
+        }
+    }
     let raw = serde_json::to_vec(&payload)
         .map_err(|e| AppError::Media(format!("构造弹幕/评论请求失败: {e}")))?;
     let bytes =
@@ -519,6 +583,80 @@ fn follow_action_type(follow: bool) -> i64 {
         ACTION_TYPE_UNFOLLOW
     }
 }
+
+/// 评论 @ 提及列表的场景枚举值（2026-10-15 抓 player 登录态实包）。
+const COMMENT_SOURCE_AT_MENTION: i64 = 1511;
+
+/// 拉评论 @ 提及候选（relation/list，2026-10-15 抓 player 登录态实包）。
+/// 官方列表含官方 AI bot「小果」（is_ai_bot=true）。`series_id` 同时进
+/// 路径与 body（target_user_id / relation_list_business_param.book_id）。
+pub async fn fetch_mention_list(series_id: &str, env: &ApiEnv) -> AppResult<Vec<MentionUser>> {
+    let book_id: i64 = series_id
+        .parse()
+        .map_err(|_| AppError::InvalidArgs(format!("剧 id 不是数字: {series_id}")))?;
+    let payload = serde_json::json!({
+        "comment_source": COMMENT_SOURCE_AT_MENTION,
+        "target_user_id": series_id,
+        "aid": 8662,
+        "count": 20,
+        "relation_list_business_param": { "book_id": book_id },
+    });
+    let raw = serde_json::to_vec(&payload)
+        .map_err(|e| AppError::Media(format!("构造提及列表请求失败: {e}")))?;
+    let path = format!("/novel/commentapi/relation/list/{series_id}/v1/");
+    let bytes = super::client::api_call_reading(LQ_API_ORIGIN, &path, Some(raw), &[], env).await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析提及列表失败: {e}")))?;
+    check_interact_code(&value)?;
+    let mut items = Vec::new();
+    for raw in value
+        .pointer("/data/ugc_user_list")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let user_id = raw
+            .pointer("/base_info/user_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if user_id.is_empty() {
+            continue;
+        }
+        items.push(MentionUser {
+            user_id,
+            user_name: raw
+                .pointer("/base_info/user_name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            avatar: raw
+                .pointer("/base_info/user_avatar")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            is_ai_bot: raw
+                .pointer("/base_info/is_ai_bot")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        });
+    }
+    Ok(items)
+}
+
+/// AI 提及的草稿：@ 小果AI 的 uid 与 AI 上下文剧集（官方
+/// aibot_mention_context = 最近观看剧集 vid 的嵌套数组）。
+pub struct CommentMention {
+    /// AI bot uid（relation/list 的 is_ai_bot 条目）
+    pub user_id: String,
+    /// AI 上下文剧集 vid（当前播放集优先）
+    pub vids: Vec<String>,
+}
+
+/// 提及评论的文本常量：官方形态 text/段文本均为 `@小果\u{FFFC}`
+/// （U+FFFC 占位符；s:e=0..4，2026-10-15 实包）。
+const MENTION_TEXT: &str = "@小果\u{FFFC}";
+const MENTION_TEXT_UNITS: i64 = 4;
 
 /// 拉追更列表一页（get_user_action `action_channel=9`，2026-10-15 抓包
 /// 实锤）。`cursor` 传上页响应的 `cursor` 原文（JSON 串）；首页传空串。

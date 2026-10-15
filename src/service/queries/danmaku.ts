@@ -3,6 +3,7 @@ import type { InfiniteData } from '@tanstack/react-query';
 import { danmaku as danmakuCmd, interact as interactCmd } from '../commands';
 import type { CommentPage, Danmaku, ReplyPage, SeriesReviewPage } from '../schema';
 import { keys } from './common';
+import { useAccount } from './interact';
 
 // ---------------------------------------------------------------- 弹幕与评论
 // 社交态数据一律不缓存（staleTime 0，每次挂载重拉——2026-10-10 定规：
@@ -97,9 +98,17 @@ export function useComments(vid: string) {
 export function useSendComment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { vid: string; text: string }) => {
+    mutationFn: (input: {
+      vid: string;
+      text: string;
+      mentionUserId?: string;
+      aibotVids?: string[];
+    }) => {
       const { groupId, bookId } = parseVid(input.vid);
-      return interactCmd.sendComment(groupId, bookId, input.text);
+      return interactCmd.sendComment(groupId, bookId, input.text, {
+        userId: input.mentionUserId ?? '',
+        aibotVids: input.aibotVids ?? [],
+      });
     },
     onSuccess: (comment, input) => {
       queryClient.setQueryData<InfiniteData<CommentPage, string>>(
@@ -364,5 +373,19 @@ export function useSendReviewReply(seriesId: string) {
         input.replyToReplyId ?? null,
         input.text,
       ),
+  });
+}
+
+/**
+ * 评论 @ 提及候选（relation/list，登录态）。列表含官方 AI bot「小果」
+ * （isAiBot=true）——@小果AI 快捷图标的数据源；社交态数据每次重拉。
+ */
+export function useMentionList(seriesId: string) {
+  const { data: account } = useAccount();
+  return useQuery({
+    queryKey: keys.mentionList(seriesId),
+    queryFn: () => interactCmd.mentionList(seriesId),
+    enabled: !!account && !!seriesId,
+    staleTime: 0,
   });
 }

@@ -42,6 +42,8 @@ export const keys = {
     ['review-replies', seriesId, commentId] as const,
   danmaku: (vid: string) => ['danmaku', vid] as const,
   comments: (vid: string) => ['comments', vid] as const,
+  /** 评论 @ 提及候选（登录态，含官方 AI bot 小果） */
+  mentionList: (seriesId: string) => ['mention-list', seriesId] as const,
   interactState: ['interact-state'] as const,
   bookshelf: ['bookshelf'] as const,
   /** 追更整组失效用根 key（追更/取消后列表与「是否已追」一起翻面） */
