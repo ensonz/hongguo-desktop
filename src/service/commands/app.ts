@@ -28,8 +28,7 @@ export const app = {
   fitPortraitScreen: (aspect: number, full: boolean) =>
     call('fit_portrait_screen', { aspect, full }),
   /** 铺满档切换（对齐 hgplayer Nf）：铺满→普通还原快照，普通→铺满先快照 */
-  setPortraitFull: (aspect: number, full: boolean) =>
-    call('set_portrait_full', { aspect, full }),
+  setPortraitFull: (aspect: number, full: boolean) => call('set_portrait_full', { aspect, full }),
   /**
    * 隐身模式开关：开 = 后端起系统级光标轮询（鼠标脱离窗口隐藏、回到窗口
    * 区域自动重现）；关 = 停轮询并带回可能隐藏中的窗口

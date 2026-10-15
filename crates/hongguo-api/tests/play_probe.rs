@@ -30,7 +30,12 @@ async fn probe_feed_vids() {
     match hongguo_api::recommend::fetch_recommend_feed("36", "", 0, &[], &env).await {
         Ok(page) => {
             for it in page.items.iter().take(5) {
-                println!("series={} vid_len={} title={}", &it.series_id[..8.min(it.series_id.len())], it.vid.len(), it.title);
+                println!(
+                    "series={} vid_len={} title={}",
+                    &it.series_id[..8.min(it.series_id.len())],
+                    it.vid.len(),
+                    it.title
+                );
             }
         }
         Err(e) => println!("ERR {e}"),

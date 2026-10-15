@@ -89,9 +89,7 @@ export function usePortraitWindow(params: { videoRef: React.RefObject<HTMLVideoE
       const st = useUiStore.getState();
       if (!st.portrait) return;
       const ar =
-        video.videoWidth > 0 && video.videoHeight > 0
-          ? video.videoWidth / video.videoHeight
-          : 0;
+        video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 0;
       if (!(ar > 0) || ar >= PORTRAIT_ASPECT_MAX || Math.abs(ar - last) <= REFIT_DELTA) return;
       last = ar;
       void appApi.fitPortraitScreen(ar, st.portraitFull).catch(() => undefined);

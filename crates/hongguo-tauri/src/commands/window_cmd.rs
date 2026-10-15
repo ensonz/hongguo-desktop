@@ -249,7 +249,9 @@ fn fit_portrait(win: &tauri::WebviewWindow, aspect: f64, full: bool) {
     let x = if full {
         left + ((wa_w - w) / 2.0).round().max(0.0)
     } else {
-        (cur_x + ((cur_w - w) / 2.0).round()).max(left).min(right - w)
+        (cur_x + ((cur_w - w) / 2.0).round())
+            .max(left)
+            .min(right - w)
     };
     let y = if full { top } else { cur_y };
     let _ = win.set_size(tauri::LogicalSize::new(w, h));
@@ -280,7 +282,10 @@ pub fn enter_portrait_screen(app: AppHandle, aspect: f64) -> AppResult<()> {
         height: size.height,
         maximized,
     });
-    let _ = win.set_min_size(Some(tauri::LogicalSize::new(PORTRAIT_MIN.0, PORTRAIT_MIN.1)));
+    let _ = win.set_min_size(Some(tauri::LogicalSize::new(
+        PORTRAIT_MIN.0,
+        PORTRAIT_MIN.1,
+    )));
     // 最大化进竖屏：退最大化直接进铺满档（hgplayer rE 的 Ev + kc(e, max)）
     if maximized {
         let _ = win.unmaximize();

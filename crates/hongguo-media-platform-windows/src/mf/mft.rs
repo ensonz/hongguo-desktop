@@ -375,8 +375,9 @@ impl AsyncMft {
                 let _events = std::mem::ManuallyDrop::take(&mut arr[0].pEvents);
                 match r {
                     Ok(()) => {
-                        return s
-                            .ok_or_else(|| AppError::Media("Media Foundation 输出样本缺失".into()));
+                        return s.ok_or_else(|| {
+                            AppError::Media("Media Foundation 输出样本缺失".into())
+                        });
                     }
                     Err(e) if is_code(&e, MF_E_BUFFERTOOSMALL) && !retried => {
                         retried = true;
