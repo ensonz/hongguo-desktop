@@ -316,7 +316,8 @@ function FollowCard({
             <Play className="size-3.5" aria-hidden />
             {t('player.play')}
           </Button>
-          <FollowButton seriesId={item.seriesId} className="w-full" />
+          {/* 已完结剧不再追更（无新集可等） */}
+          {!item.finished && <FollowButton seriesId={item.seriesId} className="w-full" />}
         </div>
       )}
     </article>

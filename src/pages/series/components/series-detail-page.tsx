@@ -372,8 +372,10 @@ export function SeriesDetailPage({
                       <Heart className={cn('size-4', digged && 'fill-hot text-hot')} aria-hidden />
                       {t('player.interact.like')}
                     </Button>
-                    {/* 追更（对齐第三方详情页动作行）：与列表页 FollowButton 同源 */}
-                    <FollowButton seriesId={seriesId} />
+                    {/* 追更（对齐第三方详情页动作行）：仅连载中的剧可追——
+                        已完结剧不会有新集，追更无意义。完结判定：update_tag
+                        非空（"更新至第N集"）= 连载；空 = 已完结 */}
+                    {meta?.updateTag ? <FollowButton seriesId={seriesId} /> : null}
                   </>
                 )}
               </div>
