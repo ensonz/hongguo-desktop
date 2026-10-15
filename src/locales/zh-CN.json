@@ -661,6 +661,7 @@
     "playFirst": "从第 1 集开始",
     "collect": "收藏",
     "collected": "已收藏",
+    "creatorWorks": "看「{name}」的作品",
     "tabEpisodes": "选集",
     "tabComments": "剧评",
     "tabRecommend": "相关推荐",

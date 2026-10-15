@@ -78,4 +78,22 @@ pub struct SeriesMeta {
     pub episode_total_cnt: i64,
     /// 服务端续播锚点 vid（latest_consumed_item_id；空=无）
     pub latest_consumed_vid: String,
+    /// 出品方 / 演职员（main_creator_users，2026-10-15 抓 player v1.2.1
+    /// 详情页实包；官方点击走 Lynx 模板页无 JSON 端点，展示 + 跳搜索）
+    #[serde(default)]
+    pub creators: Vec<SeriesCreator>,
+}
+
+/// 出品方 / 演职员条目（main_creator_users[] 摘要）。
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesCreator {
+    /// 官方账号 uid
+    pub user_id: String,
+    /// 名称（出品方名 / 演员名）
+    pub name: String,
+    /// 头像（官方 CDN，直连可渲染）
+    pub avatar: String,
+    /// 角色文案（user_tag.sub_title_list 首项：出品方/主演/配角）
+    pub role: String,
 }

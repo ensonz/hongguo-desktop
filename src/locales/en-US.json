@@ -661,6 +661,7 @@
     "playFirst": "Play from EP 1",
     "collect": "Collect",
     "collected": "Collected",
+    "creatorWorks": "Works by {name}",
     "tabEpisodes": "Episodes",
     "tabComments": "Comments",
     "tabRecommend": "Related",

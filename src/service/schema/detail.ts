@@ -53,4 +53,16 @@ export const seriesMetaSchema = z.object({
   updateTag: z.string().optional(),
   episodeTotalCnt: z.number().optional(),
   latestConsumedVid: z.string().optional(),
+  /** 出品方 / 演职员（main_creator_users，2026-10-15 抓 player 实包；
+   *  旧后端无此字段 → default 空数组） */
+  creators: z
+    .array(
+      z.object({
+        userId: z.string(),
+        name: z.string(),
+        avatar: z.string(),
+        role: z.string(),
+      }),
+    )
+    .default([]),
 });

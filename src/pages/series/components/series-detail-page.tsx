@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate, useRouter } from '@tanstack/react-router';
-import { ArrowLeft, Flame, Heart, Hourglass, Play, Star } from 'lucide-react';
+import { ArrowLeft, Flame, Heart, Hourglass, Play, Star, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -140,6 +140,15 @@ export function SeriesDetailPage({
           toast.success(t(collected ? 'player.interact.uncollected' : 'player.interact.collected')),
       },
     );
+  };
+
+  /** 出品人 → 找剧页按名字搜其作品（官方的「出品人全部剧集」是 Lynx
+   *  模板页没有 JSON 端点；搜索接口已抓包实现，用它做近义能力）。
+   *  browse 页的关键词是 sessionStorage 会话态，先种再导航。 */
+  const seedBrowseSearch = (name: string) => {
+    sessionStorage.setItem('hongguo.browse.keyword', JSON.stringify(name));
+    sessionStorage.setItem('hongguo.browse.submitted', JSON.stringify(name));
+    void navigate({ to: '/browse' });
   };
 
   const onDigg = () => {
@@ -285,6 +294,42 @@ export function SeriesDetailPage({
               {/* 简介常驻全文（无收起/展开） */}
               {intro && (
                 <p className="text-muted-foreground mt-4 text-sm leading-relaxed">{intro}</p>
+              )}
+
+              {/* 出品方 / 演职员（main_creator_users，对齐第三方详情页 creators
+                  块：头像 + 名字 + 角色行）。官方点击开 Lynx 模板页（无 JSON
+                  端点），这里点击跳找剧页按名字搜其作品（搜索端点已抓包） */}
+              {meta && meta.creators.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {meta.creators.map((c) => (
+                    <button
+                      key={c.userId + c.name}
+                      type="button"
+                      onClick={() => seedBrowseSearch(c.name)}
+                      className="hover:bg-sidebar-accent flex items-center gap-2 rounded-full border py-1 pr-3 pl-1 transition-colors"
+                      title={tf('detail.creatorWorks', { name: c.name })}
+                    >
+                      {c.avatar ? (
+                        <img
+                          src={c.avatar}
+                          alt=""
+                          className="size-7 rounded-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="bg-muted grid size-7 place-items-center rounded-full">
+                          <UserRound className="text-muted-foreground size-4" aria-hidden />
+                        </span>
+                      )}
+                      <span className="text-left leading-tight">
+                        <span className="block text-xs font-medium">{c.name}</span>
+                        {c.role && (
+                          <span className="text-muted-foreground block text-[10px]">{c.role}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
 
               <div className="mt-5 flex flex-wrap items-center gap-2">

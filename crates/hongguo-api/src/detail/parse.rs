@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::model::{EpisodeList, RelatedItem, RelatedSeries, SeriesMeta};
+use super::model::{EpisodeList, RelatedItem, RelatedSeries, SeriesCreator, SeriesMeta};
 use hongguo_common::model::Episode;
 use hongguo_common::utils::json::{check_code_in, int_field, str_field, str_field_any};
 use hongguo_common::{AppError, AppResult};
@@ -233,7 +233,48 @@ pub fn parse_series_meta(response: &Value, series_id: &str) -> AppResult<SeriesM
         update_tag: str_field_any(vd, &["update_tag"]),
         episode_total_cnt: num_field(vd, "episode_total_cnt"),
         latest_consumed_vid: str_field_any(vd, &["latest_consumed_item_id"]),
+        creators: parse_creators(vd),
     })
+}
+
+/// 解析出品方 / 演职员（main_creator_users，2026-10-15 抓 player v1.2.1
+/// 详情页实包）：base_info 出名字头像，user_tag.sub_title_list 首项出角色
+/// 文案（出品方/主演/配角）。名字为空的条目跳过。
+fn parse_creators(vd: &Value) -> Vec<SeriesCreator> {
+    let mut out = Vec::new();
+    for raw in vd
+        .get("main_creator_users")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let name = raw
+            .pointer("/base_info/user_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        out.push(SeriesCreator {
+            user_id: raw
+                .pointer("/base_info/user_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: name.to_string(),
+            avatar: raw
+                .pointer("/base_info/user_avatar")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            role: raw
+                .pointer("/user_tag/sub_title_list/0/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+    out
 }
 
 /// 计数字段：JSON 数字直取，字符串形态回退解析（与 followed_cnt 同款容错）。
@@ -349,7 +390,21 @@ mod tests {
                     "online_time": 1790000000,
                     "update_tag": "更新至第45集",
                     "episode_total_cnt": 80,
-                    "latest_consumed_item_id": "7690802329313872921"
+                    "latest_consumed_item_id": "7690802329313872921",
+                    "main_creator_users": [
+                        {
+                            "base_info": {
+                                "user_id": "2007062623837002",
+                                "user_name": "林间剧场",
+                                "user_avatar": "http://example/av.jpg"
+                            },
+                            "user_tag": {
+                                "creator_type": 2,
+                                "sub_title_list": [{ "text": "出品方", "text_ext": 0 }]
+                            }
+                        },
+                        { "base_info": { "user_name": "" } }
+                    ]
                 }
             }
         });
@@ -373,6 +428,13 @@ mod tests {
                 .unwrap_or(false),
             "pay_info 原样透传"
         );
+        // 出品方（2026-10-15 抓 player 实包形态）：取 base_info 三件 +
+        // sub_title_list 首项做角色；空名条目跳过
+        assert_eq!(m.creators.len(), 1);
+        assert_eq!(m.creators[0].name, "林间剧场");
+        assert_eq!(m.creators[0].role, "出品方");
+        assert_eq!(m.creators[0].user_id, "2007062623837002");
+        assert_eq!(m.creators[0].avatar, "http://example/av.jpg");
     }
 
     /// 官方模型对照字段缺席时走默认值（防御性读取语义）。
