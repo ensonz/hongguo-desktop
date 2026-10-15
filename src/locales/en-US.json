@@ -193,6 +193,7 @@
     "download": "Download",
     "downloadToLocal": "Download to local",
     "fullscreen": "Fullscreen",
+    "fullscreenFailed": "Failed to toggle fullscreen: {error}",
     "keyboardHint": "Space play/pause · ←→ seek 5s · ↑↓ switch series/episode · click to select · Esc to deselect",
     "removeRecordShort": "Clear record",
     "removeRecord": "Clear watch record for {title}",

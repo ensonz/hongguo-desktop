@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useUiStore } from '@/stores/ui';
+import { applyWindowFullscreen } from '@/hooks/use-window-fullscreen';
 import { app as appApi } from '@/service/commands';
 
 /**
@@ -42,6 +43,10 @@ export function useMiniWindow(params: {
   const setMiniScreen = useUiStore((s) => s.setMiniScreen);
 
   const enterMini = useCallback(() => {
+    // 全屏窗口的尺寸归系统管（mac 全屏态 set_size 无效）：进小屏先退全屏
+    if (useUiStore.getState().windowFullscreen) {
+      void applyWindowFullscreen(false).catch(() => undefined);
+    }
     // 大屏的浮层面板带不进 480×270 的小窗：进小屏前一并收掉
     setCommentPanelOpen(false);
     setDanmakuPanelOpen(false);

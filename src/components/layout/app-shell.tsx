@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pin } from 'lucide-react';
+import { useLocation } from '@tanstack/react-router';
 import { AppSidebar } from './app-sidebar';
 import { ThemeSwitch } from './theme-switch';
 import { WindowButtons } from './window-controls';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
+import { useWindowFullscreenSync } from '@/hooks/use-window-fullscreen';
 import { app as appApi } from '@/service/commands';
 import { useEvent } from '@/service/tauri/events';
 import { EVENTS } from '@/service/tauri/types';
@@ -42,6 +44,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // 藏掉，整个窗口只剩播放器（第三方小屏连标题栏都没有，窗口按钮由
   // 紧凑控制条承担）；拖拽由播放页的顶部拖拽条负责。
   const miniScreen = useUiStore((s) => s.miniScreen);
+  // 全屏真值对齐系统侧（Esc/绿按钮经 resize 回流 store）。播放器形态页面
+  // （首页沉浸流 / 纯播放页）全屏时同样藏掉顶栏与侧栏——整窗只剩画面，
+  // 对齐 hgplayer 与旧元素全屏的视觉；其他页面被系统绿按钮全屏时界面照常。
+  useWindowFullscreenSync();
+  const windowFullscreen = useUiStore((s) => s.windowFullscreen);
+  const playerSurface = useLocation({
+    select: (s) => s.pathname === '/' || s.pathname === '/player',
+  });
+  const playerFullscreen = windowFullscreen && playerSurface;
   // 置顶开关与播放器（大屏顶栏/小屏紧凑条两个入口）共用同一份实现
   const { pinned, togglePinned } = usePinWindow();
 
@@ -68,7 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ⚠️ 必须写 `deep`：Tauri 2.x 的 `data-tauri-drag-region` 裸属性**只认
             自己**，点子元素会被判成「不是拖拽区」而直接返回 false（见 tauri 的
             src/window/scripts/drag.js）。所以整棵子树都要能拖，就得显式写 deep。 */}
-      {!miniScreen && (
+      {!miniScreen && !playerFullscreen && (
         <header
           data-tauri-drag-region="deep"
           className={cn(
@@ -105,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {!miniScreen && <AppSidebar />}
+        {!miniScreen && !playerFullscreen && <AppSidebar />}
 
         <main id="content" className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
           {children}

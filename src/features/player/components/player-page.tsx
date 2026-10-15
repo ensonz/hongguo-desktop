@@ -147,7 +147,6 @@ export function PlayerView({
   const setVolumeOpen = usePlayerStore((s) => s.setVolumeOpen);
   const setSeriesPanelOpen = usePlayerStore((s) => s.setSeriesPanelOpen);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
   /**
    * 自动连播静默起步：handleEnded 切集时打了点，这次挂载若是它带来的，
    * 悬浮层以「无人操作」起步——不亮控制栏、不亮光标，起播的 play 事件
@@ -517,7 +516,6 @@ export function PlayerView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-w-0 flex-1 flex-col">
         <div
-          ref={stageRef}
           onWheel={onStageWheel}
           onClick={onStageClickGuarded}
           // 「移入显示」显式接 mouseenter：从画面外重新进入时浏览器可能
@@ -714,7 +712,6 @@ export function PlayerView({
                 ) : (
                   <PlayerControls
                     videoRef={videoRef}
-                    stageRef={stageRef}
                     onControlsEnter={() => {
                       setControlsHovered(true);
                       wakeChrome();

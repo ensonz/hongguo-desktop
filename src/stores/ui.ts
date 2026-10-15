@@ -16,6 +16,10 @@ interface UiState {
    *  会话内有效：重启回到不置顶，与第三方一致。 */
   pinned: boolean;
   setPinned: (on: boolean) => void;
+  /** 窗口级全屏（hgplayer WindowFullscreen 同款）。瞬态：不持久化，
+   *  重启即常规窗口；真值在窗口，store 只是镜像（use-window-fullscreen）。 */
+  windowFullscreen: boolean;
+  setWindowFullscreen: (on: boolean) => void;
 }
 
 /** 纯 UI 偏好：折叠状态。不含业务数据。 */
@@ -31,9 +35,11 @@ export const useUiStore = create<UiState>()(
       setMiniScreen: (on) => set({ miniScreen: on }),
       pinned: false,
       setPinned: (on) => set({ pinned: on }),
+      windowFullscreen: false,
+      setWindowFullscreen: (on) => set({ windowFullscreen: on }),
     }),
-    // miniScreen/pinned 不持久化：窗口几何的存/恢复在后端
-    // （enter/exit_mini_screen），置顶与会话绑定（hgplayer 同款）；重启后
+    // miniScreen/pinned/windowFullscreen 不持久化：窗口几何的存/恢复在后端
+    // （enter/exit_mini_screen），置顶与全屏是会话态（hgplayer 同款）；重启后
     // 状态若残留会呈现「大窗 + 紧凑控件」的错配。
     // lastCategory/lastGenre 是旧版官网嗅探浏览的遗留字段：新版找剧走
     // 官方筛选面板（组件内本地 state），持久化里的旧键靠 merge 自然废弃

@@ -193,6 +193,7 @@
     "download": "下载",
     "downloadToLocal": "下载到本地",
     "fullscreen": "全屏",
+    "fullscreenFailed": "全屏切换失败：{error}",
     "keyboardHint": "空格播放/暂停 · ←→ 快退快进 5 秒 · ↑↓ 切剧/切集 · 单击画面选剧 · Esc 退出选剧",
     "removeRecordShort": "清除这条记录",
     "removeRecord": "清除《{title}》的观看记录",
