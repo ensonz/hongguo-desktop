@@ -44,6 +44,9 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
         // 进程插件只用到 relaunch（下载完成后重启进新版本）
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // 老板键的全局快捷键（issue #4）：注册/注销走 Rust 侧
+        // （commands/boss_key_cmd），不经前端 → 无需 capabilities
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // 窗口关闭拦截的「前端就绪」闸门（见 setup 里的 CloseRequested 处理）
         .manage(commands::app_cmd::WindowCloseGate::default());
 
@@ -71,7 +74,9 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             bootstrap::transcoder::init()?;
             // 追更更新检查：启动查一轮 + 每 20 分钟一轮（未登录空转，
             // 登录后自动生效；对齐 hongguo-player 的检查节奏）
-            hongguo_service::follow_service::start_notice_loop(app_state);
+            hongguo_service::follow_service::start_notice_loop(app_state.clone());
+            // 老板键按持久化设置注册（被占用只记日志，不拦启动）
+            commands::boss_key_cmd::init(app.handle(), &app_state.settings().boss_key);
 
             // 窗口关闭一律先问前端：自绘 ×、Alt+F4、任务栏关闭都走
             // CloseRequested，前端 ready 后拦截并让它弹退出确认框
@@ -133,6 +138,7 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::app_cmd::open_external_page,
             commands::app_cmd::mark_window_ready,
             commands::app_cmd::exit_app,
+            commands::boss_key_cmd::set_boss_key,
             commands::window_cmd::enter_mini_screen,
             commands::window_cmd::exit_mini_screen,
             commands::window_cmd::set_always_on_top,
@@ -380,3 +386,4 @@ mod alloc_stress {
         assert!(sum > 0);
     }
 }
+

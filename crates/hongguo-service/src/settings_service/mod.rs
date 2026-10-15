@@ -43,12 +43,14 @@ pub fn apply_cache_root(settings: &Settings) {
 pub fn normalize(settings: Settings) -> AppResult<Settings> {
     let mut settings = settings;
     settings.clamp_concurrency();
+    settings.clamp_prefetch_episodes();
     settings.download_dir = settings.download_dir.trim().to_string();
     if settings.download_dir.is_empty() {
         settings.download_dir = Settings::default().download_dir;
     }
     // cache_dir 允许空（= 跟随数据目录），只裁空白
     settings.cache_dir = settings.cache_dir.trim().to_string();
+    settings.boss_key = settings.boss_key.trim().to_string();
 
     // 后置条件：clamp_concurrency 一旦失效，队列就会带着 0 并发启动，
     // 那时候没有任何地方会报错，这里是唯一的检查点。
@@ -73,6 +75,16 @@ mod tests {
         })
         .unwrap();
         assert_eq!(n.max_concurrency, 10);
+    }
+
+    #[test]
+    fn normalize_clamps_prefetch_episodes() {
+        let n = normalize(Settings {
+            prefetch_episodes: 9,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(n.prefetch_episodes, 3, "预取集数上限 3，0=关闭也是合法值");
     }
 
     #[test]

@@ -77,20 +77,24 @@ pub async fn resolve_play(state: &AppState, request: &PlayRequest) -> AppResult<
     let progress_key = format!("{}:{}", request.series_id, request.vid_index);
     match online::prepare(state, &vid, &progress_key, request.definition).await {
         Ok(prepared) => {
-            // 无 HEVC 机器的连播预转：下一集若是 HEVC-only，后台先转好，
-            // 连播到它时兜底直接命中缓存（门控/去重在 compat_prefetch 内）。
-            crate::play_service::compat_prefetch::schedule_next_episode(
-                state.clone(),
-                &request.series_id,
-                request.vid_index + 1,
-            );
-            // 连播下一集的**流**预取：集间切换此前完全裸奔，自动连播每集
-            // 都冷走取流表+探针链（实测 1.4s）——切剧预取只救得了「换一部剧」。
-            online::schedule_next_episode_prefetch(
-                state.clone(),
-                &request.series_id,
-                request.vid_index + 1,
-            );
+            // 连播向后预取：流预取与无 HEVC 机器的预转共用 Settings.
+            // prefetch_episodes 档（issue #6：0=关闭，1=仅下一集，最多 3）。
+            // 集间切换此前完全裸奔，自动连播每集都冷走取流表+探针链
+            // （实测 1.4s）——切剧预取只救得了「换一部剧」。幂等/去重/
+            // 礼让在各 prefetch 内；越界集号由 episode_vid 返 None 兜住。
+            let prefetch_count = state.settings().prefetch_episodes;
+            for offset in 1..=prefetch_count {
+                crate::play_service::compat_prefetch::schedule_next_episode(
+                    state.clone(),
+                    &request.series_id,
+                    request.vid_index + offset,
+                );
+                online::schedule_next_episode_prefetch(
+                    state.clone(),
+                    &request.series_id,
+                    request.vid_index + offset,
+                );
+            }
             Ok(PlayResponse {
                 url: prepared.url,
                 online: true,

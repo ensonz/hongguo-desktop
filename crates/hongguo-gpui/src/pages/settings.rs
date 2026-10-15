@@ -122,6 +122,7 @@ pub(crate) struct SettingsView {
     naming_select: Entity<SelectState<SearchableVec<SharedString>>>,
     proxy_select: Entity<SelectState<SearchableVec<SharedString>>>,
     concurrency: Entity<SliderState>,
+    prefetch: Entity<SliderState>,
     capability: Option<DecodeCapability>,
     redetecting: bool,
     redetect_done: bool,
@@ -216,6 +217,13 @@ impl SettingsView {
                 .step(1.)
                 .default_value(3.)
         });
+        let prefetch = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(3.)
+                .step(1.)
+                .default_value(1.)
+        });
         cx.subscribe_in(
             &naming_select,
             window,
@@ -252,6 +260,18 @@ impl SettingsView {
             },
         )
         .detach();
+        cx.subscribe_in(
+            &prefetch,
+            window,
+            |this, _, event: &SliderEvent, _, cx| {
+                let SliderEvent::Change(value) = event else {
+                    return;
+                };
+                let n = value.start().round().clamp(0.0, 3.0) as u32;
+                this.patch(cx, |s| s.prefetch_episodes = n);
+            },
+        )
+        .detach();
         Self {
             state,
             loaded: false,
@@ -263,6 +283,7 @@ impl SettingsView {
             naming_select,
             proxy_select,
             concurrency,
+            prefetch,
             capability: None,
             redetecting: false,
             redetect_done: false,
@@ -341,6 +362,9 @@ impl SettingsView {
                 let concurrency = settings.max_concurrency as f32;
                 view.concurrency
                     .update(cx, |state, cx| state.set_value(concurrency, window, cx));
+                let prefetch = settings.prefetch_episodes as f32;
+                view.prefetch
+                    .update(cx, |state, cx| state.set_value(prefetch, window, cx));
                 if let Some(account) = &settings.account
                     && !account.avatar_url.is_empty()
                 {
@@ -545,6 +569,9 @@ impl SettingsView {
                 let concurrency = saved.max_concurrency as f32;
                 self.concurrency
                     .update(cx, |state, cx| state.set_value(concurrency, window, cx));
+                let prefetch = saved.prefetch_episodes as f32;
+                self.prefetch
+                    .update(cx, |state, cx| state.set_value(prefetch, window, cx));
             }
             Err(e) => {
                 log::warn!("[Settings] 保存失败: {e}");
@@ -882,6 +909,22 @@ impl SettingsView {
                             .text_xs()
                             .text_color(theme.muted_foreground)
                             .child("1–10，保存后立即生效"),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(Label::new(format!(
+                        "连播预取集数 — {}（0=关闭）",
+                        current.prefetch_episodes
+                    )))
+                    .child(Slider::new(&self.prefetch))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("起播后自动向后预载接下来几集，切集不用等"),
                     ),
             )
             .into_any_element()

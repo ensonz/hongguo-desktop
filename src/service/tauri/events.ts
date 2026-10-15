@@ -36,6 +36,7 @@ const EVENT_PAYLOADS = {
   'login-mfa-state': loginMfaStateSchema,
   'series-archive-updated': z.string(),
   'follow-notices': followNoticesEventSchema,
+  'boss-key-hidden': z.object({ hidden: z.boolean() }),
   /** lib.rs CloseRequested 拦截发出，Rust 侧 `()` 序列化为 null */
   'close-requested': z.null(),
   'incognito-visibility': z.object({ visible: z.boolean() }),

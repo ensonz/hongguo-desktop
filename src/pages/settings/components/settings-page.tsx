@@ -40,6 +40,15 @@ const FFMPEG_INSTALL = isMac()
   ? { cmd: 'brew install ffmpeg', page: 'https://ffmpeg.org/download.html' }
   : { cmd: 'winget install Gyan.FFmpeg', page: 'https://www.gyan.dev/ffmpeg/builds/' };
 
+/** 老板键候选（tauri accelerator 形态；CommandOrControl 在 mac 映射 Cmd）。
+ *  自定义组合后续接快捷键捕获，先给常用预设——Alt+Z 是 NVIDIA 覆盖层
+ *  热键，别放进来（实测占用报错）。 */
+const BOSS_KEY_PRESETS = [
+  { value: 'CommandOrControl+Alt+H', label: 'Ctrl/Cmd + Alt + H' },
+  { value: 'CommandOrControl+Alt+X', label: 'Ctrl/Cmd + Alt + X' },
+  { value: 'CommandOrControl+Alt+B', label: 'Ctrl/Cmd + Alt + B' },
+] as const;
+
 /** 设置页：目录 / 命名 / 并发 / 代理 / 播放 / 存储。 */
 export function SettingsPage() {
   const { data: loaded, isPending, refetch: refetchSettings } = useSettings();
@@ -240,6 +249,49 @@ export function SettingsPage() {
             checked={current.pauseOnMinimize}
             onChange={(v) => patch({ pauseOnMinimize: v })}
           />
+
+          {/* 连播预取集数（issue #6）：0=关闭；保存即生效于下一次起播 */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="prefetch-episodes">
+              {t('settings.prefetchEpisodes')} —{' '}
+              {current.prefetchEpisodes === 0
+                ? t('settings.prefetchOff')
+                : current.prefetchEpisodes}
+            </Label>
+            <Input
+              id="prefetch-episodes"
+              type="range"
+              min={0}
+              max={3}
+              step={1}
+              value={current.prefetchEpisodes}
+              onChange={(e) => patch({ prefetchEpisodes: Number(e.target.value) })}
+            />
+            <p className="text-muted-foreground text-xs">{t('settings.prefetchEpisodesDesc')}</p>
+          </div>
+
+          {/* 老板键（issue #4）：全局快捷键隐藏/恢复窗口，隐藏自动暂停。
+              保存时后端注册，快捷键被占用会保存失败弹原文 */}
+          <div className="flex flex-col gap-2">
+            <Label>{t('settings.bossKey')}</Label>
+            <Select
+              value={current.bossKey}
+              onValueChange={(v) => patch({ bossKey: v })}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">{t('settings.bossKeyOff')}</SelectItem>
+                {BOSS_KEY_PRESETS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">{t('settings.bossKeyDesc')}</p>
+          </div>
 
           <div className="bg-muted/50 flex flex-wrap items-center gap-2 rounded-md p-3 text-sm">
             <Cpu className="text-muted-foreground size-4" />

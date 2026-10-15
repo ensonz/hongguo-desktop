@@ -42,6 +42,10 @@ export const settingsSchema = z.object({
   autoNextEpisode: z.boolean(),
   // 后端 serde(default)：旧库无此字段，前端宽松接收
   pauseOnMinimize: z.boolean().catch(true),
+  /** 连播预取集数（0=关闭，上限 3；Rust clamp_prefetch_episodes） */
+  prefetchEpisodes: z.number().int().min(0).max(3).catch(1),
+  /** 老板键全局快捷键（tauri accelerator 形态；空 = 未启用） */
+  bossKey: z.string().catch(''),
   theme: z.string(),
   // 后端 serde(default)：旧库无此字段，前端宽松接收
   account: accountStateSchema.nullable().optional(),

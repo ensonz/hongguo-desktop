@@ -53,6 +53,7 @@ chrono = "0.4"
 log = "0.4"
 env_logger = "0.11"
 serde = { version = "1", features = ["derive"] }
+tauri-plugin-global-shortcut = "2"
 
 # macOS 原生红绿灯的藏/显（小屏模式，app_cmd）：直接对三颗 NSWindowButton
 # setHidden，而不是 set_decorations 切 borderless——tao 的 set_decorations 是

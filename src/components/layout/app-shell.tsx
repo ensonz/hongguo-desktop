@@ -58,6 +58,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ),
   );
 
+  // 老板键隐藏/恢复：隐藏即暂停全部视频（声音不漏，老板键的意义所在），
+  // 恢复窗口时续播刚才在播的。video 元素只活在播放器页，全局兜底查询即可。
+  useEvent(
+    EVENTS.bossKeyHidden,
+    useCallback(({ hidden }) => {
+      document.querySelectorAll('video').forEach((v) => {
+        if (hidden) {
+          v.pause();
+        } else if (v.paused) {
+          void v.play().catch(() => undefined);
+        }
+      });
+    }, []),
+  );
+
   // 小屏播放（对齐 hgplayer De.mini 的 bare 布局）：侧栏与顶栏**全部**
   // 藏掉，整个窗口只剩播放器（第三方小屏连标题栏都没有，窗口按钮由
   // 紧凑控制条承担）；拖拽由播放页的顶部拖拽条负责。

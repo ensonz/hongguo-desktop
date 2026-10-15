@@ -204,6 +204,14 @@ pub struct Settings {
     /// 最小化自动暂停，恢复窗口后继续播（对齐 hgplayer）
     #[serde(default = "default_true")]
     pub pause_on_minimize: bool,
+    /// 连播预取集数（0=关闭；1=仅下一集）。流预取与 HEVC 预转共用此档，
+    /// 起播后按它向后多铺几集（issue #6：减少切集等待、可关）
+    #[serde(default = "default_prefetch_episodes")]
+    pub prefetch_episodes: u32,
+    /// 老板键全局快捷键（tauri accelerator 形态，如 "CommandOrControl+Alt+H"；
+    /// 空 = 未启用）。注册在壳侧（issue #4：隐藏/显示主窗口）
+    #[serde(default)]
+    pub boss_key: String,
     /// 主题：auto / light / dark（默认 dark——黑色是应用的默认观感）
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -214,6 +222,10 @@ pub struct Settings {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_prefetch_episodes() -> u32 {
+    1
 }
 
 fn default_theme() -> String {
@@ -235,6 +247,8 @@ impl Default for Settings {
             auto_delete_after_play: false,
             auto_next_episode: true,
             pause_on_minimize: true,
+            prefetch_episodes: default_prefetch_episodes(),
+            boss_key: String::new(),
             theme: default_theme(),
             account: None,
         }
@@ -245,6 +259,11 @@ impl Settings {
     /// 收敛并发到 1–10，保存前调用。
     pub fn clamp_concurrency(&mut self) {
         self.max_concurrency = self.max_concurrency.clamp(1, 10);
+    }
+
+    /// 收敛预取集数到 0–3（0=关闭；上限对齐 StreamCache 的预取标记位）。
+    pub fn clamp_prefetch_episodes(&mut self) {
+        self.prefetch_episodes = self.prefetch_episodes.min(3);
     }
 
     /// 缓存根覆盖值：非空给 `Some`，空表示跟随数据目录（`None`）。
@@ -310,6 +329,20 @@ mod tests {
         s.max_concurrency = 99;
         s.clamp_concurrency();
         assert_eq!(s.max_concurrency, 10);
+    }
+
+    #[test]
+    fn clamp_prefetch_episodes_bounds() {
+        // 上限 3 对齐 StreamCache 预取标记位；0 = 关闭预取是合法值
+        let mut s = Settings {
+            prefetch_episodes: 9,
+            ..Default::default()
+        };
+        s.clamp_prefetch_episodes();
+        assert_eq!(s.prefetch_episodes, 3);
+        s.prefetch_episodes = 0;
+        s.clamp_prefetch_episodes();
+        assert_eq!(s.prefetch_episodes, 0);
     }
 
     #[test]
@@ -418,6 +451,8 @@ mod tests {
             auto_delete_after_play: false,
             auto_next_episode: true,
             pause_on_minimize: true,
+            prefetch_episodes: 1,
+            boss_key: "CommandOrControl+Alt+H".into(),
             theme: "auto".into(),
             account: None,
         };
@@ -428,6 +463,8 @@ mod tests {
         assert_eq!(v["autoDeleteAfterPlay"], false);
         assert_eq!(v["autoNextEpisode"], true);
         assert_eq!(v["pauseOnMinimize"], true);
+        assert_eq!(v["prefetchEpisodes"], 1);
+        assert_eq!(v["bossKey"], "CommandOrControl+Alt+H");
         assert_eq!(v["naming"], "titleIndex");
         assert_eq!(v["proxy"]["mode"], "direct");
         assert!(v.get("download_dir").is_none());

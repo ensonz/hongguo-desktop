@@ -87,8 +87,9 @@ pub struct StreamCache {
 const KEEP_RECENT: usize = 3;
 
 /// 预取标记的上限。首页同一时刻最多预取一部，快速连滚会短暂多出一两
-/// 个标记，上限取 2 足够，防止标记无界增长把逐出豁免变成内存漏洞。
-const MAX_PREFETCH_MARKS: usize = 2;
+/// 个标记；连播预取按用户配置最多再向后铺 3 集（Settings.prefetch_episodes，
+/// issue #6）。上限 = 3 + 2，防止标记无界增长把逐出豁免变成内存漏洞。
+const MAX_PREFETCH_MARKS: usize = 5;
 
 /// 在线流缓存的总字节预算。当前集 + 预取 + 最近保留加起来超过它时，
 /// 从最旧的「非当前」条目开始逐出，直到回到预算内。
@@ -547,12 +548,15 @@ mod tests {
     fn prefetch_marks_are_bounded() {
         // 标记无界会把逐出豁免变成内存漏洞：只留最新 MAX_PREFETCH_MARKS 个。
         let c = StreamCache::default();
-        c.mark_prefetch("p1", 1080);
-        c.mark_prefetch("p2", 1080);
-        c.mark_prefetch("p3", 1080);
+        for i in 0..super::MAX_PREFETCH_MARKS + 2 {
+            c.mark_prefetch(&format!("p{i}"), 1080);
+        }
         assert_eq!(c.prefetch.lock().len(), super::MAX_PREFETCH_MARKS);
         assert!(
-            !c.prefetch.lock().iter().any(|(v, _)| v == "p1"),
+            !c.prefetch
+                .lock()
+                .iter()
+                .any(|(v, _)| v == "p0" || v == "p1"),
             "最老的标记被挤出"
         );
         // 转正（set_current）与删除（remove）都要摘标记
