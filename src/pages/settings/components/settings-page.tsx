@@ -27,11 +27,13 @@ import {
 import { app as appApi } from '@/service/commands';
 import { formatBytes } from '@/utils/format';
 import { isMac } from '@/utils/platform';
+import { useShortcutsStore } from '@/stores/shortcuts';
 import { t, tf } from '@/locales';
 import type { DecodeCapability, Settings } from '@/service/schema';
 import { UpdateCard } from '@/features/update/update-card';
 import { AccountCard } from './account-card';
 import { ShortcutCard } from './shortcut-card';
+import { BossKeyCard, resolveBossKeyConflicts } from './boss-key-card';
 import { ToggleRow } from './toggle-row';
 
 /** ffmpeg 安装路径随平台：Windows 走 winget + gyan 构建，macOS 走
@@ -39,15 +41,6 @@ import { ToggleRow } from './toggle-row';
 const FFMPEG_INSTALL = isMac()
   ? { cmd: 'brew install ffmpeg', page: 'https://ffmpeg.org/download.html' }
   : { cmd: 'winget install Gyan.FFmpeg', page: 'https://www.gyan.dev/ffmpeg/builds/' };
-
-/** 老板键候选（tauri accelerator 形态；CommandOrControl 在 mac 映射 Cmd）。
- *  自定义组合后续接快捷键捕获，先给常用预设——Alt+Z 是 NVIDIA 覆盖层
- *  热键，别放进来（实测占用报错）。 */
-const BOSS_KEY_PRESETS = [
-  { value: 'CommandOrControl+Alt+H', label: 'Ctrl/Cmd + Alt + H' },
-  { value: 'CommandOrControl+Alt+X', label: 'Ctrl/Cmd + Alt + X' },
-  { value: 'CommandOrControl+Alt+B', label: 'Ctrl/Cmd + Alt + B' },
-] as const;
 
 /** 设置页：目录 / 命名 / 并发 / 代理 / 播放 / 存储。 */
 export function SettingsPage() {
@@ -59,6 +52,8 @@ export function SettingsPage() {
   const { data: cacheUsage } = useCacheUsage();
   const clearCache = useCacheClear();
   const testProxyMutation = useTestProxy();
+  // 播放器快捷键（老板键冲突检测的比对源；与播放器同一份 store）
+  const shortcutKeys = useShortcutsStore((s) => s.keys);
 
   // 草稿为 null 表示「未修改」，直接用服务端值派生，避免 effect 同步引发级联渲染
   const [draft, setDraft] = useState<Partial<Settings> | null>(null);
@@ -71,6 +66,12 @@ export function SettingsPage() {
   // 合并草稿与服务端值
   const current: Settings = { ...loaded, ...(draft ?? {}) };
   const effectiveProxyUrl = proxyUrl ?? current.proxy.url;
+  // 老板键 vs 播放器快捷键冲突（全局组合在应用内按下会同时触发两者）
+  const bossConflicts = resolveBossKeyConflicts(
+    current.bossKey,
+    shortcutKeys,
+    t('settings.keySpace'),
+  );
 
   const patch = (next: Partial<Settings>) => setDraft((prev) => ({ ...(prev ?? {}), ...next }));
   const patchProxy = (next: Partial<Settings['proxy']>) =>
@@ -87,6 +88,12 @@ export function SettingsPage() {
   };
 
   const submit = () => {
+    if (bossConflicts.length > 0) {
+      // 冲突不拦截其他设置的保存意图，但老板键这档必须先改：全局组合
+      // 在应用内会同时触发播放器动作，存了就是坏状态
+      toast.error(t('settings.bossKeyConflictBlock'));
+      return;
+    }
     saveMutation.mutate(
       { ...current, proxy: { ...current.proxy, url: effectiveProxyUrl } },
       {
@@ -270,28 +277,7 @@ export function SettingsPage() {
             <p className="text-muted-foreground text-xs">{t('settings.prefetchEpisodesDesc')}</p>
           </div>
 
-          {/* 老板键（issue #4）：全局快捷键隐藏/恢复窗口，隐藏自动暂停。
-              保存时后端注册，快捷键被占用会保存失败弹原文 */}
-          <div className="flex flex-col gap-2">
-            <Label>{t('settings.bossKey')}</Label>
-            <Select
-              value={current.bossKey}
-              onValueChange={(v) => patch({ bossKey: v })}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">{t('settings.bossKeyOff')}</SelectItem>
-                {BOSS_KEY_PRESETS.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-muted-foreground text-xs">{t('settings.bossKeyDesc')}</p>
-          </div>
+          {/* 老板键已独立成卡（全局快捷键 ≠ 播放器快捷键），见 BossKeyCard */}
 
           <div className="bg-muted/50 flex flex-wrap items-center gap-2 rounded-md p-3 text-sm">
             <Cpu className="text-muted-foreground size-4" />
@@ -370,6 +356,14 @@ export function SettingsPage() {
 
       {/* 快捷键（前端偏好，立即生效不走保存按钮） */}
       <ShortcutCard />
+
+      {/* 老板键（全局快捷键，issue #4）：与播放器快捷键分卡展示并做冲突
+          检测——全局组合在应用内按下会同时触发播放器动作 */}
+      <BossKeyCard
+        bossKey={current.bossKey}
+        conflicts={resolveBossKeyConflicts(current.bossKey, shortcutKeys, t('settings.keySpace'))}
+        onChange={(v) => patch({ bossKey: v })}
+      />
 
       {/* 存储 */}
       <Card>
