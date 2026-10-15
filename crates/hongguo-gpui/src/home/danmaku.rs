@@ -35,8 +35,10 @@ fn dm_text_width(text: &str, font_px: f32) -> f32 {
     crate::danmaku_emoji::segment_widths(text, font_px)
 }
 
-/// 滚过一屏的时长（hgplayer durationMs 默认 9000）。
-const DM_CROSS_MS: f64 = 9000.0;
+/// 滚过一屏的时长（hgplayer durationMs 默认 9000，这里换算成秒——dt 与
+/// 它必须同单位。旧写法 `dt(秒) / 9000(毫秒)` 差了 1000 倍：弹幕从右缘
+/// 以 ~0.5px/4s 的速度爬行，等于永久不可见——「弹幕一条没有」的最终根因）。
+const DM_CROSS_SECS: f64 = 9.0;
 /// 同一泳道相邻两条的入场间隔（1.4 墙钟秒；记账按倍速折算成媒体秒，见
 /// spawn 占位处）。
 const DM_LANE_BUSY_S: f64 = 1.4;
@@ -160,7 +162,7 @@ impl super::HomeView {
             .unwrap_or(640.0);
         // 在飞推进（暂停不推进 = 冻结）与出屏回收（progress ≥ 1 滚完一屏）
         if !paused && !self.danmaku_flights.is_empty() {
-            let step = dt / DM_CROSS_MS;
+            let step = dt / DM_CROSS_SECS;
             for f in &mut self.danmaku_flights {
                 f.progress += step;
             }
