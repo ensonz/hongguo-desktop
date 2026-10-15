@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pin } from 'lucide-react';
 import { useLocation } from '@tanstack/react-router';
-import { toast } from 'sonner';
 import { AppSidebar } from './app-sidebar';
 import { ThemeSwitch } from './theme-switch';
 import { WindowButtons } from './window-controls';
@@ -42,8 +41,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     useCallback(() => setExitOpen(true), []),
   );
 
-  // 追更更新提醒到达（后端定时检查出新集）：刷新角标/列表缓存；弹出开关
-  // 开着才弹 toast（hgplayer「弹出提醒」同款，开关在追更页提醒 tab）
+  // 追更更新提醒到达（后端定时检查出新集）：弹 **OS 系统通知**（非应用内
+  // toast）+ 刷新角标/列表缓存。弹出开关（aibotPopupOn）控制是否弹。
   const refreshFollow = useFollowNoticesInvalidator();
   const aibotPopupOn = useUiStore((s) => s.aibotPopupOn);
   useEvent(
@@ -53,7 +52,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         refreshFollow();
         if (!aibotPopupOn) return;
         for (const n of payload.notices) {
-          toast.message(n.title, { description: n.detail });
+          try {
+            const nn = new Notification(n.title, { body: n.detail });
+            nn.onclick = () => window.focus();
+          } catch {
+            // Notification 构造失败（权限等）静默——列表里仍有记录
+          }
         }
       },
       [refreshFollow, aibotPopupOn],
