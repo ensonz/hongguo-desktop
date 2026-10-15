@@ -30,7 +30,7 @@ import {
   useVideoDigg,
   useWatchHistory,
 } from '@/service/queries';
-import { usePlayerStore } from '@/stores/player';
+import { usePlaySeries } from '@/hooks/use-play-series';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import type { Series } from '@/service/schema';
@@ -55,7 +55,7 @@ export function SeriesDetailPage({
   const navigate = useNavigate();
   // routeTree.gen 的 as any 污染 useRouter 返回值；这里只用 history.back
   const router = useRouter() as { history: { back: () => void } };
-  const setTarget = usePlayerStore((s) => s.setTarget);
+  const playSeries = usePlaySeries();
 
   const { data: series, isPending, isError, error } = useSeriesEpisodes(seriesId || null);
   const { data: localProgress } = useSeriesProgress(seriesId ?? '');
@@ -107,8 +107,7 @@ export function SeriesDetailPage({
 
   const playEpisode = (idx: number) => {
     if (!seriesId) return;
-    setTarget(seriesId, idx);
-    void navigate({ to: '/player' });
+    playSeries(seriesId, idx);
   };
 
   // ---- 互动（收藏/点赞）：登录后才可用，与播放器互动栏同一套 mutation ----

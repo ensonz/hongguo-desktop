@@ -6,7 +6,6 @@
 //! （封面 3:4 + 悬浮续播/取消赞）；标题搜索框对齐参考端 v1.1.6。
 
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Heart, HeartOff, Play } from 'lucide-react';
 import { toast } from 'sonner';
@@ -29,13 +28,12 @@ import { interact as interactCmd } from '@/service/commands';
 import { keys } from '@/service/queries/common';
 import { useInteractionState, useSeriesMeta, useVideoDigg } from '@/service/queries';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
-import { usePlayerStore } from '@/stores/player';
+import { usePlaySeries } from '@/hooks/use-play-series';
 import { t, tf } from '@/locales';
 import type { InteractionItem } from '@/service/schema';
 
 export function LikedPage() {
-  const navigate = useNavigate();
-  const setTarget = usePlayerStore((s) => s.setTarget);
+  const playSeries = usePlaySeries();
   const queryClient = useQueryClient();
   const { data: state, isLoading, error, refetch } = useInteractionState();
   const digg = useVideoDigg();
@@ -79,8 +77,7 @@ export function LikedPage() {
   );
 
   const open = (item: InteractionItem) => {
-    setTarget(item.seriesId, 1);
-    void navigate({ to: '/player' });
+    playSeries(item.seriesId);
   };
 
   if (isLoading) {

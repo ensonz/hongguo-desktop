@@ -18,7 +18,6 @@ import { Route as HistoryRouteImport } from './history'
 import { Route as LikedRouteImport } from './liked'
 import { Route as MergeRouteImport } from './merge'
 import { Route as NewRouteImport } from './new'
-import { Route as PlayerRouteImport } from './player'
 import { Route as RankRouteImport } from './rank'
 import { Route as ReservationsRouteImport } from './reservations'
 import { Route as SettingsRouteImport } from './settings'
@@ -70,11 +69,6 @@ const NewRoute = NewRouteImport.update({
   path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlayerRoute = PlayerRouteImport.update({
-  id: '/player',
-  path: '/player',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const RankRoute = RankRouteImport.update({
   id: '/rank',
   path: '/rank',
@@ -111,7 +105,6 @@ export interface FileRoutesByFullPath {
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
   '/new': typeof NewRoute
-  '/player': typeof PlayerRoute
   '/rank': typeof RankRoute
   '/reservations': typeof ReservationsRoute
   '/settings': typeof SettingsRoute
@@ -128,7 +121,6 @@ export interface FileRoutesByTo {
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
   '/new': typeof NewRoute
-  '/player': typeof PlayerRoute
   '/rank': typeof RankRoute
   '/reservations': typeof ReservationsRoute
   '/settings': typeof SettingsRoute
@@ -146,7 +138,6 @@ export interface FileRoutesById {
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
   '/new': typeof NewRoute
-  '/player': typeof PlayerRoute
   '/rank': typeof RankRoute
   '/reservations': typeof ReservationsRoute
   '/settings': typeof SettingsRoute
@@ -165,7 +156,6 @@ export interface FileRouteTypes {
     | '/liked'
     | '/merge'
     | '/new'
-    | '/player'
     | '/rank'
     | '/reservations'
     | '/settings'
@@ -182,7 +172,6 @@ export interface FileRouteTypes {
     | '/liked'
     | '/merge'
     | '/new'
-    | '/player'
     | '/rank'
     | '/reservations'
     | '/settings'
@@ -199,7 +188,6 @@ export interface FileRouteTypes {
     | '/liked'
     | '/merge'
     | '/new'
-    | '/player'
     | '/rank'
     | '/reservations'
     | '/settings'
@@ -217,7 +205,6 @@ export interface RootRouteChildren {
   LikedRoute: typeof LikedRoute
   MergeRoute: typeof MergeRoute
   NewRoute: typeof NewRoute
-  PlayerRoute: typeof PlayerRoute
   RankRoute: typeof RankRoute
   ReservationsRoute: typeof ReservationsRoute
   SettingsRoute: typeof SettingsRoute
@@ -290,13 +277,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/player': {
-      id: '/player'
-      path: '/player'
-      fullPath: '/player'
-      preLoaderRoute: typeof PlayerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/rank': {
       id: '/rank'
       path: '/rank'
@@ -345,7 +325,6 @@ const rootRouteChildren: RootRouteChildren = {
   LikedRoute: LikedRoute,
   MergeRoute: MergeRoute,
   NewRoute: NewRoute,
-  PlayerRoute: PlayerRoute,
   RankRoute: RankRoute,
   ReservationsRoute: ReservationsRoute,
   SettingsRoute: SettingsRoute,

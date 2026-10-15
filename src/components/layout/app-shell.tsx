@@ -83,16 +83,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // 藏掉，整个窗口只剩播放器（第三方小屏连标题栏都没有，窗口按钮由
   // 紧凑控制条承担）；拖拽由播放页的顶部拖拽条负责。
   const miniScreen = useUiStore((s) => s.miniScreen);
-  // 全屏真值对齐系统侧（Esc/绿按钮经 resize 回流 store）。播放器形态页面
-  // （首页沉浸流 / 纯播放页）全屏时同样藏掉顶栏与侧栏——整窗只剩画面，
-  // 对齐 hgplayer 与旧元素全屏的视觉；其他页面被系统绿按钮全屏时界面照常。
+  // 全屏真值对齐系统侧（Esc/绿按钮经 resize 回流 store）。沉浸流全屏时
+  // 同样藏掉顶栏与侧栏——整窗只剩画面，对齐 hgplayer 与旧元素全屏的视觉；
+  // 其他页面被系统绿按钮全屏时界面照常。
   useWindowFullscreenSync();
   const windowFullscreen = useUiStore((s) => s.windowFullscreen);
+  // 播放器只有首页沉浸流一个宿主（独立 /player 页已并回首页）
   const playerSurface = useLocation({
-    select: (s) => s.pathname === '/' || s.pathname === '/player',
+    select: (s) => s.pathname === '/',
   });
   const playerFullscreen = windowFullscreen && playerSurface;
-  // 竖屏只在播放器形态页面（首页沉浸流/纯播放页）成立：离开即自动退出，
+  // 竖屏只在沉浸流成立：离开即自动退出，
   // 窄条窗口配常规页面布局没法用（hgplayer 路由监听同款语义；退出实现
   // 收在 features/player 的 use-portrait-window，这里只做路由侧触发）
   useEffect(() => {

@@ -216,6 +216,20 @@ export function HomePage() {
     [playingPin, items],
   );
 
+  // 外部点名消费（详情/历史/搜索卡片、选集切季、剧终接下一季）：游标对到
+  // 目标剧——流里有就对过去，没有就 pinHold + 落到钉位（第 0 位）。
+  // 数据面未就绪就先不消费，等下一次渲染补齐。渲染期 setState（官方
+  // adjust 模式，与下方游标恢复同款）：条件在重渲染后自然为假，不会循环；
+  // 一次性消费：不与用户后续滚动互相拽（信息流自己的 setTarget 不带信号）。
+  const gotoNonce = usePlayerStore((s) => s.gotoNonce);
+  const [consumedGoto, setConsumedGoto] = useState(gotoNonce);
+  if (consumedGoto !== gotoNonce && playingId && displayItems.length > 0) {
+    setConsumedGoto(gotoNonce);
+    setPinHold(true);
+    const idx = displayItems.findIndex((i) => i.seriesId === playingId);
+    setIndexes((prev) => ({ ...prev, [source]: Math.max(idx, 0) }));
+  }
+
   // 游标越界(榜单/新剧源切换)夹到已加载尾部，后台翻页跟上。
   const rawIndex = indexes[source] ?? 0;
   const index = Math.min(rawIndex, Math.max(0, displayItems.length - 1));

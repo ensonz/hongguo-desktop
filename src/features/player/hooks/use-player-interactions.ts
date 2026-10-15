@@ -13,7 +13,6 @@ import { portraitAspectOf } from '@/features/player/hooks/use-portrait-window';
  */
 export function usePlayerInteractions(params: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  seriesId: string | null;
   /** 方向信号（1=下一个/向下滚，-1=上一个）由交互写入，过渡动画在装配层读 */
   setSlideDir: (dir: 1 | -1) => void;
   /** 选集浮层打开时不抢滚动 */
@@ -31,7 +30,6 @@ export function usePlayerInteractions(params: {
 }) {
   const {
     videoRef,
-    seriesId,
     setSlideDir,
     seriesPanelOpen,
     downloading,
@@ -79,25 +77,20 @@ export function usePlayerInteractions(params: {
     ],
   );
 
-  // ---- 点击画面：信息流里=选中本剧（进入切集模式）；选中后/播放页=播放/暂停 ----
-  // 第三方同款交互：未选中时单击视频=「选中这部剧」，此后滚轮/↑↓ 切集，
-  // Esc 退出选中回到换剧；选中状态下的单击回归传统的播放/暂停。
+  // ---- 点击画面 = 播放/暂停（选中剧的唯一入口是「观看完整短剧」横条与
+  //      自动连播完成本集，点画面选中剧的旧手势已移除）----
   // 控件/面板/互动栏（data-wheel-block 标记区）里的点击是它们自己的事，
-  // 不冒泡成选中/暂停。
+  // 不冒泡成播放/暂停切换。
   const onStageClick = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement | null)?.closest?.('[data-wheel-block]')) return;
       wakeChrome();
-      if (onWheelStep && !inBinge) {
-        setBinge(seriesId);
-        return;
-      }
       const video = videoRef.current;
       if (!video) return;
       if (video.paused) void video.play().catch(() => undefined);
       else video.pause();
     },
-    [wakeChrome, onWheelStep, inBinge, setBinge, seriesId, videoRef],
+    [wakeChrome, videoRef],
   );
 
   // 键盘快捷键：映射可在设置页自定义（默认空格 / ←→ / ↑↓，抖音网页版同款）。

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ChevronRight, Loader2, MonitorPlay, Play } from 'lucide-react';
+import { ChevronRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { DanmakuLayer } from './danmaku-layer';
 import { PlayerControls } from './controls/player-controls';
 import { MiniScreenControls } from './mini-screen-controls';
 import { InteractionRail } from './interaction-rail';
 import { CommentPanel } from './comment-panel';
+import { ChromeSurface } from './chrome-surface';
 import { CompatOverlay } from './compat-overlay';
 import { CoverBackdrop } from './cover-backdrop';
 import { ErrorBar } from './error-bar';
@@ -24,10 +24,8 @@ import {
   useSeriesEpisodes,
   useSettings,
   useStorageActions,
-  useWatchHistory,
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
-import { readLastTarget } from '@/utils/playback-prefs';
 import { STREAM_SCHEME } from '@/utils/scheme';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
@@ -48,61 +46,6 @@ import { usePlayerInteractions } from '../hooks/use-player-interactions';
 import { useMiniWindow } from '../hooks/use-mini-window';
 import { isAutoAdvanceStart, isPickerClickCooldown, markAutoAdvance } from '../playback-signals';
 import { usePinWindow } from '@/hooks/use-pin-window';
-
-export function PlayerPage() {
-  const navigate = useNavigate();
-  const seriesId = usePlayerStore((s) => s.seriesId);
-  const vidIndex = usePlayerStore((s) => s.vidIndex);
-  const setTarget = usePlayerStore((s) => s.setTarget);
-  // 封面占位图：历史页带封面进来，取流间隙不至于黑屏（信息流入口由 HomePage 自带）
-  const { data: history } = useWatchHistory();
-  const coverUrl = history?.items.find((i) => i.seriesId === seriesId)?.cover;
-  // 刷新/重启后内存 store 是空的：把上次播放目标读回来，
-  // 播放器直接续播（进度由本地播放档案的 resumeAt 接上）。
-  // 连上次播放目标都没有（首次启动/清过记录）：直接进推荐沉浸流——
-  // 打开就能播（第三方同款），而不是摆一个还要自己去找剧的空态；
-  // 推荐流里 ↑↓/滚轮 = 切剧，从详情/历史**选定**剧进来才是 ↑↓ = 切集。
-  useEffect(() => {
-    if (seriesId) return;
-    const last = readLastTarget();
-    if (last) {
-      setTarget(last.seriesId, last.vidIndex);
-      return;
-    }
-    void navigate({ to: '/' });
-  }, [seriesId, setTarget, navigate]);
-
-  // 兜底空态：正常只在重定向生效前闪一帧
-  if (!seriesId || !vidIndex) {
-    return <PlayerEmptyState />;
-  }
-
-  // key 随剧集变化 → 切集时组件整体重建，播放/转码状态自然清零，
-  // 不必在 effect 里同步 setState（那会触发级联渲染）。
-  return <PlayerView key={`${seriesId}:${vidIndex}`} coverUrl={coverUrl} />;
-}
-
-/** 未在播放时的占位：去推荐/历史挑一部剧即可开始。 */
-function PlayerEmptyState() {
-  const navigate = useNavigate();
-  return (
-    <div className="text-muted-foreground grid h-full place-items-center p-6">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <MonitorPlay className="size-10 opacity-40" aria-hidden />
-        <p className="text-sm">{t('player.empty')}</p>
-        <p className="text-xs opacity-70">{t('player.emptyHint')}</p>
-        <div className="mt-2 flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: '/history' })}>
-            {t('nav.history.title')}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: '/' })}>
-            {t('nav.home.title')}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** 自动连播静默硬上限：主闸门是「首播之前不唤醒」，这只兜起播失败的死局。 */
 const QUIET_WINDOW_MS = 8_000;
@@ -369,7 +312,6 @@ export function PlayerView({
   //      沉浸流=换剧、选定剧/连播=切集的语义与 400ms 滚轮冷却都在那边
   const { onStageWheel, onStageClick } = usePlayerInteractions({
     videoRef,
-    seriesId,
     setSlideDir,
     seriesPanelOpen,
     downloading,
@@ -415,8 +357,6 @@ export function PlayerView({
   // 大屏顶栏与小屏紧凑条两个入口，切换的是同一个 set_always_on_top。
   const { miniScreen, enterMini, exitMini, stopMini } = useMiniWindow({
     videoRef,
-    persist,
-    onWheelStep,
     setControlsHovered,
     setCommentPanelOpen,
     setDanmakuPanelOpen,
@@ -459,7 +399,12 @@ export function PlayerView({
       setQuietArmed(true);
       const total = currentSeries?.episodes.length ?? 0;
       if (total > 0 && vidIndex >= total) advanceAfterSeriesEnd();
-      else stepEpisode(1);
+      else {
+        // 自动连播完成本集 = 进入选中剧连播态（入口之二，另一个是
+        // 「观看完整短剧」横条）：既然在本剧连着看，滚轮/↑↓ 就该切集
+        setBinge(seriesId);
+        stepEpisode(1);
+      }
     }
   };
 
@@ -683,30 +628,39 @@ export function PlayerView({
                   // 追更钮显隐判定源（video_detail series_status，与详情页同源）
                   seriesStatus={meta?.seriesStatus}
                 />
-                {/* 沉浸流底部「观看完整短剧 · 全N集」横条（官方同款）：
-                  用户在信息流刷剧时没有明确进详情页的路径——这个横条就是
-                  官方给出的出口。点击跳详情页看档案/选集/出品人。 */}
-                {onWheelStep && currentSeries && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void navigate({ to: '/detail', search: { seriesId } });
-                    }}
-                    className="absolute right-3 bottom-14 left-3 z-10 flex cursor-pointer items-center gap-2 rounded-lg bg-black/60 px-3 py-2.5 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+                {/* 沉浸流底部「观看完整短剧 · 全N集」横条：进入选中剧连播态
+                  （滚轮/↑↓=切集）的**唯一手动入口**。已选中时不渲染——
+                  横条的使命就是进入选中态，选中了就没它的事了。显隐跟随
+                  播放控件（chromeShown），小屏不渲染（与互动栏同口径）。 */}
+                {onWheelStep && currentSeries && !miniScreen && !inBinge && (
+                  <ChromeSurface
+                    shown={chromeShown}
+                    data-wheel-block
+                    className="absolute inset-x-3 bottom-14 z-10"
                   >
-                    <Play className="size-4 shrink-0" aria-hidden />
-                    <span className="flex-1 truncate">
-                      {t('player.watchFullSeries')}
-                      {currentSeries.episodeCount > 0 && (
-                        <span className="text-white/70">
-                          {' '}
-                          · {tf('player.totalEpisodes', { count: currentSeries.episodeCount })}
-                        </span>
-                      )}
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-white/60" aria-hidden />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // 选中这部剧 = 连播锁定（切集）；同为「用户在场」信号，
+                        // 唤醒悬浮层让左上角连播指示亮出来
+                        wakeChrome();
+                        setBinge(seriesId);
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-black/60 px-3 py-2.5 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+                    >
+                      <span className="truncate">
+                        {t('player.watchFullSeries')}
+                        {currentSeries.episodeCount > 0 && (
+                          <span className="text-white/70">
+                            {' '}
+                            · {tf('player.totalEpisodes', { count: currentSeries.episodeCount })}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-white/60" aria-hidden />
+                    </button>
+                  </ChromeSurface>
                 )}
                 {/* 控制栏大小屏两套形态，共用同一个 <video>（元素在上面，
                   不随这里的切换卸载）——切大小屏播放零中断 */}
@@ -763,14 +717,10 @@ export function PlayerView({
                     onDanmakuDisplayChange={updateDanmakuDisplay}
                     immersive
                     visible={chromeShown}
-                    // 信息流里主动点了某一级 = 要追这部：进入选中剧连播（/player，
-                    // 滚轮/↑↓ 自动变为切集），而不是留在推荐流继续换剧
-                    pickerHint={onWheelStep ? t('player.pickerBingeHint') : undefined}
+                    // 选中剧的入口只有「观看完整短剧」横条与自动连播完成本集
+                    // ——选集面板只负责跳到那一集，不锁连播
                     onPickEpisode={(idx) => {
                       setTarget(seriesId, idx);
-                      // 信息流里主动选了某集 = 要追这部：原地锁定本剧连播
-                      // （滚轮/↑↓ 切集 + 左上角亮出连播指示），画面无缝续播
-                      if (onWheelStep) setBinge(seriesId);
                     }}
                   />
                 )}
