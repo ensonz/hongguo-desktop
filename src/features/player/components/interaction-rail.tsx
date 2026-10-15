@@ -18,7 +18,13 @@ import { Tv } from 'lucide-react';
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 import { ChromeSurface } from './chrome-surface';
-import { useAccount, useFollowUpdates, useInteractionState, useSeriesCollect, useVideoDigg } from '@/service/queries';
+import {
+  useAccount,
+  useFollowUpdates,
+  useInteractionState,
+  useSeriesCollect,
+  useVideoDigg,
+} from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
 import { useFollowState } from '@/hooks/use-follow-state';
 
@@ -93,6 +99,9 @@ interface InteractionRailProps {
   diggCount?: number;
   /** 全剧收藏数（同上） */
   followCount?: number;
+  /** 连载状态（video_detail series_status：0=连载中 1=已完结，官方追更钮
+   *  显隐判定源；undefined=meta 未到，回落追更列表判定） */
+  seriesStatus?: number;
 }
 
 /** 计数格式化：抖音系「1.4万」样式。 */
@@ -112,6 +121,7 @@ export function InteractionRail({
   commentCount,
   diggCount: publicDiggCount,
   followCount: publicFollowCount,
+  seriesStatus,
 }: InteractionRailProps) {
   const navigate = useNavigate();
   const { data: account } = useAccount();
@@ -130,12 +140,15 @@ export function InteractionRail({
   const collectCount =
     (publicFollowCount ?? 0) > 0 ? publicFollowCount! : (seriesHit?.followedCnt ?? 0);
 
-  // 追更按钮按完结状态条件显示：已完结剧不会有新集，追更无意义
+  // 追更按钮按完结状态条件显示：官方只在连载剧（series_status=0）出追更
+  // （2026-10-15 实包：完结剧「全139集」无钮、连载剧「更新至83集」有钮）。
+  // meta 未到的窗口期回落追更列表判定（已追+完结=隐藏）
   const followList = useFollowUpdates();
   const followedItem = followList.data?.pages
     .flatMap((p) => p.items)
     .find((i) => i.seriesId === seriesId);
-  const showFollow = !followedItem || !followedItem.finished;
+  const showFollow =
+    seriesStatus !== undefined ? seriesStatus === 0 : !followedItem || !followedItem.finished;
 
   const digg = useVideoDigg();
   const collect = useSeriesCollect();

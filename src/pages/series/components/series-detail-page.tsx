@@ -263,6 +263,12 @@ export function SeriesDetailPage({
                 )}
               </div>
 
+              {/* 更新频率（连载剧独有，「每周六更新5集」，官方在统计行下单独
+                  一行；完结剧无 update_info 不渲染） */}
+              {meta?.updateFrequency && (
+                <div className="text-muted-foreground mt-1 text-sm">{meta.updateFrequency}</div>
+              )}
+
               {/* 季徽（高亮）+「全 N 集」+ 题材标签——行构成与第三方一致；
                   题材来自 video_detail secondary_infos，档案自带 tags 是解析兜底。
                   未上线剧红底「全 0 集」（hgplayer 同款，0 集也要亮出来） */}
@@ -280,7 +286,10 @@ export function SeriesDetailPage({
                       variant={upcoming ? 'default' : 'secondary'}
                       className={upcoming ? 'bg-hot text-primary-foreground' : ''}
                     >
-                      {tf('detail.allEpisodesBadge', { count: activeSeries.episodes.length })}
+                      {/* 官方统计行原文优先（完结「全139集」/ 连载「更新至83集」，
+                          2026-10-15 实包）；旧后端窗口期回落本地集数拼「全 N 集」 */}
+                      {meta?.updateTag ||
+                        tf('detail.allEpisodesBadge', { count: activeSeries.episodes.length })}
                     </Badge>
                   )}
                   {(meta?.tags ?? activeSeries.tags).map((tag) => (
@@ -372,10 +381,10 @@ export function SeriesDetailPage({
                       <Heart className={cn('size-4', digged && 'fill-hot text-hot')} aria-hidden />
                       {t('player.interact.like')}
                     </Button>
-                    {/* 追更（对齐第三方详情页动作行）：仅连载中的剧可追——
-                        已完结剧不会有新集，追更无意义。完结判定：update_tag
-                        非空（"更新至第N集"）= 连载；空 = 已完结 */}
-                    {meta?.updateTag ? <FollowButton seriesId={seriesId} /> : null}
+                    {/* 追更（对齐官方详情页）：仅连载中的剧显示——2026-10-15
+                        官方实包：完结剧 series_status=1 且无追更钮（「全139集」），
+                        连载剧 series_status=0（「更新至83集」+「每周六更新5集」） */}
+                    {meta?.seriesStatus === 0 && <FollowButton seriesId={seriesId} />}
                   </>
                 )}
               </div>

@@ -230,7 +230,15 @@ pub fn parse_series_meta(response: &Value, series_id: &str) -> AppResult<SeriesM
         pay_info: vd.get("pay_info").cloned().unwrap_or(Value::Null),
         // 官方下发为 unix 秒；对外契约统一 UTC 毫秒
         online_time: num_field(vd, "online_time") * 1000,
-        update_tag: str_field_any(vd, &["update_tag"]),
+        update_tag: str_field_any(vd, &["episode_right_text", "update_tag"]),
+        // 追更按钮显隐判定：0=连载中 1=已完结（2026-10-15 官方实包：完结剧
+        // series_status=1 且无 update_info；缺席按连载中处理）
+        series_status: num_field(vd, "series_status"),
+        update_frequency: vd
+            .pointer("/update_info/show_update_frequency")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         episode_total_cnt: num_field(vd, "episode_total_cnt"),
         latest_consumed_vid: str_field_any(vd, &["latest_consumed_item_id"]),
         creators: parse_creators(vd),
@@ -388,8 +396,15 @@ mod tests {
                     ],
                     "pay_info": { "need_pay": true, "price": "18.0" },
                     "online_time": 1790000000,
-                    "update_tag": "更新至第45集",
+                    // 2026-10-15 官方实包形态：连载剧 series_status=0 +
+                    // update_info + episode_right_text「更新至N集」
+                    "series_status": 0,
+                    "episode_right_text": "更新至45集",
                     "episode_total_cnt": 80,
+                    "update_info": {
+                        "show_update_frequency": "每周六更新5集",
+                        "update_tag_text": "连载"
+                    },
                     "latest_consumed_item_id": "7690802329313872921",
                     "main_creator_users": [
                         {
@@ -417,7 +432,9 @@ mod tests {
         assert_eq!(m.tags, vec!["玄幻", "逆袭"], "data_type=3 才是题材标签");
         assert_eq!(m.record_number, "（番茄）网微剧备字（2026）第847205号");
         assert_eq!(m.intro, "穿越者落地成盒，重启人生第二回合。");
-        assert_eq!(m.update_tag, "更新至第45集");
+        assert_eq!(m.update_tag, "更新至45集", "统计行原文取 episode_right_text");
+        assert_eq!(m.series_status, 0, "连载剧");
+        assert_eq!(m.update_frequency, "每周六更新5集");
         assert_eq!(m.episode_total_cnt, 80);
         assert_eq!(m.online_time, 1_790_000_000_000);
         assert_eq!(m.latest_consumed_vid, "7690802329313872921");
@@ -446,10 +463,34 @@ mod tests {
         });
         let m = parse_series_meta(&v, "1").unwrap();
         assert!(m.update_tag.is_empty());
+        assert_eq!(m.series_status, 0, "缺席按连载中处理");
+        assert!(m.update_frequency.is_empty(), "无 update_info 对象即空");
         assert_eq!(m.episode_total_cnt, 0);
         assert_eq!(m.online_time, 0);
         assert!(m.latest_consumed_vid.is_empty());
         assert!(m.pay_info.is_null());
+    }
+
+    /// 完结剧形态（2026-10-15 官方实包「神豪：大风刮来的全能系统」）：
+    /// series_status=1、无 update_info、统计行是「全139集」。
+    #[test]
+    fn finished_series_has_no_update_info() {
+        let v: Value = serde_json::json!({
+            "code": 0,
+            "data": {
+                "7679720313600347198": {
+                    "series_id_str": "7679720313600347198",
+                    "series_title": "神豪：大风刮来的全能系统",
+                    "series_status": 1,
+                    "episode_right_text": "全139集",
+                    "episode_cnt": 139
+                }
+            }
+        });
+        let m = parse_series_meta(&v, "7679720313600347198").unwrap();
+        assert_eq!(m.series_status, 1, "完结剧");
+        assert_eq!(m.update_tag, "全139集");
+        assert!(m.update_frequency.is_empty(), "完结剧无更新频率");
     }
 
     #[test]

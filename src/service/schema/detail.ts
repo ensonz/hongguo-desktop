@@ -46,11 +46,16 @@ export const seriesMetaSchema = z.object({
   /** 剧情简介（series_intro，详情页与播放器简介面板共用） */
   intro: z.string().default(''),
   /** 官方模型对照新增（防御性读取，缺席为 undefined）：payInfo=付费信息
-   *  原样 / onlineTime=上线毫秒时间戳 / updateTag=官方更新角标 /
-   *  episodeTotalCnt=全剧总集数 / latestConsumedVid=服务端续播锚点 vid */
+   *  原样 / onlineTime=上线毫秒时间戳 / updateTag=官方统计行原文
+   *  （「全139集」/「更新至83集」）/ seriesStatus=连载状态（0=连载中
+   *  1=已完结，追更按钮显隐判定）/ updateFrequency=更新频率
+   *  （「每周六更新5集」，完结剧无）/ episodeTotalCnt=全剧总集数 /
+   *  latestConsumedVid=服务端续播锚点 vid */
   payInfo: z.unknown().optional(),
   onlineTime: z.number().optional(),
   updateTag: z.string().optional(),
+  seriesStatus: z.number().optional(),
+  updateFrequency: z.string().optional(),
   episodeTotalCnt: z.number().optional(),
   latestConsumedVid: z.string().optional(),
   /** 出品方 / 演职员（main_creator_users，2026-10-15 抓 player 实包；

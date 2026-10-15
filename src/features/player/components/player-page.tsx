@@ -680,6 +680,8 @@ export function PlayerView({
                   commentCount={currentEpisode?.commentCount}
                   diggCount={currentEpisode?.diggCount}
                   followCount={currentSeries?.followedCnt}
+                  // 追更钮显隐判定源（video_detail series_status，与详情页同源）
+                  seriesStatus={meta?.seriesStatus}
                 />
                 {/* 沉浸流底部「观看完整短剧 · 全N集」横条（官方同款）：
                   用户在信息流刷剧时没有明确进详情页的路径——这个横条就是
