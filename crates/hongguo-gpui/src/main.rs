@@ -187,6 +187,7 @@ fn build_app_state() -> Arc<AppStateInner> {
                     .map(|a| a.user_id.as_str())
                     .unwrap_or("未登录")
             );
+            hongguo_service::settings_service::apply_cache_root(&settings);
             state.replace_settings(settings);
         }
         Ok(None) => log::info!("[Store] 无存量设置，使用默认值"),

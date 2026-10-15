@@ -11,14 +11,26 @@
 //! 壳不声明，维持根目录不变（存量用户数据不动）。
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 static SHELL_DATA_ROOT: OnceLock<String> = OnceLock::new();
+
+/// 缓存根覆盖（用户在设置里配置的 `cache_dir`）。`None` = 跟随数据目录。
+/// 不是 OnceLock：设置保存后要即时作用于**新写入**的缓存（cover 每次写盘、
+/// compat 每次转码前都现调 [`cache_root`]），改目录不用重启。
+static CACHE_ROOT_OVERRIDE: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 /// 声明本进程的壳数据根（目录名，与默认根 `hongguo-downloader` 平级）。
 /// 必须在任何路径解析前调用，一次为准。
 pub fn set_shell_data_root(name: &str) {
     let _ = SHELL_DATA_ROOT.set(name.to_string());
+}
+
+/// 应用缓存根覆盖。启动装载与设置保存后调用（见 `Settings::cache_override`）。
+pub fn set_cache_root_override(dir: Option<PathBuf>) {
+    *CACHE_ROOT_OVERRIDE
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = dir;
 }
 
 /// 应用数据目录。
@@ -28,6 +40,16 @@ pub fn data_dir() -> PathBuf {
     }
     let parent = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
     resolve_data_root(&parent, SHELL_DATA_ROOT.get().map(String::as_str))
+}
+
+/// 缓存根：用户配置优先，否则跟随数据目录。数据库/崩溃日志/下载等用户数据
+/// 不走这里——可配置的只有可随时清的缓存。
+fn cache_root() -> PathBuf {
+    CACHE_ROOT_OVERRIDE
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .unwrap_or_else(data_dir)
 }
 
 /// 由「系统数据目录 + 壳声明」解析数据根：未声明 = Electron 迁移的默认根；
@@ -44,12 +66,12 @@ pub const DB_FILE: &str = "hongguo.db";
 
 /// 兼容模式转码缓存目录。
 pub fn compat_cache_dir() -> PathBuf {
-    data_dir().join("compat-cache")
+    cache_root().join("compat-cache")
 }
 
 /// 封面转码缓存目录（HEIC→JPEG 产物，按 URL 哈希寻址，可随时清）。
 pub fn cover_cache_dir() -> PathBuf {
-    data_dir().join("cover-cache")
+    cache_root().join("cover-cache")
 }
 
 /// 兼容转码缓存上限（沿用现版 4GB）。
@@ -71,6 +93,13 @@ pub fn db_file() -> PathBuf {
 // 测试辅助件：本 crate 与下游 crate 的测试都要用（落盘用例不能写进用户真实
 // %APPDATA%），而依赖 crate 对下游以非 test 方式编译——`#[cfg(test)]` 对下游
 // 不可见。用 feature 显式开启，避免测试代码常驻生产构建。见 Cargo.toml。
+//
+// 锁在模块级：`ScopedDataDir`（env 重定向）与缓存根覆盖的用例改的都是
+// [`compat_cache_dir`] / [`cover_cache_dir`] 的输入，必须串行，否则两个测试
+// 各改一半输入，断言落到两个目录上（与历史 1/15 随机失败同因）。
+#[cfg(any(test, feature = "test-support"))]
+static TEST_PATH_INPUTS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(any(test, feature = "test-support"))]
 pub struct ScopedDataDir {
     _lock: std::sync::MutexGuard<'static, ()>,
@@ -81,8 +110,9 @@ pub struct ScopedDataDir {
 impl ScopedDataDir {
     /// 指向 `dir` 并保证它存在。返回的守卫活着期间，本进程的数据读写全落在 `dir`。
     pub fn new(dir: &std::path::Path) -> Self {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let lock = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = TEST_PATH_INPUTS_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         std::fs::create_dir_all(dir).expect("创建测试数据目录");
         let previous = std::env::var_os("HONGGUO_DATA_DIR");
         // SAFETY: 测试专用。进程级 env 写入在 edition 2024 起标为 unsafe；
@@ -126,6 +156,23 @@ mod tests {
         let _scope = ScopedDataDir::new(&dir);
         assert_eq!(compat_cache_dir(), dir.join("compat-cache"));
         assert_ne!(compat_cache_dir(), data_dir());
+    }
+
+    /// 缓存根覆盖生效于两处磁盘缓存；数据库留在数据目录（用户数据不跟着走）。
+    /// 与 env 重定向用例共用模块级锁（见 `TEST_PATH_INPUTS_LOCK` 注释）。
+    #[test]
+    fn cache_root_override_redirects_disk_caches_only() {
+        let _lock = TEST_PATH_INPUTS_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let root = std::env::temp_dir().join(format!("hg-cache-root-{}", std::process::id()));
+        set_cache_root_override(Some(root.clone()));
+        assert_eq!(compat_cache_dir(), root.join("compat-cache"));
+        assert_eq!(cover_cache_dir(), root.join("cover-cache"));
+        assert_eq!(db_file(), data_dir().join(DB_FILE), "库不受缓存根影响");
+        // 清场放锁内：泄漏进并发的 env 用例就是随机挂
+        set_cache_root_override(None);
+        assert_eq!(compat_cache_dir(), data_dir().join("compat-cache"));
     }
 
     #[test]

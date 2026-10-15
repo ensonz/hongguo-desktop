@@ -72,6 +72,11 @@ export function SettingsPage() {
     if (picked) patch({ downloadDir: picked });
   };
 
+  const chooseCacheDir = async () => {
+    const picked = await appApi.selectFolder().catch(() => null);
+    if (picked) patch({ cacheDir: picked });
+  };
+
   const submit = () => {
     saveMutation.mutate(
       { ...current, proxy: { ...current.proxy, url: effectiveProxyUrl } },
@@ -320,6 +325,25 @@ export function SettingsPage() {
           <CardTitle className="text-base">{t('settings.storage')}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {/* 缓存目录：空 = 跟随数据目录。保存即时生效于新写入，旧目录残留
+              不迁移——与下载目录同语义，文案里说清免得用户以为搬走了。 */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="cache-dir">{t('settings.cacheDir')}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="cache-dir"
+                value={current.cacheDir}
+                placeholder={t('settings.cacheDirPlaceholder')}
+                onChange={(e) => patch({ cacheDir: e.target.value })}
+                className="font-mono text-xs"
+              />
+              <Button variant="outline" onClick={() => void chooseCacheDir()}>
+                <FolderOpen className="size-4" />
+                {t('settings.choose')}
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">{t('settings.cacheDirDesc')}</p>
+          </div>
           <p className="text-sm tabular-nums">
             {usage
               ? tf('settings.storageUsage', { size: formatBytes(usage.bytes), files: usage.files })

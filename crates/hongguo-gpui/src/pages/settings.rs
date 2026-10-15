@@ -2,9 +2,9 @@
 //!
 //! 卡片：账户（登录态/退出）/ 下载目录（可选目录）/ 命名与并发 / 网络代理
 //! （含测试连接）/ 播放（三开关 + 转码后端探测 + ffmpeg 指引）/ 存储
-//! （占用与缓存清理）/ 更新（版本展示）/ 保存。草稿语义同 Tauri：改过才
-//! 进草稿，保存成功丢草稿回「跟随服务端」。保存与探测走 service
-//! （`settings_service::save`、`storage_service`、`capability::probe`），
+//! （缓存目录 + 占用与缓存清理）/ 更新（版本展示）/ 保存。草稿语义同
+//! Tauri：改过才进草稿，保存成功丢草稿回「跟随服务端」。保存与探测走
+//! service（`settings_service::save`、`storage_service`、`capability::probe`），
 //! 与 Tauri 的 settings/transcode command 同一段。
 
 use std::sync::Arc;
@@ -117,6 +117,7 @@ pub(crate) struct SettingsView {
     /// 草稿（None = 未修改，跟随服务端值）。
     draft: Option<Settings>,
     dir_input: Entity<InputState>,
+    cache_dir_input: Entity<InputState>,
     proxy_input: Entity<InputState>,
     naming_select: Entity<SelectState<SearchableVec<SharedString>>>,
     proxy_select: Entity<SelectState<SearchableVec<SharedString>>>,
@@ -178,6 +179,8 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) -> Self {
         let dir_input = cx.new(|cx| InputState::new(window, cx));
+        let cache_dir_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("留空跟随数据目录"));
         let proxy_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("http://127.0.0.1:7890"));
         let naming_select = cx.new(|cx| {
@@ -255,6 +258,7 @@ impl SettingsView {
             loading: false,
             draft: None,
             dir_input,
+            cache_dir_input,
             proxy_input,
             naming_select,
             proxy_select,
@@ -320,6 +324,9 @@ impl SettingsView {
                 let dir = settings.download_dir.clone();
                 view.dir_input
                     .update(cx, |input, cx| input.set_value(dir, window, cx));
+                let cache_dir = settings.cache_dir.clone();
+                view.cache_dir_input
+                    .update(cx, |input, cx| input.set_value(cache_dir, window, cx));
                 let url = settings.proxy.url.clone();
                 view.proxy_input
                     .update(cx, |input, cx| input.set_value(url, window, cx));
@@ -381,6 +388,31 @@ impl SettingsView {
                         .update(cx, |input, cx| input.set_value(text, window, cx));
                     let text = view.dir_input.read(cx).value().to_string();
                     view.patch(cx, |s| s.download_dir = text);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 选缓存目录：与下载目录同流程，写进 cache_dir_input（空 = 跟随数据目录）。
+    fn pick_cache_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("选择缓存目录".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = rx.await;
+            let _ = this.update_in(cx, |view, window, cx| {
+                if let Ok(Ok(Some(paths))) = result
+                    && let Some(path) = paths.first()
+                {
+                    let text = path.to_string_lossy().to_string();
+                    view.cache_dir_input
+                        .update(cx, |input, cx| input.set_value(text, window, cx));
+                    let text = view.cache_dir_input.read(cx).value().to_string();
+                    view.patch(cx, |s| s.cache_dir = text);
                 }
             });
         })
@@ -490,6 +522,7 @@ impl SettingsView {
         }
         let mut next = self.current();
         next.download_dir = self.dir_input.read(cx).value().trim().to_string();
+        next.cache_dir = self.cache_dir_input.read(cx).value().trim().to_string();
         if next.proxy.mode == ProxyMode::Manual {
             next.proxy.url = self.proxy_input.read(cx).value().trim().to_string();
         }
@@ -503,6 +536,9 @@ impl SettingsView {
                 let dir = saved.download_dir.clone();
                 self.dir_input
                     .update(cx, |input, cx| input.set_value(dir, window, cx));
+                let cache_dir = saved.cache_dir.clone();
+                self.cache_dir_input
+                    .update(cx, |input, cx| input.set_value(cache_dir, window, cx));
                 let url = saved.proxy.url.clone();
                 self.proxy_input
                     .update(cx, |input, cx| input.set_value(url, window, cx));
@@ -1029,6 +1065,35 @@ impl SettingsView {
                     .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                     .child("磁盘占用"),
             )
+            // 缓存目录：空 = 跟随数据目录。保存即时生效于新写入，旧目录残留
+            // 不迁移——与下载目录同语义（Tauri 设置页存储卡同款位置同款文案）
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(Label::new("缓存目录"))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(div().flex_1().child(Input::new(&self.cache_dir_input)))
+                            .child(
+                                Button::new("settings-pick-cache-dir")
+                                    .icon(gpui_kit::assets::IconName::FolderOpen)
+                                    .label("选择目录")
+                                    .outline()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.pick_cache_dir(window, cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("转码与封面缓存的存放位置，留空跟随数据目录。保存后新缓存写入新目录；已生成的旧缓存不迁移，可在原目录手动清理。"),
+                    ),
+            )
             .child(div().text_sm().child(SharedString::from(usage_line)))
             .child(
                 h_flex()
@@ -1135,6 +1200,9 @@ impl SettingsView {
         let dir = settings.download_dir.clone();
         self.dir_input
             .update(cx, |input, cx| input.set_value(dir, window, cx));
+        let cache_dir = settings.cache_dir.clone();
+        self.cache_dir_input
+            .update(cx, |input, cx| input.set_value(cache_dir, window, cx));
         let url = settings.proxy.url.clone();
         self.proxy_input
             .update(cx, |input, cx| input.set_value(url, window, cx));

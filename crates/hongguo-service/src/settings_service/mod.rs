@@ -17,11 +17,23 @@ pub fn save(state: &AppState, settings: Settings) -> AppResult<Settings> {
     state.replace_settings(normalized.clone());
     // 并发上限立即应用到调度器
     state.queue().set_limit(normalized.max_concurrency);
+    // 缓存根即时生效于新写入（旧目录残留不迁移，见 Settings::cache_dir）
+    hongguo_store::paths::set_cache_root_override(
+        normalized.cache_override().map(std::path::PathBuf::from),
+    );
 
     // 落库
     state.store.save_settings(&normalized)?;
 
     Ok(normalized)
+}
+
+/// 启动装载后把持久化的缓存根应用到 `hongguo_store::paths`（两壳各调一次，
+/// 与 [`save`] 走同一映射，别在壳里各写一份 trim/判空）。
+pub fn apply_cache_root(settings: &Settings) {
+    hongguo_store::paths::set_cache_root_override(
+        settings.cache_override().map(std::path::PathBuf::from),
+    );
 }
 
 /// 归一化并校验设置。
@@ -35,6 +47,8 @@ pub fn normalize(settings: Settings) -> AppResult<Settings> {
     if settings.download_dir.is_empty() {
         settings.download_dir = Settings::default().download_dir;
     }
+    // cache_dir 允许空（= 跟随数据目录），只裁空白
+    settings.cache_dir = settings.cache_dir.trim().to_string();
 
     // 后置条件：clamp_concurrency 一旦失效，队列就会带着 0 并发启动，
     // 那时候没有任何地方会报错，这里是唯一的检查点。
@@ -79,6 +93,22 @@ mod tests {
         })
         .unwrap();
         assert_eq!(n.download_dir, "D:\\dl", "两端空白应被裁掉");
+    }
+
+    #[test]
+    fn normalize_trims_cache_dir_and_keeps_empty() {
+        let n = normalize(Settings {
+            cache_dir: "  D:\\cache  ".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(n.cache_dir, "D:\\cache");
+        let n = normalize(Settings {
+            cache_dir: "   ".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(n.cache_dir, "", "空 = 跟随数据目录，合法值不该被填掉");
     }
 
     #[test]

@@ -33,6 +33,8 @@ export type AccountState = z.infer<typeof accountStateSchema>;
 
 export const settingsSchema = z.object({
   downloadDir: z.string(),
+  // 后端 serde(default)：旧库无此字段，前端宽松接收（空 = 跟随数据目录）
+  cacheDir: z.string().catch(''),
   naming: namingTemplateSchema,
   maxConcurrency: z.number().int().min(1).max(10),
   proxy: proxyConfigSchema,

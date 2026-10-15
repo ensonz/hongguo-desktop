@@ -183,6 +183,10 @@ pub struct AccountState {
 pub struct Settings {
     /// 下载根目录
     pub download_dir: String,
+    /// 缓存根目录（转码缓存与封面缓存落在这里的子目录）；空 = 跟随数据目录。
+    /// 改动即时生效于新写入，旧目录残留不迁移（与 download_dir 同语义）。
+    #[serde(default)]
+    pub cache_dir: String,
     /// 命名模板
     #[serde(default)]
     pub naming: NamingTemplate,
@@ -224,6 +228,7 @@ impl Default for Settings {
             .unwrap_or_else(|| ".".to_string());
         Self {
             download_dir,
+            cache_dir: String::new(),
             naming: NamingTemplate::default(),
             max_concurrency: 3,
             proxy: ProxyConfig::default(),
@@ -240,6 +245,13 @@ impl Settings {
     /// 收敛并发到 1–10，保存前调用。
     pub fn clamp_concurrency(&mut self) {
         self.max_concurrency = self.max_concurrency.clamp(1, 10);
+    }
+
+    /// 缓存根覆盖值：非空给 `Some`，空表示跟随数据目录（`None`）。
+    /// 启动装载与保存后都要经它应用到 `hongguo_store::paths`，三处调用方共用。
+    pub fn cache_override(&self) -> Option<String> {
+        let trimmed = self.cache_dir.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
     }
 
     /// 某部剧的下载子目录：`<下载根>/红果短剧/<剧名>`。
@@ -396,6 +408,7 @@ mod tests {
         // 前端 settingsSchema / proxyConfigSchema / namingTemplateSchema
         let s = Settings {
             download_dir: "D:\\dl".into(),
+            cache_dir: "D:\\cache".into(),
             naming: NamingTemplate::TitleIndex,
             max_concurrency: 4,
             proxy: ProxyConfig {
@@ -410,6 +423,7 @@ mod tests {
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["downloadDir"], "D:\\dl");
+        assert_eq!(v["cacheDir"], "D:\\cache");
         assert_eq!(v["maxConcurrency"], 4);
         assert_eq!(v["autoDeleteAfterPlay"], false);
         assert_eq!(v["autoNextEpisode"], true);
@@ -430,6 +444,16 @@ mod tests {
         let v = serde_json::to_value(&r).unwrap();
         assert_eq!(v["elapsedMs"], 42);
         assert!(v.get("elapsed_ms").is_none());
+    }
+
+    #[test]
+    fn cache_override_trims_and_allows_empty() {
+        let mut s = Settings::default();
+        assert_eq!(s.cache_override(), None, "默认空 = 跟随数据目录");
+        s.cache_dir = "  ".into();
+        assert_eq!(s.cache_override(), None);
+        s.cache_dir = " D:\\cache ".into();
+        assert_eq!(s.cache_override().as_deref(), Some("D:\\cache"));
     }
 
     #[test]
