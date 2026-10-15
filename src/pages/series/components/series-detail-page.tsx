@@ -12,6 +12,7 @@ import { SeriesCover } from '@/components/common/series-cover';
 import { GuessYouLike } from './guess-you-like';
 import { RelatedWorks } from './related-works';
 import { ReserveButton } from './reserve-button';
+import { FollowButton } from '@/components/common/follow-button';
 import { ResolveButton } from './resolve-button';
 import { ReviewList } from './review-list';
 import { formatCountPrecise, formatDuration } from '@/utils/format';
@@ -326,6 +327,8 @@ export function SeriesDetailPage({
                       <Heart className={cn('size-4', digged && 'fill-hot text-hot')} aria-hidden />
                       {t('player.interact.like')}
                     </Button>
+                    {/* 追更（对齐第三方详情页动作行）：与列表页 FollowButton 同源 */}
+                    <FollowButton seriesId={seriesId} />
                   </>
                 )}
               </div>

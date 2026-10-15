@@ -16,6 +16,7 @@ pub mod capability_service;
 pub mod device;
 pub mod download_service;
 pub mod events;
+pub mod follow_service;
 pub mod login_service;
 pub mod merge_service;
 pub mod play_service;

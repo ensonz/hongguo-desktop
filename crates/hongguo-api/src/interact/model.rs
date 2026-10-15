@@ -40,3 +40,43 @@ pub struct InteractionItem {
 pub struct InteractionState {
     pub items: Vec<InteractionItem>,
 }
+
+/// 追更列表里的一部剧（get_user_action action_channel=9 的
+/// `mix_data[].video`，2026-10-15 抓 player v1.2.1 实包对齐）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowUpdateItem {
+    /// series_id（`video_id`，字符串形态）
+    pub series_id: String,
+    #[serde(default)]
+    pub title: String,
+    /// 封面（服务端下发 .heic，展示走封面转码协议）
+    #[serde(default)]
+    pub cover: String,
+    /// 服务端记录的总集数（0 = 未下发）
+    #[serde(default)]
+    pub episode_cnt: i64,
+    /// 服务端记录的已看到第几集（0 = 没看过）
+    #[serde(default)]
+    pub latest_watched_vid_index: i64,
+    /// true = 已完结（series_status==1）
+    #[serde(default)]
+    pub finished: bool,
+    /// 是否已看最新一集
+    #[serde(default)]
+    pub has_watched_latest_episode: bool,
+    /// 追更时间（unix 秒；0 = 未下发）
+    #[serde(default)]
+    pub follow_update_at: i64,
+}
+
+/// 追更列表一页。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowUpdatePage {
+    pub items: Vec<FollowUpdateItem>,
+    /// 下页 cursor（服务端下发的 JSON 串**原样**回传；空 = 没有更多。
+    /// session_id 协议同预约列表：首页不自造，翻页续传响应下发的值）
+    pub cursor: String,
+    pub has_more: bool,
+}

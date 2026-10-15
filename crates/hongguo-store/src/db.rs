@@ -20,7 +20,7 @@ use hongguo_common::{AppError, AppResult};
 
 /// 当前 schema 版本。每次结构性变更（加表/加列）时 +1，
 /// 并在 [`MIGRATIONS`] 追加一段从上一版本到新版本的 SQL。
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// 按版本升序排列的迁移 SQL，第 n 段把 schema 从版本 n 升到 n+1。
 pub static MIGRATIONS: &[&str] = &[
@@ -109,6 +109,27 @@ pub static MIGRATIONS: &[&str] = &[
         SELECT id, json FROM device_profile;
     DROP TABLE device_profile;
     ALTER TABLE device_profile_new RENAME TO device_profile;
+    "#,
+    // v5 -> v6：追更的本地两件套。follow_baseline 记「上次检查时服务端
+    // 报的总集数」（追更列表条目 vs 基线 → 判定出新集，首次见到不提示），
+    // follow_notice 存更新提醒（kind: follow=追更更新 / online=预约上线，
+    // kind 留 TEXT 为预约上线提醒留位）。取消追更时基线行随删（重追从头
+    // 计基线）。回滚 SQL：DROP TABLE follow_notice; DROP TABLE follow_baseline;
+    r#"
+    CREATE TABLE follow_baseline (
+        series_id   TEXT PRIMARY KEY,
+        episode_cnt INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+    );
+    CREATE TABLE follow_notice (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind      TEXT NOT NULL,
+        series_id TEXT NOT NULL,
+        title     TEXT NOT NULL,
+        detail    TEXT NOT NULL,
+        at        INTEGER NOT NULL,
+        read      INTEGER NOT NULL DEFAULT 0
+    );
     "#,
 ];
 

@@ -61,13 +61,17 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             // 启动装配的顺序即依赖顺序：先建应用状态（含数据库），装载设置
             // 与下载队列，把待跑任务推入调度。设备健康复检 / 磁盘补登记 /
             // 转码探测不拦启动，各自在 init 里后台化（见 bootstrap/mod.rs）。
-            app.manage(build_app_state());
+            let app_state = build_app_state();
+            app.manage(app_state.clone());
             bootstrap::store::init(app.handle())?;
             bootstrap::device::init(app.handle())?;
             bootstrap::events::init(app.handle())?;
             bootstrap::rescan::init(app.handle())?;
             bootstrap::downloader::init(app.handle())?;
             bootstrap::transcoder::init()?;
+            // 追更更新检查：启动查一轮 + 每 20 分钟一轮（未登录空转，
+            // 登录后自动生效；对齐 hongguo-player 的检查节奏）
+            hongguo_service::follow_service::start_notice_loop(app_state);
 
             // 窗口关闭一律先问前端：自绘 ×、Alt+F4、任务栏关闭都走
             // CloseRequested，前端 ready 后拦截并让它弹退出确认框
@@ -193,6 +197,14 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::interact_cmd::comment_delete,
             commands::interact_cmd::series_collect,
             commands::interact_cmd::series_collect_batch,
+            // 追更（开关 / 列表 / 是否已追 / 更新提醒）
+            commands::follow_cmd::follow_update,
+            commands::follow_cmd::follow_updates,
+            commands::follow_cmd::is_following,
+            commands::follow_cmd::follow_notices,
+            commands::follow_cmd::follow_notices_read,
+            commands::follow_cmd::follow_notices_clear,
+            commands::follow_cmd::follow_check_updates,
             commands::interact_cmd::interaction_state,
             commands::interact_cmd::bookshelf_list,
             // 下载

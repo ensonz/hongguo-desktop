@@ -1,4 +1,4 @@
-//! 播放页互动栏：收藏 / 评论 / 点赞 / 分享（抖音系右缘竖排形态）。
+//! 播放页互动栏：收藏 / 评论 / 点赞 / 追更 / 分享（抖音系右缘竖排形态）。
 //!
 //! 布局对齐抖音：**icon 在上、计数在下**，实心纯白 + 投影贴着画面右缘，
 //! 不做圆底按钮。图标为自绘抖音系实心 SVG——lucide 线框形态不像；
@@ -8,16 +8,19 @@
 //! 发弹幕入口在控制栏（hgplayer 同款），不在这里。
 //!
 //! 2026-10-05 抓包端点：点赞 do_action(3/4)、收藏 bookshelf(0/1)、
-//! 状态 mget；口径见 docs 第 9 节。
+//! 状态 mget；口径见 docs 第 9 节。追更 2026-10-15 抓 player v1.2.1
+//! （do_action 34/35、object_type=10）。
 
 import { useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { Tv } from 'lucide-react';
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 import { ChromeSurface } from './chrome-surface';
 import { useAccount, useInteractionState, useSeriesCollect, useVideoDigg } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
+import { useFollowState } from '@/hooks/use-follow-state';
 
 // ── 抖音系实心图标（自绘；激活态类优先于 fill/stroke 属性，直接生效） ──
 
@@ -160,6 +163,13 @@ export function InteractionRail({
     );
   };
 
+  // 追更（do_action 34/35，服务端跟随列表）：状态/乐观逻辑与详情页同源
+  const follow = useFollowState(seriesId);
+  const onFollow = () => {
+    if (!loggedIn) return requireLogin();
+    follow.set(!follow.isOn);
+  };
+
   const onShare = async () => {
     const url = `https://hongguoduanju.com/detail?series_id=${seriesId}`;
     try {
@@ -197,6 +207,13 @@ export function InteractionRail({
         label={t('player.interact.like')}
         text={diggCount > 0 ? fmtCount(diggCount) : undefined}
         onClick={onDigg}
+      />
+      {/* 追更（📺 + 已追态高亮）：对齐第三方 player 播放页的追更入口 */}
+      <RailItem
+        icon={<Tv className={cn('size-7', follow.isOn && 'text-primary')} />}
+        label={t(follow.isOn ? 'player.interact.following' : 'player.interact.follow')}
+        text={follow.isOn ? t('player.interact.following') : t('player.interact.follow')}
+        onClick={onFollow}
       />
       <RailItem
         icon={<DouyinShareIcon className="size-7" />}

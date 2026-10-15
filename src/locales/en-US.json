@@ -44,6 +44,9 @@
     "liked": {
       "title": "Liked"
     },
+    "follows": {
+      "title": "Following"
+    },
     "accountFallback": "Me",
     "login": "Sign in",
     "logoutConfirmTitle": "Log out?",
@@ -226,6 +229,8 @@
       "uncollected": "Removed from favorites",
       "reserved": "Reserved",
       "unreserved": "Reservation cancelled",
+      "follow": "Follow",
+      "following": "Following",
       "loginRequired": "Sign in first to interact (Settings → Account)",
       "comments": "Comments",
       "commentsSoon": "Comments coming soon",
@@ -613,6 +618,39 @@
     "searchPlaceholder": "Search likes",
     "undo": "Undo like",
     "batchUndoTitle": "Undo selected likes?"
+  },
+  "follow": {
+    "tabFollows": "Following",
+    "tabNotices": "Updates",
+    "loginRequired": "Sign in to follow series",
+    "empty": "Nothing followed yet",
+    "emptyHint": "Hit \"Follow\" on a series detail page and we will alert you when it updates",
+    "loadFailed": "Failed to load follows",
+    "loadMore": "Load more",
+    "noMore": "Nothing more",
+    "caughtUp": "All caught up",
+    "unwatched": "{count} episodes behind",
+    "serializing": "Airing",
+    "finished": "Completed",
+    "episodeProgress": "Watched {watched} / {total}",
+    "follow": "Follow",
+    "following": "Following",
+    "unfollow": "Unfollow",
+    "followTip": "Follow: get alerted when this series updates",
+    "unfollowTip": "Click to stop following",
+    "followed": "Following — we will alert you on updates",
+    "unfollowed": "Unfollowed",
+    "batchCancelTitle": "Unfollow selected series?",
+    "noticesEmpty": "No alerts",
+    "noticesEmptyHint": "When a followed series updates or a reserved one goes live, alerts show up here (checked every 20 minutes)",
+    "checkUpdate": "Check now",
+    "checking": "Checking…",
+    "checkResult": "{count} new alerts",
+    "checkNone": "No new updates for now",
+    "clearAll": "Clear",
+    "cleared": "Cleared",
+    "kindFollow": "Update",
+    "kindOnline": "Now live"
   },
   "detail": {
     "back": "Back",

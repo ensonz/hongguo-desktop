@@ -44,6 +44,9 @@
     "liked": {
       "title": "点赞"
     },
+    "follows": {
+      "title": "追更"
+    },
     "accountFallback": "我的",
     "login": "登录",
     "logoutConfirmTitle": "确定要退出登录吗？",
@@ -226,6 +229,8 @@
       "uncollected": "已取消收藏",
       "reserved": "预约成功",
       "unreserved": "已取消预约",
+      "follow": "追更",
+      "following": "已追更",
       "loginRequired": "互动需要先登录（设置页 → 账号）",
       "comments": "评论",
       "commentsSoon": "评论区即将开放",
@@ -613,6 +618,39 @@
     "searchPlaceholder": "搜索点赞的剧",
     "undo": "取消赞",
     "batchUndoTitle": "批量取消点赞？"
+  },
+  "follow": {
+    "tabFollows": "追更的剧",
+    "tabNotices": "更新提醒",
+    "loginRequired": "登录后才能追更",
+    "empty": "还没有追更的剧",
+    "emptyHint": "在剧集详情页点「追更」，这部剧更新时会提醒你",
+    "loadFailed": "追更列表加载失败",
+    "loadMore": "加载更多",
+    "noMore": "没有更多了",
+    "caughtUp": "已追平",
+    "unwatched": "{count} 集未看",
+    "serializing": "连载中",
+    "finished": "已完结",
+    "episodeProgress": "看到 {watched} / {total} 集",
+    "follow": "追更",
+    "following": "已追更",
+    "unfollow": "取消追更",
+    "followTip": "追更：这部剧更新时提醒你",
+    "unfollowTip": "点击取消追更",
+    "followed": "已追更，更新了会提醒你",
+    "unfollowed": "已取消追更",
+    "batchCancelTitle": "批量取消追更？",
+    "noticesEmpty": "暂无提醒",
+    "noticesEmptyHint": "追的剧更新、预约的剧上线后，会在这里提醒你（每 20 分钟自动检查）",
+    "checkUpdate": "检查更新",
+    "checking": "检查中…",
+    "checkResult": "有 {count} 条新提醒",
+    "checkNone": "暂时没有新的更新",
+    "clearAll": "清空",
+    "cleared": "已清空",
+    "kindFollow": "追更更新",
+    "kindOnline": "预约上线"
   },
   "detail": {
     "back": "返回",

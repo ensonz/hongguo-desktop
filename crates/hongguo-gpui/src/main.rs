@@ -193,6 +193,8 @@ fn build_app_state() -> Arc<AppStateInner> {
         Ok(None) => log::info!("[Store] 无存量设置，使用默认值"),
         Err(e) => log::warn!("[Store] 设置装载失败，使用默认值: {e}"),
     }
+    // 追更更新检查定时器（Tauri 壳 lib.rs setup 同款：启动查一轮 + 20 分钟周期）
+    hongguo_service::follow_service::start_notice_loop(state.clone());
     state
 }
 

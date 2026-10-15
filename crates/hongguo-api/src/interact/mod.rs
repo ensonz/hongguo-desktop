@@ -1,5 +1,6 @@
-//! 互动操作：点赞 / 收藏 / 发弹幕 / 发评论 / 互动状态（2026-10-05 抓
-//! hgplayer 1.1.3 实操全量锁定，口径详见 docs/hongguo-api-endpoints.md 第 9 节）。
+//! 互动操作：点赞 / 收藏 / 追更 / 发弹幕 / 发评论 / 互动状态（2026-10-05 抓
+//! hgplayer 1.1.3 实操全量锁定，口径详见 docs/hongguo-api-endpoints.md 第 9 节；
+//! 追更 2026-10-15 抓 hongguo-player v1.2.1 实包，见 captures/capture-requests-20261015.md）。
 //!
 //! 实测口径：
 //! - **body 一律 gzip JSON**（`api_call_reading` 已统一），reading 轻签名头，
@@ -8,6 +9,9 @@
 //! - 点赞分两族：视频走 `articleapi/do_action`（object_type=6，action_type
 //!   3/4），评论走 `commentapi/comment/do_action`（object_type=8，8/9）——
 //!   **路径不同**，别合并；
+//! - **追更也走 `articleapi/do_action`**（与点赞同端点）：object_type=10
+//!   （短剧）、object_id=series_id、action_type 34 追 / 35 取消——同端点
+//!   不同动作码，与点赞共用路径但 business_param 不带 video_id；
 //! - 弹幕与评论发送同端点 `commentapi/comment/add`，只差 data_type
 //!   （20 弹幕 / 4 评论）、commit_source（1500 / 3）与 offset（播放 ms / 0）；
 //! - 收藏（追剧）走 `bookshelf/video/update`，对象是 **series_id**
@@ -17,7 +21,9 @@
 
 mod model;
 
-pub use model::{BookshelfEntry, InteractionItem, InteractionState};
+pub use model::{
+    BookshelfEntry, FollowUpdateItem, FollowUpdatePage, InteractionItem, InteractionState,
+};
 
 pub use super::danmaku::{CommentItem, ReplyItem};
 
@@ -26,10 +32,11 @@ use serde_json::Value;
 use super::client::ApiEnv;
 use super::danmaku::LQ_API_ORIGIN;
 use crate::params::interaction::{
-    COMMENT_TYPE_COMMENT, COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT, COMMIT_SOURCE_COMMENT_REPLY,
-    COMMIT_SOURCE_DANMAKU, COMMIT_SOURCE_REVIEW_REPLY, DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU,
-    DATA_TYPE_DELETE, DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT,
-    OBJECT_TYPE_REVIEW, OBJECT_TYPE_VIDEO,
+    ACTION_CHANNEL_FOLLOW, ACTION_TYPE_FOLLOW, ACTION_TYPE_UNFOLLOW, COMMENT_TYPE_COMMENT,
+    COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT, COMMIT_SOURCE_COMMENT_REPLY, COMMIT_SOURCE_DANMAKU,
+    COMMIT_SOURCE_REVIEW_REPLY, DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU, DATA_TYPE_DELETE,
+    DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT,
+    OBJECT_TYPE_REVIEW, OBJECT_TYPE_SERIES, OBJECT_TYPE_VIDEO,
 };
 use hongguo_common::{AppError, AppResult};
 
@@ -40,6 +47,7 @@ const REPLY_ADD_PATH: &str = "/novel/commentapi/reply/add/v1/";
 const BOOKSHELF_UPDATE_PATH: &str = "/reading/bookapi/bookshelf/video/update/v";
 const BOOKSHELF_LIST_PATH: &str = "/reading/bookapi/bookshelf/video/list/v";
 const UGC_MGET_PATH: &str = "/reading/ugc/action/mget/v";
+const FOLLOW_LIST_PATH: &str = "/novel/articleapi/relation/get_user_action/v1/";
 
 /// hgplayer 埋点上下文（抓包原样；服务端不校验，但对齐着带）。
 /// 剧评发送（danmaku.rs send_series_review）复用同一素形态。
@@ -476,6 +484,136 @@ pub async fn collect_series_batch(entries: &[(String, bool)], env: &ApiEnv) -> A
     check_interact_code(&value)
 }
 
+/// 追更 / 取消追更一部剧（2026-10-15 抓 player v1.2.1 实包锁定）。
+///
+/// 与点赞同端点（articleapi/do_action）但形态不同，照抓包别合并：
+/// `action_type` 34 追 / 35 取消、`object_type=10`（短剧）、
+/// `object_id`=series_id，business_param **不带 video_id**（点赞带）。
+pub async fn follow_update(series_id: &str, follow: bool, env: &ApiEnv) -> AppResult<()> {
+    let payload = serde_json::json!({
+        "action_type": follow_action_type(follow),
+        "business_param": {
+            "book_id": 0,
+            "has_aigc_content": false,
+            "modify_count": 0,
+            "shark_param": shark_param(),
+        },
+        "object_id": series_id,
+        "object_type": OBJECT_TYPE_SERIES,
+    });
+    let raw = serde_json::to_vec(&payload)
+        .map_err(|e| AppError::Media(format!("构造追更请求失败: {e}")))?;
+    let bytes =
+        super::client::api_call_reading(LQ_API_ORIGIN, ARTICLE_DO_ACTION_PATH, Some(raw), &[], env)
+            .await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析追更响应失败: {e}")))?;
+    check_interact_code(&value)
+}
+
+/// 追更动作码：34 追 / 35 取消（抓包往返三次锁定）。
+fn follow_action_type(follow: bool) -> i64 {
+    if follow {
+        ACTION_TYPE_FOLLOW
+    } else {
+        ACTION_TYPE_UNFOLLOW
+    }
+}
+
+/// 拉追更列表一页（get_user_action `action_channel=9`，2026-10-15 抓包
+/// 实锤）。`cursor` 传上页响应的 `cursor` 原文（JSON 串）；首页传空串。
+/// 详情页的「是否已追」没有独立接口——拉第一页本地判成员（player 同款）。
+pub async fn fetch_follow_updates(cursor: &str, env: &ApiEnv) -> AppResult<FollowUpdatePage> {
+    let biz_query: Vec<(String, String)> = vec![
+        ("action_channel".into(), ACTION_CHANNEL_FOLLOW.to_string()),
+        ("count".into(), "20".into()),
+        ("cursor_str".into(), cursor.to_string()),
+    ];
+    let bytes =
+        super::client::api_call_reading(LQ_API_ORIGIN, FOLLOW_LIST_PATH, None, &biz_query, env)
+            .await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析追更列表失败: {e}")))?;
+    if value.get("code").and_then(Value::as_i64) != Some(0) {
+        let msg = value.get("message").and_then(Value::as_str).unwrap_or("?");
+        return Err(AppError::Media(format!("追更列表接口返回: {msg}")));
+    }
+    Ok(parse_follow_updates(&value))
+}
+
+/// 解析追更列表（条目缺失容错：mix_data[].video 任一层缺字段按空处理，
+/// video_id 为空的条目跳过）。
+fn parse_follow_updates(value: &Value) -> FollowUpdatePage {
+    let cursor = value
+        .pointer("/data/comment_list_info/cursor")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let has_more = value
+        .pointer("/data/comment_list_info/has_more")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut items = Vec::new();
+    for entry in value
+        .pointer("/data/mix_data")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let Some(video) = entry.get("video") else {
+            continue;
+        };
+        let series_id = video
+            .get("video_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if series_id.is_empty() {
+            continue;
+        }
+        let expand = video.get("expand");
+        items.push(FollowUpdateItem {
+            series_id,
+            title: video
+                .pointer("/common/title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            cover: video
+                .pointer("/common/cover")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            episode_cnt: expand
+                .and_then(|e| e.get("episode_cnt"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            latest_watched_vid_index: expand
+                .and_then(|e| e.get("latest_watched_vid_index"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            finished: expand
+                .and_then(|e| e.get("series_status"))
+                .and_then(Value::as_i64)
+                == Some(1),
+            has_watched_latest_episode: expand
+                .and_then(|e| e.get("has_watched_latest_episode"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            follow_update_at: expand
+                .and_then(|e| e.pointer("/extra/follow_update_time_stamp"))
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0),
+        });
+    }
+    FollowUpdatePage {
+        items,
+        cursor,
+        has_more,
+    }
+}
+
 /// 拉账号的书架（收藏）列表。「我的收藏」页数据源；`target_user_id` 是
 /// 登录用户 uid（AccountState.user_id，2026-10-06 抓包同款 query）。
 ///
@@ -640,6 +778,83 @@ mod tests {
         // bookshelf: 0 收藏 / 1 取消（抓包锁定）
         assert_eq!(shelf_operate_type(true), 0);
         assert_eq!(shelf_operate_type(false), 1);
+    }
+
+    #[test]
+    fn follow_action_types_match_capture() {
+        // do_action: 34 追更 / 35 取消（2026-10-15 抓 player v1.2.1 实包往返锁定）
+        assert_eq!(follow_action_type(true), 34);
+        assert_eq!(follow_action_type(false), 35);
+    }
+
+    #[test]
+    fn follow_updates_parse_matches_capture() {
+        // 形状锚点：get_user_action action_channel=9 实包
+        // （captures/flows-player-follow.jsonl，2026-10-15 追「摆摊大王」）
+        let sample = serde_json::json!({
+            "code": 0,
+            "data": {
+                "comment_list_info": {
+                    "cursor": "{\"session_id\":\"20261015132033C96A23C06C91444C4511\",\"offset\":20}",
+                    "has_more": false
+                },
+                "mix_data": [{
+                    "data_type": 1,
+                    "video": {
+                        "common": {
+                            "cover": "https://p3-reading-sign.fqnovelpic.com/novel-pic/x.heic",
+                            "title": "摆摊大王",
+                            "vertical": false,
+                            "video_content_type": 1004,
+                            "video_type": 2
+                        },
+                        "expand": {
+                            "episode_cnt": 214,
+                            "extra": {
+                                "follow_update_time_stamp": "1792041548",
+                                "lasted_read_time_stamp": "1792041412",
+                                "max_chapter_first_pass_time": "1787631872"
+                            },
+                            "has_watched_latest_episode": false,
+                            "latest_watched_vid_index": 16,
+                            "series_status": 1
+                        },
+                        "video_id": "7677818497497320472"
+                    }
+                }]
+            }
+        });
+        let page = parse_follow_updates(&sample);
+        assert_eq!(page.items.len(), 1);
+        let item = &page.items[0];
+        assert_eq!(item.series_id, "7677818497497320472");
+        assert_eq!(item.title, "摆摊大王");
+        assert_eq!(item.episode_cnt, 214);
+        assert_eq!(item.latest_watched_vid_index, 16);
+        assert!(item.finished, "series_status=1 = 已完结");
+        assert!(!item.has_watched_latest_episode);
+        assert_eq!(item.follow_update_at, 1_792_041_548);
+        // cursor 原样保留（翻页续传），has_more 透传
+        assert!(page.cursor.contains("session_id"));
+        assert!(!page.has_more);
+    }
+
+    #[test]
+    fn follow_updates_parse_tolerates_empty_and_junk() {
+        // 空列表（追更前实包形态）与缺 video 层的脏条目都不炸
+        let empty = serde_json::json!({
+            "code": 0,
+            "data": {"comment_list_info": {"cursor": "", "has_more": false}, "mix_data": []}
+        });
+        let page = parse_follow_updates(&empty);
+        assert!(page.items.is_empty());
+        assert!(page.cursor.is_empty());
+
+        let junk = serde_json::json!({
+            "code": 0,
+            "data": {"mix_data": [{"data_type": 1}, {"video": {"common": {"title": "无id"}}}]}
+        });
+        assert!(parse_follow_updates(&junk).items.is_empty());
     }
 
     #[test]

@@ -44,6 +44,11 @@ export const keys = {
   comments: (vid: string) => ['comments', vid] as const,
   interactState: ['interact-state'] as const,
   bookshelf: ['bookshelf'] as const,
+  /** 追更整组失效用根 key（追更/取消后列表与「是否已追」一起翻面） */
+  followRoot: ['follow-updates'] as const,
+  followUpdates: (cursor: string) => ['follow-updates', cursor] as const,
+  isFollowing: (seriesId: string) => ['is-following', seriesId] as const,
+  followNotices: ['follow-notices'] as const,
   /** 榜单整组失效用根 key（如预约态就地翻新时 findAll 前缀匹配） */
   rankRoot: RANK,
   rank: (selected: string, sub: string, panel: string) => [...RANK, selected, sub, panel] as const,

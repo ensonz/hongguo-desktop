@@ -24,6 +24,8 @@ import {
   downloadTaskSchema,
   feedPageSchema,
   feedTabSchema,
+  followNoticeSchema,
+  followUpdatePageSchema,
   hevcInstallResultSchema,
   interactionStateSchema,
   loginResultSchema,
@@ -250,6 +252,24 @@ export const COMMANDS = {
   },
   interaction_state: { args: noArgs, response: interactionStateSchema },
   bookshelf_list: { args: noArgs, response: bookshelfEntrySchema.array() },
+
+  // ---- 追更 ---------------------------------------------------------
+  follow_update: {
+    args: z.object({ seriesId: z.string(), follow: z.boolean() }),
+    response: voidResp,
+  },
+  follow_updates: {
+    args: z.object({ cursor: z.string() }),
+    response: followUpdatePageSchema,
+  },
+  is_following: { args: z.object({ seriesId: z.string() }), response: z.boolean() },
+  follow_notices: { args: noArgs, response: followNoticeSchema.array() },
+  follow_notices_read: {
+    args: z.object({ ids: z.array(z.number()) }),
+    response: z.number(),
+  },
+  follow_notices_clear: { args: noArgs, response: voidResp },
+  follow_check_updates: { args: noArgs, response: z.number() },
 
   // ---- 登录 ---------------------------------------------------------
   login_send_code: {

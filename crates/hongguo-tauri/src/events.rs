@@ -75,6 +75,9 @@ fn forward(app: &tauri::AppHandle, event: ServiceEvent) {
         ServiceEvent::LoginMfa(ev) => {
             let _ = app.emit(hongguo_service::login_service::events::LOGIN_MFA_STATE, ev);
         }
+        ServiceEvent::FollowNotices(ev) => {
+            let _ = app.emit(hongguo_service::follow_service::events::FOLLOW_NOTICES, ev);
+        }
     }
 }
 

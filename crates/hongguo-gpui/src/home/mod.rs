@@ -742,6 +742,11 @@ impl HomeView {
             | ServiceEvent::MergeCompleted(_)
             | ServiceEvent::MergeFailed(_) => {}
             ServiceEvent::CompatProgress(_) => {}
+            // 追更提醒：GPUI 壳的追更页未建，先记日志（通知已落本地库，
+            // 页面就位后从这里接 UI 刷新）
+            ServiceEvent::FollowNotices(ev) => {
+                log::info!("[Follow] {} 条新更新提醒", ev.notices.len());
+            }
         }
     }
 

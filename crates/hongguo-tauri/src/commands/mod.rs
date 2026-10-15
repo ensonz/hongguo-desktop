@@ -10,6 +10,7 @@ pub mod danmaku_cmd;
 pub mod device_cmd;
 pub mod discover_cmd;
 pub mod download;
+pub mod follow_cmd;
 pub mod history_cmd;
 pub mod incognito_cmd;
 pub mod interact_cmd;

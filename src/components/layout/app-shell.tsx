@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pin } from 'lucide-react';
 import { useLocation } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { AppSidebar } from './app-sidebar';
 import { ThemeSwitch } from './theme-switch';
 import { WindowButtons } from './window-controls';
@@ -10,6 +11,7 @@ import { useWindowFullscreenSync } from '@/hooks/use-window-fullscreen';
 import { app as appApi } from '@/service/commands';
 import { useEvent } from '@/service/tauri/events';
 import { EVENTS } from '@/service/tauri/types';
+import { useFollowNoticesInvalidator } from '@/service/queries';
 import { useUiStore } from '@/stores/ui';
 import { usePinWindow } from '@/hooks/use-pin-window';
 import { isMac } from '@/utils/platform';
@@ -38,6 +40,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEvent(
     EVENTS.closeRequested,
     useCallback(() => setExitOpen(true), []),
+  );
+
+  // 追更更新提醒到达（后端定时检查出新集）：弹一条 + 刷新角标/列表缓存。
+  // 弹在应用壳（不在追更页）——无论用户此刻在哪个页面都能看到。
+  const refreshFollow = useFollowNoticesInvalidator();
+  useEvent(
+    EVENTS.followNotices,
+    useCallback(
+      (payload) => {
+        refreshFollow();
+        for (const n of payload.notices) {
+          toast.message(n.title, { description: n.detail });
+        }
+      },
+      [refreshFollow],
+    ),
   );
 
   // 小屏播放（对齐 hgplayer De.mini 的 bare 布局）：侧栏与顶栏**全部**

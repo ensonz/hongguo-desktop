@@ -14,6 +14,7 @@ export { series } from './series';
 export { discover } from './discover';
 export { danmaku } from './danmaku';
 export { interact } from './interact';
+export { follow } from './follow';
 export { rank } from './rank';
 export { seriesSearch } from './search';
 export { download } from './download';

@@ -9,6 +9,7 @@ import {
   BellRing,
   Star,
   Heart,
+  Tv,
   ListChecks,
   Combine,
   HardDrive,
@@ -20,7 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { LoginDialog } from '@/pages/settings/components/login-dialog';
-import { useAccount, useAuthRefresh } from '@/service/queries';
+import { unreadNotices, useAccount, useAuthRefresh, useFollowNotices } from '@/service/queries';
 import { login } from '@/service/commands';
 import { useUiStore } from '@/stores/ui';
 import { t } from '@/locales';
@@ -40,6 +41,8 @@ const NAV_ITEMS = [
   { key: 'collections', to: '/collections', icon: Star },
   // 点赞用爱心：与播放页互动栏「点赞=❤」同一符号语言（原 ThumbsUp 不一致）
   { key: 'liked', to: '/liked', icon: Heart },
+  // 追更（📺 语义）：对齐第三方 player 的侧栏顺序——点赞与预约之间
+  { key: 'follows', to: '/follows', icon: Tv },
   { key: 'reservations', to: '/reservations', icon: BellRing },
   { key: 'tasks', to: '/tasks', icon: ListChecks },
   { key: 'merge', to: '/merge', icon: Combine },
@@ -51,6 +54,10 @@ export function AppSidebar() {
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggle = useUiStore((s) => s.toggleSidebar);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { data: account } = useAccount();
+  // 追更角标：未读提醒数（登录后才拉；后端定时检查出新集时事件会刷新缓存）
+  const { data: notices } = useFollowNotices();
+  const unread = account != null ? unreadNotices(notices) : 0;
 
   return (
     <aside
@@ -66,6 +73,7 @@ export function AppSidebar() {
         {NAV_ITEMS.map((item) => {
           const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
           const Icon = item.icon;
+          const badge = item.key === 'follows' && unread > 0 ? unread : 0;
           const link = (
             <Link
               key={item.key}
@@ -78,8 +86,24 @@ export function AppSidebar() {
                 collapsed && 'justify-center px-0',
               )}
             >
-              <Icon className="size-4 shrink-0" />
-              {!collapsed && <span className="truncate">{t(`nav.${item.key}.title`)}</span>}
+              <span className="relative shrink-0">
+                <Icon className="size-4" />
+                {badge > 0 && collapsed && (
+                  <span className="bg-destructive absolute -top-1.5 -right-2 rounded-full px-1 text-[9px] leading-tight text-white tabular-nums">
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
+              </span>
+              {!collapsed && (
+                <>
+                  <span className="truncate">{t(`nav.${item.key}.title`)}</span>
+                  {badge > 0 && (
+                    <span className="bg-destructive ml-auto rounded-full px-1.5 py-0.5 text-[10px] leading-none text-white tabular-nums">
+                      {badge > 99 ? '99+' : badge}
+                    </span>
+                  )}
+                </>
+              )}
             </Link>
           );
 

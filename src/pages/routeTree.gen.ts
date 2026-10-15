@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './index'
 import { Route as BrowseRouteImport } from './browse'
 import { Route as CollectionsRouteImport } from './collections'
 import { Route as DetailRouteImport } from './detail'
+import { Route as FollowsRouteImport } from './follows'
 import { Route as HistoryRouteImport } from './history'
 import { Route as LikedRouteImport } from './liked'
 import { Route as MergeRouteImport } from './merge'
@@ -42,6 +43,11 @@ const CollectionsRoute = CollectionsRouteImport.update({
 const DetailRoute = DetailRouteImport.update({
   id: '/detail',
   path: '/detail',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FollowsRoute = FollowsRouteImport.update({
+  id: '/follows',
+  path: '/follows',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoryRoute = HistoryRouteImport.update({
@@ -100,6 +106,7 @@ export interface FileRoutesByFullPath {
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
   '/detail': typeof DetailRoute
+  '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
@@ -116,6 +123,7 @@ export interface FileRoutesByTo {
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
   '/detail': typeof DetailRoute
+  '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
@@ -133,6 +141,7 @@ export interface FileRoutesById {
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
   '/detail': typeof DetailRoute
+  '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/browse'
     | '/collections'
     | '/detail'
+    | '/follows'
     | '/history'
     | '/liked'
     | '/merge'
@@ -167,6 +177,7 @@ export interface FileRouteTypes {
     | '/browse'
     | '/collections'
     | '/detail'
+    | '/follows'
     | '/history'
     | '/liked'
     | '/merge'
@@ -183,6 +194,7 @@ export interface FileRouteTypes {
     | '/browse'
     | '/collections'
     | '/detail'
+    | '/follows'
     | '/history'
     | '/liked'
     | '/merge'
@@ -200,6 +212,7 @@ export interface RootRouteChildren {
   BrowseRoute: typeof BrowseRoute
   CollectionsRoute: typeof CollectionsRoute
   DetailRoute: typeof DetailRoute
+  FollowsRoute: typeof FollowsRoute
   HistoryRoute: typeof HistoryRoute
   LikedRoute: typeof LikedRoute
   MergeRoute: typeof MergeRoute
@@ -240,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/detail'
       fullPath: '/detail'
       preLoaderRoute: typeof DetailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/follows': {
+      id: '/follows'
+      path: '/follows'
+      fullPath: '/follows'
+      preLoaderRoute: typeof FollowsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/history': {
@@ -320,6 +340,7 @@ const rootRouteChildren: RootRouteChildren = {
   BrowseRoute: BrowseRoute,
   CollectionsRoute: CollectionsRoute,
   DetailRoute: DetailRoute,
+  FollowsRoute: FollowsRoute,
   HistoryRoute: HistoryRoute,
   LikedRoute: LikedRoute,
   MergeRoute: MergeRoute,
