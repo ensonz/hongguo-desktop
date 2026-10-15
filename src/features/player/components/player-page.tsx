@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Loader2, MonitorPlay } from 'lucide-react';
+import { ChevronRight, Loader2, MonitorPlay, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { DanmakuLayer } from './danmaku-layer';
@@ -681,6 +681,31 @@ export function PlayerView({
                   diggCount={currentEpisode?.diggCount}
                   followCount={currentSeries?.followedCnt}
                 />
+                {/* 沉浸流底部「观看完整短剧 · 全N集」横条（官方同款）：
+                  用户在信息流刷剧时没有明确进详情页的路径——这个横条就是
+                  官方给出的出口。点击跳详情页看档案/选集/出品人。 */}
+                {onWheelStep && currentSeries && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void navigate({ to: '/detail', search: { seriesId } });
+                    }}
+                    className="absolute right-3 bottom-14 left-3 z-10 flex cursor-pointer items-center gap-2 rounded-lg bg-black/60 px-3 py-2.5 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+                  >
+                    <Play className="size-4 shrink-0" aria-hidden />
+                    <span className="flex-1 truncate">
+                      {t('player.watchFullSeries')}
+                      {currentSeries.episodeCount > 0 && (
+                        <span className="text-white/70">
+                          {' '}
+                          · {tf('player.totalEpisodes', { count: currentSeries.episodeCount })}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-white/60" aria-hidden />
+                  </button>
+                )}
                 {/* 控制栏大小屏两套形态，共用同一个 <video>（元素在上面，
                   不随这里的切换卸载）——切大小屏播放零中断 */}
                 {miniScreen ? (
