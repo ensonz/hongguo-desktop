@@ -40,8 +40,8 @@ exclude = ["vendor/*"]
 [workspace.package]
 version = "0.5.0"
 edition = "2024"
-# MSRV 跟随当前 stable 工具链（1.99）。应用不是库，MSRV 只影响依赖解析。
-rust-version = "1.99"
+# MSRV 跟随当前 stable 工具链（1.99.1）。应用不是库，MSRV 只影响依赖解析。
+rust-version = "1.99.1"
 license = "PolyForm-Noncommercial-1.0.0"
 authors = ["hongguo-desktop contributors"]
 
