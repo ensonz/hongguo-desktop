@@ -77,6 +77,13 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             hongguo_service::follow_service::start_notice_loop(app_state.clone());
             // 老板键按持久化设置注册（被占用只记日志，不拦启动）
             commands::boss_key_cmd::init(app.handle(), &app_state.settings().boss_key);
+            // 本地观看历史补传（issue #10）：带账号启动时把离线攒下的行推云端
+            if app_state.settings().account.is_some() {
+                let st = app_state.clone();
+                hongguo_service::runtime::spawn(async move {
+                    hongguo_service::history_service::upload_pending(&st).await;
+                });
+            }
 
             // 窗口关闭一律先问前端：自绘 ×、Alt+F4、任务栏关闭都走
             // CloseRequested，前端 ready 后拦截并让它弹退出确认框
@@ -173,7 +180,6 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             // 云端观看历史
             commands::history_cmd::watch_history_list,
             commands::history_cmd::watch_history_delete,
-            commands::history_cmd::cloud_report_progress,
             // 登录
             commands::login_cmd::login_send_code,
             commands::login_cmd::login_sms_login,
@@ -215,6 +221,10 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::follow_cmd::follow_notices_read,
             commands::follow_cmd::follow_notices_clear,
             commands::follow_cmd::follow_check_updates,
+            // 观看历史（云端 + 本地离线记录，issue #10）
+            commands::history_cmd::record_watch_history,
+            commands::history_cmd::local_history_list,
+            commands::history_cmd::local_history_delete,
             commands::interact_cmd::interaction_state,
             commands::interact_cmd::bookshelf_list,
             // 下载

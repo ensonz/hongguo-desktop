@@ -589,6 +589,7 @@
     "title": "Watch history",
     "empty": "Nothing watched yet",
     "emptyHint": "Dramas watched in the official app or here show up here",
+    "localModeHint": "Signed out — watch history is saved on this device and syncs to the cloud after you sign in",
     "loadFailed": "Failed to load watch history",
     "today": "Today",
     "yesterday": "Yesterday",

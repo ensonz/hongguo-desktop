@@ -20,7 +20,7 @@ use hongguo_common::{AppError, AppResult};
 
 /// 当前 schema 版本。每次结构性变更（加表/加列）时 +1，
 /// 并在 [`MIGRATIONS`] 追加一段从上一版本到新版本的 SQL。
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// 按版本升序排列的迁移 SQL，第 n 段把 schema 从版本 n 升到 n+1。
 pub static MIGRATIONS: &[&str] = &[
@@ -130,6 +130,25 @@ pub static MIGRATIONS: &[&str] = &[
         at        INTEGER NOT NULL,
         read      INTEGER NOT NULL DEFAULT 0
     );
+    "#,
+    // v6 -> v7：本地观看历史（issue #10：未登录可记录/管理，登录后补传云端）。
+    // 每剧一行（与云端 read_history 的按剧聚合口径一致，行 = 最近看的那集）；
+    // reported 标记该行是否已上报云端（0=待补传，登录态写入即报、报成功回 1）。
+    // 回滚 SQL：DROP TABLE local_history;
+    r#"
+    CREATE TABLE local_history (
+        series_id     TEXT PRIMARY KEY,
+        vid_index     INTEGER NOT NULL,
+        vid           TEXT NOT NULL DEFAULT '',
+        title         TEXT NOT NULL DEFAULT '',
+        cover         TEXT NOT NULL DEFAULT '',
+        episode_count INTEGER NOT NULL DEFAULT 0,
+        position_ms   INTEGER NOT NULL DEFAULT 0,
+        duration_ms   INTEGER NOT NULL DEFAULT 0,
+        updated_at    INTEGER NOT NULL,
+        reported      INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_local_history_updated ON local_history(updated_at);
     "#,
 ];
 

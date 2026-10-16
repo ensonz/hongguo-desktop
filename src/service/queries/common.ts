@@ -20,6 +20,7 @@ export const keys = {
   seriesEpisodes: (id: string) => ['series-episodes', id] as const,
   seriesProgress: (id: string) => ['series-progress', id] as const,
   watchHistory: ['watch-history'] as const,
+  localHistory: ['local-history'] as const,
   tasks: ['download-tasks'] as const,
   queueStatus: ['queue-status'] as const,
   mergeTasks: ['merge-tasks'] as const,

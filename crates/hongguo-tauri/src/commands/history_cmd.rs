@@ -1,10 +1,10 @@
-//! 云端观看历史 command。
+//! 观看历史 command：云端（登录态）与本地（离线可记可管，issue #10）。
 
 use serde::Deserialize;
 
-use hongguo_api::history::{
-    WatchHistoryPage, delete_watch_history, fetch_watch_history, report_watch_progress,
-};
+use hongguo_api::history::{WatchHistoryPage, delete_watch_history, fetch_watch_history};
+use hongguo_common::model::LocalHistoryItem;
+use hongguo_common::utils::time::now_ms;
 use hongguo_common::{AppError, AppResult};
 use hongguo_service::app_state::AppState;
 use tauri::State;
@@ -49,26 +49,66 @@ pub async fn watch_history_delete(
     Ok(())
 }
 
-/// 观看进度云上报（read_history/update + read_progress/upload，hgplayer
-/// 同款双接口）。匿名时静默跳过——上报是 best-effort，不阻塞播放、
-/// 失败只记日志（官方客户端对它的失败也是静默的）。
+/// 记录观看历史（issue #10）：本地必记（未登录也有历史、可管理），登录态
+/// 顺路上报云端——同一节奏（5 秒首报 / 60 秒节拍 / 暂停·切集·退出补记），
+/// 上报失败不影响本地行（reported=0 留待补传）。cloud_report_progress 的
+/// 继任者：云端语义不变，多了本地一行。
 #[tauri::command]
-pub async fn cloud_report_progress(
+pub async fn record_watch_history(
     state: State<'_, AppState>,
     series_id: String,
     vid: String,
-    vid_index: i64,
+    vid_index: u32,
     position_ms: i64,
+    duration_ms: i64,
+    meta: Option<RecordHistoryMeta>,
 ) -> AppResult<()> {
-    if state.settings().account.is_none() {
-        return Ok(());
-    }
-    let env = state.api_env();
-    match report_watch_progress(&series_id, &vid, vid_index, position_ms.max(0), &env).await {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            log::warn!("[History] 云端进度上报失败（忽略）: {e}");
-            Ok(())
-        }
-    }
+    let meta = meta.unwrap_or(RecordHistoryMeta {
+        title: String::new(),
+        cover: String::new(),
+        episode_cnt: 0,
+    });
+    let item = LocalHistoryItem {
+        series_id,
+        title: meta.title,
+        cover: meta.cover,
+        vid_index,
+        vid,
+        position_ms: position_ms.max(0),
+        duration_ms: duration_ms.max(0),
+        episode_cnt: meta.episode_cnt,
+        updated_at_ms: now_ms(),
+    };
+    hongguo_service::history_service::record(state.inner(), &item).await
+}
+
+/// 记录时的展示元数据（剧名/封面/总集数）：播放器手里现成，落进本地行
+/// 免得历史页未登录模式还得逐剧拉详情。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordHistoryMeta {
+    title: String,
+    cover: String,
+    episode_cnt: u32,
+}
+
+/// 本地观看历史（未登录模式的历史页数据源；字段与云端条目同形）。
+#[tauri::command]
+pub async fn local_history_list(state: State<'_, AppState>) -> AppResult<Vec<LocalHistoryItem>> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.local_history_list())
+        .await
+        .map_err(|e| AppError::Internal(format!("本地历史读取失败: {e}")))?
+}
+
+/// 批量删除本地观看历史（按剧，与历史页卡片/批量管理同粒度）。
+#[tauri::command]
+pub async fn local_history_delete(
+    state: State<'_, AppState>,
+    series_ids: Vec<String>,
+) -> AppResult<()> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.delete_local_history(&series_ids))
+        .await
+        .map_err(|e| AppError::Internal(format!("本地历史删除失败: {e}")))?
 }

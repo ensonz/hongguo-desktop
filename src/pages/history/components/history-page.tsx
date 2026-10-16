@@ -15,7 +15,14 @@ import { ListSearch } from '@/components/common/list-search';
 import { matchListQuery } from '@/utils/list-filter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { useResolveSeries, useWatchHistory, useWatchHistoryDelete } from '@/service/queries';
+import {
+  useAccount,
+  useLocalHistory,
+  useLocalHistoryDelete,
+  useResolveSeries,
+  useWatchHistory,
+  useWatchHistoryDelete,
+} from '@/service/queries';
 import { BatchBar, ManageToggle, PickDot } from '@/components/common/batch-manage';
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
@@ -52,7 +59,16 @@ const TABS: { key: HistoryTab; labelKey: MessageKey }[] = [
 
 export function HistoryPage() {
   const playSeries = usePlaySeries();
-  const { data, isLoading, error, refetch } = useWatchHistory();
+  // 双模式（issue #10）：登录 = 云端历史（官方 App 同源，跨设备）；
+  // 未登录 = 本地观看记录（播放时已落库，删除只动本机）
+  const { data: account } = useAccount();
+  const loggedIn = !!account;
+  const cloud = useWatchHistory(loggedIn);
+  const local = useLocalHistory(!loggedIn);
+  const data = loggedIn ? cloud.data : local.data ? { items: local.data } : undefined;
+  const isLoading = loggedIn ? cloud.isLoading : local.isLoading;
+  const error = loggedIn ? cloud.error : local.error;
+  const refetch = loggedIn ? cloud.refetch : local.refetch;
   const { mutate: resolve, isPending: resolving } = useResolveSeries();
 
   // tab/搜索词会话级保留（进详情再返回停在离开时的 tab）
@@ -61,6 +77,7 @@ export function HistoryPage() {
   // 批量管理（hgplayer v1.1.6 同款「管理」）：多选后批量删除云端历史
   const batch = useBatchSelect();
   const deleteMutation = useWatchHistoryDelete();
+  const localDeleteMutation = useLocalHistoryDelete();
 
   const items = data?.items ?? [];
   const shown = items.filter((item) => {
@@ -152,6 +169,10 @@ export function HistoryPage() {
 
   return (
     <div className="flex flex-col gap-3 p-4">
+      {/* 未登录提示（issue #10）：本地模式可记可管，数据不上云 */}
+      {!loggedIn && (
+        <p className="text-muted-foreground px-1 text-xs">{t('history.localModeHint')}</p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <ToggleGroup
           type="single"
@@ -226,20 +247,35 @@ export function HistoryPage() {
               onToggleAll={() => batch.toggleAll(shown.map((i) => i.seriesId))}
               onDelete={() => {
                 const count = batch.selected.size;
-                deleteMutation.mutate(
-                  items
-                    .filter((i) => batch.selected.has(i.seriesId))
-                    .map((i) => ({ seriesId: i.seriesId, vid: i.vid, vidIndex: i.vidIndex })),
-                  {
-                    onSuccess: () => {
-                      toast.success(tf('batch.done', { count }));
-                      batch.exit();
-                      void refetch();
+                if (loggedIn) {
+                  deleteMutation.mutate(
+                    items
+                      .filter((i) => batch.selected.has(i.seriesId))
+                      .map((i) => ({ seriesId: i.seriesId, vid: i.vid, vidIndex: i.vidIndex })),
+                    {
+                      onSuccess: () => {
+                        toast.success(tf('batch.done', { count }));
+                        batch.exit();
+                        void refetch();
+                      },
+                      onError: (e: Error) =>
+                        toast.error(tf('batch.partialFail', { error: e.message })),
                     },
-                    onError: (e: Error) =>
-                      toast.error(tf('batch.partialFail', { error: e.message })),
-                  },
-                );
+                  );
+                } else {
+                  localDeleteMutation.mutate(
+                    items.filter((i) => batch.selected.has(i.seriesId)).map((i) => i.seriesId),
+                    {
+                      onSuccess: () => {
+                        toast.success(tf('batch.done', { count }));
+                        batch.exit();
+                        void refetch();
+                      },
+                      onError: (e: Error) =>
+                        toast.error(tf('batch.partialFail', { error: e.message })),
+                    },
+                  );
+                }
               }}
             />
           )}

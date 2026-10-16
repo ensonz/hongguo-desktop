@@ -21,7 +21,9 @@ use futures_util::future::BoxFuture;
 use crate::db::Db;
 use crate::entity;
 use hongguo_common::model::settings::Settings;
-use hongguo_common::model::{DownloadTask, FollowNotice, MergeTask, PlaybackPosition, Series};
+use hongguo_common::model::{
+    DownloadTask, FollowNotice, LocalHistoryItem, MergeTask, PlaybackPosition, Series,
+};
 use hongguo_common::{AppError, AppResult};
 
 /// 一次投递到 DB 线程的活：拿一个连接克隆，跑一段异步逻辑。
@@ -172,6 +174,33 @@ impl Store {
 
     pub fn follow_notices_clear(&self) -> AppResult<()> {
         self.exec(|db| Box::pin(entity::notices_clear(db)))
+    }
+
+    // ---------- 本地观看历史（issue #10） ----------
+
+    pub fn upsert_local_history(&self, item: &LocalHistoryItem) -> AppResult<()> {
+        let item = item.clone();
+        self.exec(move |db| Box::pin(async move { entity::upsert_local_history(db, &item).await }))
+    }
+
+    pub fn local_history_list(&self) -> AppResult<Vec<LocalHistoryItem>> {
+        self.exec(|db| Box::pin(entity::local_history_list(db)))
+    }
+
+    pub fn delete_local_history(&self, series_ids: &[String]) -> AppResult<()> {
+        let ids = series_ids.to_vec();
+        self.exec(move |db| Box::pin(async move { entity::delete_local_history(db, &ids).await }))
+    }
+
+    pub fn pending_local_history(&self, limit: usize) -> AppResult<Vec<LocalHistoryItem>> {
+        self.exec(move |db| Box::pin(async move { entity::pending_local_history(db, limit).await }))
+    }
+
+    pub fn mark_local_history_reported(&self, series_id: &str) -> AppResult<()> {
+        let id = series_id.to_string();
+        self.exec(move |db| {
+            Box::pin(async move { entity::mark_local_history_reported(db, &id).await })
+        })
     }
 
     // ---------- tasks ----------

@@ -41,6 +41,7 @@ import {
   proxyConfigSchema,
   proxyTestResultSchema,
   queueStatusSchema,
+  localHistoryItemSchema,
   rankPageSchema,
   relatedSeriesSchema,
   replyItemSchema,
@@ -431,13 +432,23 @@ export const COMMANDS = {
     args: z.object({ offset: z.number() }),
     response: watchHistoryPageSchema,
   },
-  cloud_report_progress: {
+  // 记录观看历史（本地必记 + 登录态顺路上报云端，issue #10）
+  record_watch_history: {
     args: z.object({
       seriesId: z.string(),
       vid: z.string(),
       vidIndex: z.number(),
       positionMs: z.number(),
+      durationMs: z.number(),
+      title: z.string(),
+      cover: z.string(),
+      episodeCnt: z.number(),
     }),
+    response: voidResp,
+  },
+  local_history_list: { args: noArgs, response: z.array(localHistoryItemSchema) },
+  local_history_delete: {
+    args: z.object({ seriesIds: z.array(z.string()) }),
     response: voidResp,
   },
   watch_history_delete: {

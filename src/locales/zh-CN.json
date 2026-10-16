@@ -589,6 +589,7 @@
     "title": "观看历史",
     "empty": "还没有观看记录",
     "emptyHint": "在官方客户端或本应用看过的短剧都会同步到这里",
+    "localModeHint": "未登录：观看记录保存在本机，登录后自动同步到云端",
     "loadFailed": "观看历史加载失败",
     "today": "今天",
     "yesterday": "昨天",

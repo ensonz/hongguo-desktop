@@ -93,4 +93,9 @@ export {
   useCacheClear,
   useStorageActions,
 } from './storage';
-export { useWatchHistory, useWatchHistoryDelete } from './history';
+export {
+  useLocalHistory,
+  useLocalHistoryDelete,
+  useWatchHistory,
+  useWatchHistoryDelete,
+} from './history';

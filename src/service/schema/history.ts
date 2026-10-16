@@ -20,6 +20,11 @@ const watchHistoryItemSchema = z.object({
 
 export type WatchHistoryItem = z.infer<typeof watchHistoryItemSchema>;
 
+/** 本地观看历史的一行（Rust `LocalHistoryItem`）：字段与云端条目完全
+ *  同形，历史页两种模式共用同一张卡片的渲染。 */
+export const localHistoryItemSchema = watchHistoryItemSchema;
+export type LocalHistoryItem = z.infer<typeof localHistoryItemSchema>;
+
 export const watchHistoryPageSchema = z.object({
   items: z.array(watchHistoryItemSchema),
   hasMore: z.boolean(),

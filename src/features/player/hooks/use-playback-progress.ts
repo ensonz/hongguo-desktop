@@ -60,22 +60,43 @@ export function usePlaybackProgress(params: {
       const total = video && Number.isFinite(video.duration) ? video.duration : 0;
       lastKnownRef.current = { key: episodeKey, time, duration: total };
       savePosition({ seriesId, vidIndex, currentTime: time, duration: total });
-      // 云端进度上报（对齐参考端 v1.1.6 抓包 flows-20261009-v116-history.jsonl）：
-      // 起播 5 秒首报（cloudCounter===1，本集第一次 persist 正好在 ~5s），
-      // 之后每 ~60 秒一次（×12）；暂停/切集/卸载走 force。fire-and-forget
-      // （后端匿名/失败都静默）。
+      // 观看历史记录（issue #10，节奏对齐参考端 v1.1.6 抓包
+      // flows-20261009-v116-history.jsonl）：起播 5 秒首报
+      // （cloudCounter===1，本集第一次 persist 正好在 ~5s），之后每
+      // ~60 秒一次（×12）；暂停/切集/卸载走 force。本地必记（未登录
+      // 也有历史），登录态顺路上报云端。fire-and-forget（后端失败只
+      // 记日志）。
       cloudCounter.current += 1;
       if (force || cloudCounter.current === 1 || cloudCounter.current % 12 === 0) {
         if (currentVid) {
           void watchHistory
-            .reportProgress(seriesId, currentVid, vidIndex, Math.round(time * 1000))
+            .record({
+              seriesId,
+              vid: currentVid,
+              vidIndex,
+              positionMs: Math.round(time * 1000),
+              durationMs: Math.round(total * 1000),
+              title: currentSeries?.title ?? '',
+              cover: currentSeries?.cover ?? '',
+              episodeCnt: currentSeries?.episodeCount ?? 0,
+            })
             .catch(() => {});
         }
       }
     },
     // ref 形参（videoRef/lastKnownRef/srcKeyRef）按仓库惯例写进依赖：
     // ref 身份恒定，依赖变化永远由值参数驱动（同 incognito.ts）
-    [seriesId, vidIndex, episodeKey, savePosition, currentVid, lastKnownRef, srcKeyRef, videoRef],
+    [
+      seriesId,
+      vidIndex,
+      episodeKey,
+      savePosition,
+      currentVid,
+      currentSeries,
+      lastKnownRef,
+      srcKeyRef,
+      videoRef,
+    ],
   );
 
   // 卸载 / 切集时补写最后一次。
@@ -95,11 +116,20 @@ export function usePlaybackProgress(params: {
       // key 对不上说明这份位置属于别的集，写进去就是串集。
       if (key !== episodeKey || time <= 0) return;
       savePosition({ seriesId, vidIndex, currentTime: time, duration });
-      // 切集/退出的最后一次位置也推一份云端（匿名/失败后端静默）
+      // 切集/退出的最后一次也记一条历史（本地必记 + 登录态顺路上报）
       const vid = currentSeries?.episodes.find((e) => e.vidIndex === vidIndex)?.vid ?? '';
       if (vid) {
         void watchHistory
-          .reportProgress(seriesId, vid, vidIndex, Math.round(time * 1000))
+          .record({
+            seriesId,
+            vid,
+            vidIndex,
+            positionMs: Math.round(time * 1000),
+            durationMs: Math.round(duration * 1000),
+            title: currentSeries?.title ?? '',
+            cover: currentSeries?.cover ?? '',
+            episodeCnt: currentSeries?.episodeCount ?? 0,
+          })
           .catch(() => {});
       }
     };
