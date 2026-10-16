@@ -71,10 +71,14 @@ fn parse_history(data: Option<&Value>) -> AppResult<WatchHistoryPage> {
             series_id,
             title: str_field(raw, "book_name"),
             cover: str_field(raw, "thumb_url"),
+            // 官方 App / hgplayer 按 0 基写 vid_index（第 1 集 = 0，抓包
+            // 样本实锤），我们自己的记录是 1 基——0 与负值一律钳到第 1 集
+            //（契约见前端 schema 注释）；≥1 的条目无法辨别基准，原样透传
             vid_index: raw
                 .get("vid_index")
                 .and_then(Value::as_i64)
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .max(1),
             vid: raw
                 .get("vid_str")
                 .and_then(Value::as_str)
