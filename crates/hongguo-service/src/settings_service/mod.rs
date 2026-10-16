@@ -3,7 +3,6 @@
 //! 保存时收敛并发到 1–10，并立即应用到下载调度器——无需重启（与现版一致）。
 //! 保存编排（归一化 → 换内存态 → 调度器并发 → 落库）在本模块：两个壳
 //! （Tauri command / GPUI 直调）走同一段，不各自记步骤。
-
 pub mod proxy;
 
 use crate::app_state::AppState;
@@ -15,8 +14,12 @@ pub fn save(state: &AppState, settings: Settings) -> AppResult<Settings> {
     let normalized = normalize(settings)?;
 
     state.replace_settings(normalized.clone());
-    // 并发上限立即应用到调度器
+    // 并发上限立即应用到调度器。光改数字不够：调高并发时在途任务数不会
+    // 自己涨，新坑要等某个任务完成才被补上——一集下载数分钟，期间下载页
+    // 会一直显示「并发 n/上限」不满。保存后补一轮派发（kick 与提交/启动/
+    // 恢复同通道）；降低或不变时 kick 因坑满/无可跑任务自然空转。
     state.queue().set_limit(normalized.max_concurrency);
+    crate::download_service::kick(state.clone());
     // 缓存根即时生效于新写入（旧目录残留不迁移，见 Settings::cache_dir）
     hongguo_store::paths::set_cache_root_override(
         normalized.cache_override().map(std::path::PathBuf::from),
