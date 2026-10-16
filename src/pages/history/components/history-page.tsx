@@ -20,6 +20,7 @@ import {
   useLocalHistory,
   useLocalHistoryDelete,
   useResolveSeries,
+  useSeriesMeta,
   useWatchHistory,
   useWatchHistoryDelete,
 } from '@/service/queries';
@@ -288,7 +289,7 @@ export function HistoryPage() {
 /** 历史行：官方同款「看到第N集/共M集 时长」进度徽标 + 继续播放。
  *  管理模式下 pick 在场：行首圆钮多选，点击行=切换选中。 */
 function HistoryRow({
-  item,
+  item: rawItem,
   onOpen,
   pick,
 }: {
@@ -296,6 +297,18 @@ function HistoryRow({
   onOpen: () => void;
   pick?: { checked: boolean; onToggle: () => void };
 }) {
+  // v0.5.1 的 record 契约错配（meta 平铺被 serde 丢弃）落过一批无标题行：
+  // 快照回填展示字段（剧名/封面/总集数），只读不改库。传空串即禁用查询。
+  const backfill = useSeriesMeta(rawItem.title === '' ? rawItem.seriesId : '');
+  const item =
+    rawItem.title === '' && backfill.data
+      ? {
+          ...rawItem,
+          title: backfill.data.title,
+          cover: backfill.data.cover,
+          episodeCnt: backfill.data.episodeCount,
+        }
+      : rawItem;
   const webCover = enhancedCover(item.cover);
   const sourceRenderable = isRenderableCover(item.cover);
   const cover = webCover ?? (sourceRenderable ? item.cover : '');
