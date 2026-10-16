@@ -83,6 +83,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // 藏掉，整个窗口只剩播放器（第三方小屏连标题栏都没有，窗口按钮由
   // 紧凑控制条承担）；拖拽由播放页的顶部拖拽条负责。
   const miniScreen = useUiStore((s) => s.miniScreen);
+  // 竖屏播放：窗口收窄成竖条，侧栏藏掉——窄条里侧栏会占掉近 1/5 宽，
+  // 第三方竖屏（hgplayer）也没有侧栏；顶栏保留（分类 tab 与窗口钮照常）
+  const portrait = useUiStore((s) => s.portrait);
   // 全屏真值对齐系统侧（Esc/绿按钮经 resize 回流 store）。沉浸流全屏时
   // 同样藏掉顶栏与侧栏——整窗只剩画面，对齐 hgplayer 与旧元素全屏的视觉；
   // 其他页面被系统绿按钮全屏时界面照常。
@@ -165,7 +168,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {!miniScreen && !playerFullscreen && <AppSidebar />}
+        {!miniScreen && !playerFullscreen && !portrait && <AppSidebar />}
 
         <main id="content" className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
           {children}

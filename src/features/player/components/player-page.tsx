@@ -26,6 +26,7 @@ import {
   useStorageActions,
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
+import { useUiStore } from '@/stores/ui';
 import { STREAM_SCHEME } from '@/utils/scheme';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
@@ -81,6 +82,8 @@ export function PlayerView({
   onFirstFrame?: () => void;
 }) {
   const navigate = useNavigate();
+  // 竖屏播放中：快捷键提示浮层不出现（窄条被整面盖住，参考小屏不渲染同款）
+  const portrait = useUiStore((s) => s.portrait);
   const seriesPanelOpen = usePlayerStore((s) => s.seriesPanelOpen);
   const commentPanelOpen = usePlayerStore((s) => s.commentPanelOpen);
   const danmakuPanelOpen = usePlayerStore((s) => s.danmakuPanelOpen);
@@ -609,8 +612,9 @@ export function PlayerView({
                   onExitBinge={() => setBinge(null)}
                 />
                 {/* 快捷键提示只在暂停时露一面向中部提示——常驻顶栏会把分类 tab
-                  挡死（顶部让位给 tab），平时不打扰。小屏（480 宽）装不下。 */}
-                {paused && !error && !miniScreen && <KeyboardHint />}
+                  挡死（顶部让位给 tab），平时不打扰。小屏（480 宽）与竖屏窄条
+                  都装不下，不渲染。 */}
+                {paused && !error && !miniScreen && !portrait && <KeyboardHint />}
                 {/* 沉浸流分类 tab 栏已上移 AppShell 顶栏（portal 插槽，
                   画面顶部不再有悬浮 tab 层） */}
                 {/* 沉浸流评论区：右侧滑出（💬 触发）；进小屏时已收起 */}
