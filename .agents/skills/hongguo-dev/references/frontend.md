@@ -24,10 +24,10 @@
 ## 组件写法
 
 - 函数组件 + hooks，无 class。一个文件多个小组件是历史欠账，新文件一组件一文件。
-- 注释风格：解释「为什么」而不是「做什么」——本仓库的注释是决策记录（如 ui store 里「miniScreen/pinned 不持久化：窗口几何的存/恢复在后端」），照这个密度写。
-- 错误展示用 sonner toast；文案一律走 i18n，不硬编码中文字符串。
+- 注释风格按 dev-habits『注释写为什么』——本仓库的注释是决策记录（如 ui store 里「miniScreen/pinned 不持久化：窗口几何的存/恢复在后端」），照这个密度写。
+- 错误展示用 sonner toast；文案一律走 i18n（dev-habits『双语国际化』），不硬编码中文字符串。
 - 乐观更新型交互（点赞/收藏）用 react-query 的 `onMutate` 模式（范例在 `service/queries/interact.ts`）。
-- 类型纪律：禁 `any`/`as any`/`@ts-ignore`/无理由 `eslint-disable`——类型没把握就 `unknown` + 收窄；确实绕不开的第三方无类型面，局部声明类型或收窄后 cast 并注释原因（ESLint recommendedTypeChecked 的 `no-explicit-any`/`no-unsafe-*` 钉死）。
+- 类型纪律按 dev-habits『前端禁 any』执行（本仓库由 ESLint recommendedTypeChecked 的 `no-explicit-any`/`no-unsafe-*` 钉死，报错清零再交付）。
 
 ## TanStack Query（服务端状态唯一去处）
 
@@ -95,7 +95,7 @@ export const useUiStore = create<UiState>()(
 - 组件内原子类 + `cn()`（clsx + tailwind-merge）；shadcn 件用 cva 变体。自定义全局类（`hg-loadbar`、`scrollbar-thin` 等）写在 index.css，不散落。
 - 新颜色用现有令牌（`bg-background`、`text-muted-foreground`…），别写裸 hex——亮暗主题会漏。
 - **按钮/新 UI 必须保持项目风格**：按钮一律 shadcn `Button` 的 variant（默认 primary）+ 语义令牌类，**禁止硬编码色值覆盖**（`bg-red-500`、裸 hex 之类）。唯一例外：播放器控制栏/互动栏/评论面板内部维持既有的 hgplayer 红色皮肤（`bg-red-500` 是那里的一部分），播放器之外的新组件（详情页/列表页/设置页…）不许模仿。做法：先看 `components/ui/button` 的 variant 与相邻页面同类组件的皮肤，照抄而不是自创。
-- 文件规模：约 300 行是拆分提醒线，**新增**组件/hook 文件超 800 行 CI 直接拒（`scripts/check-file-size.sh`）；一组件一文件，组件内逻辑先抽 hooks 再考虑拆文件。
+- 文件规模：拆分提醒线见 dev-habits『文件规模提醒』（约 300 行）；**新增**组件/hook 文件超 800 行 CI 直接拒（`scripts/check-file-size.sh`）；一组件一文件，组件内逻辑先抽 hooks 再考虑拆文件。
 
 ## 前端测试
 

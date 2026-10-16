@@ -24,7 +24,9 @@ use hongguo_api::interact::InteractionItem;
 use hongguo_service::app_state::AppStateInner;
 
 use crate::bridge;
-use crate::pages::list_common::{BatchBar, decode_cover, fetch_series_visual, pick_dot, search_box};
+use crate::pages::list_common::{
+    BatchBar, decode_cover, fetch_series_visual, pick_dot, search_box,
+};
 
 /// 点赞页发往壳的事件（壳订阅后切目的地/起播）。
 #[derive(Debug, Clone)]
@@ -116,11 +118,8 @@ impl LikedView {
                 view.loading = false;
                 match result {
                     Ok(state) => {
-                        let liked: Vec<InteractionItem> = state
-                            .items
-                            .into_iter()
-                            .filter(|i| i.user_digg)
-                            .collect();
+                        let liked: Vec<InteractionItem> =
+                            state.items.into_iter().filter(|i| i.user_digg).collect();
                         log::info!("[Liked] GPUI 壳 -> {} 条", liked.len());
                         view.load_covers(&liked, cx);
                         view.items = liked;
@@ -157,8 +156,7 @@ impl LikedView {
                 this.update(cx, |view, cx| {
                     view.covers_pending.remove(&visual.series_id);
                     if !visual.title.is_empty() {
-                        view.titles
-                            .insert(visual.series_id.clone(), visual.title);
+                        view.titles.insert(visual.series_id.clone(), visual.title);
                     }
                     if let Some(bytes) = &visual.cover
                         && let Some(image) = decode_cover(bytes)
@@ -237,10 +235,8 @@ impl LikedView {
                         cx,
                     );
                 } else {
-                    window.push_notification(
-                        Notification::success(format!("已删除 {total} 项")),
-                        cx,
-                    );
+                    window
+                        .push_notification(Notification::success(format!("已删除 {total} 项")), cx);
                     view.managing = false;
                     view.selected.clear();
                 }
@@ -276,10 +272,7 @@ impl LikedView {
             .iter()
             .filter(|i| {
                 q.is_empty()
-                    || self
-                        .title_of(i)
-                        .to_lowercase()
-                        .contains(&q)
+                    || self.title_of(i).to_lowercase().contains(&q)
                     || i.series_id.to_lowercase().contains(&q)
             })
             .cloned()
@@ -294,7 +287,12 @@ impl LikedView {
         if let Some(t) = self.titles.get(&item.series_id) {
             return t.clone();
         }
-        let tail: String = item.series_id.chars().rev().take(6).collect::<String>()
+        let tail: String = item
+            .series_id
+            .chars()
+            .rev()
+            .take(6)
+            .collect::<String>()
             .chars()
             .rev()
             .collect();
@@ -316,12 +314,14 @@ impl LikedView {
             .items_center()
             .justify_end()
             .gap_2()
-            .child(
-                search_box(&self.search, cx),
-            )
+            .child(search_box(&self.search, cx))
             .child(
                 Button::new("liked-manage")
-                    .label(if self.managing { "退出管理" } else { "管理" })
+                    .label(if self.managing {
+                        "退出管理"
+                    } else {
+                        "管理"
+                    })
                     .outline()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -563,12 +563,7 @@ impl LikedView {
         }
         if scene == "liked-manage" {
             self.managing = true;
-            self.selected = self
-                .items
-                .iter()
-                .take(2)
-                .map(|i| i.vid.clone())
-                .collect();
+            self.selected = self.items.iter().take(2).map(|i| i.vid.clone()).collect();
         }
         cx.notify();
     }
@@ -580,91 +575,88 @@ impl gpui_kit::Render for LikedView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 先建 body（里面的闭包要 &mut cx），theme 最后取——theme 借 cx，
         // 与闭包交叠会被借用检查拒绝（shell.rs 同款纪律）。
-        let body = match &self.phase {
-            Phase::Loading => h_flex()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .child(Spinner::new().small())
-                .into_any_element(),
-            Phase::Failed(msg) => {
-                let detail = msg.clone();
-                let theme = cx.theme();
-                v_flex()
+        let body =
+            match &self.phase {
+                Phase::Loading => h_flex()
                     .flex_1()
                     .items_center()
                     .justify_center()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("点赞列表加载失败"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(SharedString::from(detail)),
-                    )
-                    .child(
-                        Button::new("liked-retry")
-                            .label("重试")
-                            .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
-                    )
-                    .into_any_element()
-            }
-            Phase::Loaded if self.items.is_empty() => {
-                let theme = cx.theme();
-                v_flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .gap_2()
-                    .child(
-                        gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Heart)
-                            .with_size(gpui_kit::px(32.0))
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("还没有点赞"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child("在推荐页点 ❤ 赞过的视频会出现在这里"),
-                    )
-                    .into_any_element()
-            }
-            Phase::Loaded => {
-                let managing = self.managing;
-                let hovered = self.hovered.clone();
-                let visible = self.visible_items(cx);
-                div()
-                    .id("liked-grid")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .p_4()
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .items_start()
-                            .gap_3()
-                            .children(visible.iter().map(|item| {
+                    .child(Spinner::new().small())
+                    .into_any_element(),
+                Phase::Failed(msg) => {
+                    let detail = msg.clone();
+                    let theme = cx.theme();
+                    v_flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("点赞列表加载失败"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(SharedString::from(detail)),
+                        )
+                        .child(
+                            Button::new("liked-retry")
+                                .label("重试")
+                                .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
+                        )
+                        .into_any_element()
+                }
+                Phase::Loaded if self.items.is_empty() => {
+                    let theme = cx.theme();
+                    v_flex()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .child(
+                            gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Heart)
+                                .with_size(gpui_kit::px(32.0))
+                                .text_color(theme.muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("还没有点赞"),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("在推荐页点 ❤ 赞过的视频会出现在这里"),
+                        )
+                        .into_any_element()
+                }
+                Phase::Loaded => {
+                    let managing = self.managing;
+                    let hovered = self.hovered.clone();
+                    let visible = self.visible_items(cx);
+                    div()
+                        .id("liked-grid")
+                        .flex_1()
+                        .overflow_y_scroll()
+                        .p_4()
+                        .child(h_flex().flex_wrap().items_start().gap_3().children(
+                            visible.iter().map(|item| {
                                 let picked = self.selected.contains(&item.vid);
                                 let is_hovered = hovered.as_deref() == Some(item.vid.as_str());
                                 div()
                                     .w(gpui_kit::px(172.0))
                                     .child(self.render_card(item, managing, picked, is_hovered, cx))
-                            })),
-                    )
-                    .into_any_element()
-            }
-        };
+                            }),
+                        ))
+                        .into_any_element()
+                }
+            };
         // 工具栏只在有数据时出（Tauri：空态/加载/失败整页替换，不出搜索框）
         let toolbar = (matches!(self.phase, Phase::Loaded) && !self.items.is_empty())
             .then(|| self.render_toolbar(cx));

@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 
 import { seriesSearch } from '../commands';
 import type { SearchPage, SearchResult } from '../schema';
-import { dedupBy, keys, useInfiniteStream } from './common';
+import { dedupBy, fuzzyStaleTime, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 官方 App 搜索
 
@@ -34,13 +34,13 @@ export function useSeriesSearchApp(query: string) {
       last.hasMore ? { offset: last.nextOffset, searchId: last.searchId } : undefined,
     // 空关键词是浏览模式，不该发搜索请求
     enabled: kw !== '',
-    staleTime: 5 * 60_000,
+    staleTime: fuzzyStaleTime(keys.appSeriesSearch(kw)),
   });
   return useInfiniteStream(query_, appSearchItems);
 }
 
 /**
- * 搜索联想（hgplayer 1.1.6 同款）：输入即查，30s 缓存重复输入秒出。
+ * 搜索联想（hgplayer 1.1.6 同款）：输入即查，抖动节流内重复输入秒出。
  *
  * 防抖在调用侧（组件里 300ms 才把词递进来），这里只管查；
  * 失败后端已吞掉返回空表，下拉无感消失。
@@ -52,7 +52,7 @@ export function useSearchSuggest(q: string) {
     queryFn: () => seriesSearch.suggest(kw),
     // 至少 2 个字才值得打接口（单字联想噪声大）
     enabled: kw.length >= 2,
-    staleTime: 30_000,
+    staleTime: fuzzyStaleTime(keys.searchSuggest(kw)),
     retry: false,
   });
 }

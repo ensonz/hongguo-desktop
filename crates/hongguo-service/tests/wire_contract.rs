@@ -8,6 +8,7 @@
 use hongguo_service::download_service::events::{
     ProgressEvent, QueueChangedEvent, TaskEvent, TaskFailureEvent,
 };
+use hongguo_service::follow_service::events::FollowNoticesEvent;
 use hongguo_service::login_service::events::LoginMfaStateEvent;
 use hongguo_service::play_service::compat_play::{
     CompatPhase, CompatPlayResult, CompatProgressEvent,
@@ -93,6 +94,38 @@ fn login_mfa_state_event_shape() {
     assert_eq!(
         v,
         json!({ "state": "waiting", "serverTip": "回复 YZ 到 10691" })
+    );
+}
+
+#[test]
+fn follow_notices_event_shape() {
+    // 追更更新提醒事件（前端 `followNoticesEventSchema` 镜像）：通知数组
+    // camelCase 全字段（id/kind/seriesId/title/detail/at/read）。
+    let v = serde_json::to_value(FollowNoticesEvent {
+        notices: vec![hongguo_common::model::FollowNotice {
+            id: 7,
+            kind: "follow".into(),
+            series_id: "7677818497497320472".into(),
+            title: "摆摊大王".into(),
+            detail: "追的剧更新了，新增 2 集（共 216 集）".into(),
+            at: 1_792_041_548,
+            read: false,
+        }],
+    })
+    .unwrap();
+    assert_eq!(
+        v,
+        json!({
+            "notices": [{
+                "id": 7,
+                "kind": "follow",
+                "seriesId": "7677818497497320472",
+                "title": "摆摊大王",
+                "detail": "追的剧更新了，新增 2 集（共 216 集）",
+                "at": 1_792_041_548i64,
+                "read": false
+            }]
+        })
     );
 }
 

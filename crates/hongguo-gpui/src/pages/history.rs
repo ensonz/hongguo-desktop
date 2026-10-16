@@ -17,7 +17,9 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Sizable, WindowExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img};
+use gpui_kit::{
+    App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
+};
 use hongguo_api::history::WatchHistoryItem;
 use hongguo_service::app_state::AppStateInner;
 
@@ -44,7 +46,11 @@ enum HistoryTab {
 }
 
 impl HistoryTab {
-    const ALL: [HistoryTab; 3] = [HistoryTab::All, HistoryTab::Unfinished, HistoryTab::Finished];
+    const ALL: [HistoryTab; 3] = [
+        HistoryTab::All,
+        HistoryTab::Unfinished,
+        HistoryTab::Finished,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -261,8 +267,7 @@ impl HistoryView {
                 if q.is_empty() {
                     return true;
                 }
-                item.title.to_lowercase().contains(&q)
-                    || item.series_id.to_lowercase().contains(&q)
+                item.title.to_lowercase().contains(&q) || item.series_id.to_lowercase().contains(&q)
             })
             .cloned()
             .collect()
@@ -315,7 +320,11 @@ impl HistoryView {
             .child(search_box(&self.search, cx))
             .child(
                 Button::new("history-manage")
-                    .label(if self.managing { "退出管理" } else { "管理" })
+                    .label(if self.managing {
+                        "退出管理"
+                    } else {
+                        "管理"
+                    })
                     .outline()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| {

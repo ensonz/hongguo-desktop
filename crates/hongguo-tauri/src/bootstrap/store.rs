@@ -22,6 +22,7 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
     let settings = hongguo_service::settings_service::normalize(stored)
         .map_err(|e| tauri::Error::Anyhow(e.into()))?;
     let limit = settings.max_concurrency;
+    hongguo_service::settings_service::apply_cache_root(&settings);
     state.replace_settings(settings);
 
     // 2) 合并在后台线程上跑，进程退出时线程直接没了。启动时还标着 running 的

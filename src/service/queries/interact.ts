@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { interact as interactCmd, login } from '../commands';
 import type { InteractionItem, InteractionState } from '../schema';
-import { keys } from './common';
+import { fuzzyStaleTime, keys } from './common';
 
 // ---------------------------------------------------------------- 互动（点赞 / 收藏 / 书架）
 
@@ -26,7 +26,7 @@ export function useBookshelf() {
     queryKey: keys.bookshelf,
     queryFn: interactCmd.bookshelf,
     enabled: !!account,
-    staleTime: 60_000,
+    staleTime: fuzzyStaleTime(keys.bookshelf),
   });
 }
 
@@ -146,11 +146,15 @@ export function useSeriesCollectBatch() {
   });
 }
 
-/** 当前登录态（null = 未登录）；登录/退出后要主动失效。 */
+/**
+ * 当前登录态（null = 未登录）。登录信息在缓存白名单内：会话不失效就
+ * 一直是真，长期缓存，仅登录/退出的 `useAuthRefresh` 显式失效——
+ * 不进 10-30s 抖动区间（那是给「可能变更」数据的节流）。
+ */
 export function useAccount() {
   return useQuery({
     queryKey: keys.account,
     queryFn: login.status,
-    staleTime: 30_000,
+    staleTime: Infinity,
   });
 }

@@ -11,15 +11,40 @@ import type { BrowseFilters } from '../schema';
 const RANK = ['rank'] as const;
 const RESERVATIONS = ['reservations'] as const;
 
+/** 抖动区间下限（毫秒）。 */
+const FUZZY_STALE_MIN_MS = 10_000;
+/** 抖动区间宽度（毫秒）：值域 [10s, 10s+20s)。 */
+const FUZZY_STALE_SPAN_MS = 20_000;
+
+/**
+ * 白名单外查询的统一节流区间：10-30s、按 query key 哈希派生抖动。
+ * 同批挂载的查询过期时刻彼此错开（避免集体过期→集体重拉的请求风暴），
+ * 同一 key 跨渲染/重启稳定（不会因重渲染漂移）。白名单：账号（会话
+ * 不失效一直用缓存）、媒体/封面、本地真值（设置/能力探测/播放进度）、
+ * 以及刻意 staleTime 0 的社交态——它们不走本函数。
+ */
+export function fuzzyStaleTime(key: readonly unknown[]): number {
+  let h = 7;
+  for (const part of key) {
+    const s = typeof part === 'string' ? part : JSON.stringify(part);
+    for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0;
+  }
+  return FUZZY_STALE_MIN_MS + (Math.abs(h) % FUZZY_STALE_SPAN_MS);
+}
+
 export const keys = {
   settings: ['settings'] as const,
   feed: (tab: string) => ['feed', tab] as const,
   /** 首页顶栏 tab 列表（服务端下发；登录态变化时壳侧过滤，不换 key） */
   feedTabs: ['feed-tabs'] as const,
   newDrama: (gender: number) => ['new-drama', gender] as const,
+  /** 分集表（选集/详情/播放器）：在线现拉，失败回落快照。 */
   seriesEpisodes: (id: string) => ['series-episodes', id] as const,
+  /** 本地快照（列表页封面/标题）：零网络读档，与分集表分 key。 */
+  seriesSnapshot: (id: string) => ['series-snapshot', id] as const,
   seriesProgress: (id: string) => ['series-progress', id] as const,
   watchHistory: ['watch-history'] as const,
+  localHistory: ['local-history'] as const,
   tasks: ['download-tasks'] as const,
   queueStatus: ['queue-status'] as const,
   mergeTasks: ['merge-tasks'] as const,
@@ -42,8 +67,18 @@ export const keys = {
     ['review-replies', seriesId, commentId] as const,
   danmaku: (vid: string) => ['danmaku', vid] as const,
   comments: (vid: string) => ['comments', vid] as const,
+  /** 评论 @ 提及候选（登录态，含官方 AI bot 小果） */
+  mentionList: (seriesId: string) => ['mention-list', seriesId] as const,
+  /** 创作者主页（详情页点创作者进入：资料头 + 作品列表） */
+  creatorProfile: (userId: string) => ['creator-profile', userId] as const,
+  creatorWorks: (userId: string) => ['creator-works', userId] as const,
   interactState: ['interact-state'] as const,
   bookshelf: ['bookshelf'] as const,
+  /** 追更整组失效用根 key（追更/取消后列表与「是否已追」一起翻面） */
+  followRoot: ['follow-updates'] as const,
+  followUpdates: (cursor: string) => ['follow-updates', cursor] as const,
+  isFollowing: (seriesId: string) => ['is-following', seriesId] as const,
+  followNotices: ['follow-notices'] as const,
   /** 榜单整组失效用根 key（如预约态就地翻新时 findAll 前缀匹配） */
   rankRoot: RANK,
   rank: (selected: string, sub: string, panel: string) => [...RANK, selected, sub, panel] as const,

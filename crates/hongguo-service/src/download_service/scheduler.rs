@@ -367,6 +367,28 @@ mod tests {
     }
 
     #[test]
+    fn raising_limit_lets_claim_fill_new_slots() {
+        // 设置页调高并发（保存即改 limit + kick）的调度侧行为：在途任务
+        // 停在旧上限时，新上限下一轮 claim 要能把新坑一次补满，满编后
+        // 不再多派——否则下载页会长时间显示「并发 n/上限」不满。
+        let s = DownloadScheduler::new();
+        let state = AppState::default();
+        let queue = state.queue();
+        queue.set_limit(2);
+        for i in 0..5 {
+            queue.enqueue(DownloadTask::new(&i.to_string(), "剧", i, "v", "第1集"));
+        }
+        assert_eq!(s.claim_tasks(&state).len(), 2, "旧上限下只派 2 个");
+        queue.set_limit(4);
+        assert_eq!(
+            s.claim_tasks(&state).len(),
+            2,
+            "一轮把新坑补满到新上限（2 在途 + 2 新派 = 4）"
+        );
+        assert!(s.claim_tasks(&state).is_empty(), "满编后不再多派");
+    }
+
+    #[test]
     fn failed_task_records_i18n_key_not_internal_detail() {
         // 模拟一次失败：调度器落进队列的就是 `e.i18n_key()`，
         // 前端渲染的 DownloadTask.error 因此是 `error.*` 而不是中文串

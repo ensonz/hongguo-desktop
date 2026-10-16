@@ -169,9 +169,7 @@ fn acquire(remote: &str) -> Result<(Vec<u8>, &'static str, &'static str), String
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        let out = cmd
-            .output()
-            .map_err(|e| format!("启动 ffmpeg 失败: {e}"))?;
+        let out = cmd.output().map_err(|e| format!("启动 ffmpeg 失败: {e}"))?;
         if out.status.success() {
             return std::fs::read(&tmp)
                 .map(|bytes| (bytes, JPEG_KIND.0, JPEG_KIND.1))

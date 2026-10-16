@@ -6,12 +6,18 @@
  * 皮肤差异（控制栏胶囊 / 深色面板 / 浅色剧评）全部经 className 注入，
  * 组件本身不含任何业务（发送 mutation / 登录门槛归调用方）。
  */
-import { useRef, useState } from 'react';
+import { useImperativeHandle, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 import { EmojiPickerButton } from './emoji-picker';
 import { RichEmojiInput, type RichEmojiInputHandle } from './rich-emoji-input';
+
+/** 透传给调用方的输入框操作句柄（表情 / @ 提及插入） */
+export interface EmojiSendBoxHandle {
+  insertEmoji: (name: string) => void;
+  insertMention: (name: string) => void;
+}
 
 interface Props {
   value: string;
@@ -37,6 +43,8 @@ interface Props {
   inputClassName?: string;
   /** 发送按钮附加类（覆盖默认红底胶囊皮肤） */
   sendClassName?: string;
+  /** AI bot 用户名：提及 chip 对它追加官方同款渐变「Ai」后缀 */
+  mentionAiName?: string;
 }
 
 export function EmojiSendBox({
@@ -54,9 +62,19 @@ export function EmojiSendBox({
   className,
   inputClassName,
   sendClassName,
-}: Props) {
+  mentionAiName,
+  ref,
+}: Props & { ref?: React.Ref<EmojiSendBoxHandle> }) {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const richRef = useRef<RichEmojiInputHandle | null>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertEmoji: (name: string) => richRef.current?.insertEmoji(name),
+      insertMention: (name: string) => richRef.current?.insertMention(name),
+    }),
+    [],
+  );
   const enabled = canSend ?? value.trim() !== '';
   return (
     <div className={cn('flex items-center gap-2', className)}>
@@ -70,6 +88,7 @@ export function EmojiSendBox({
         maxLength={maxLength}
         autoFocus={autoFocus}
         className={inputClassName}
+        mentionAiName={mentionAiName}
       />
       <EmojiPickerButton
         open={emojiOpen}

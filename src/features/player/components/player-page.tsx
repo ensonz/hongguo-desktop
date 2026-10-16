@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Loader2, MonitorPlay } from 'lucide-react';
+import { ChevronRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { DanmakuLayer } from './danmaku-layer';
 import { PlayerControls } from './controls/player-controls';
 import { MiniScreenControls } from './mini-screen-controls';
 import { InteractionRail } from './interaction-rail';
 import { CommentPanel } from './comment-panel';
+import { ChromeSurface } from './chrome-surface';
 import { CompatOverlay } from './compat-overlay';
 import { CoverBackdrop } from './cover-backdrop';
 import { ErrorBar } from './error-bar';
+import { FrameHold } from './frame-hold';
 import { HevcInstallCard } from './hevc-install-card';
 import { ImmersiveInfoOverlay } from './immersive-info-overlay';
 import { KeyboardHint } from './keyboard-hint';
@@ -24,10 +25,8 @@ import {
   useSeriesEpisodes,
   useSettings,
   useStorageActions,
-  useWatchHistory,
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
-import { readLastTarget } from '@/utils/playback-prefs';
 import { STREAM_SCHEME } from '@/utils/scheme';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
@@ -40,69 +39,16 @@ import type { FailureCounts } from '../hooks/recovery-policy';
 import { hevcSession } from '../hooks/hevc-session';
 import { usePlaybackSource } from '../hooks/use-playback-source';
 import { useTranscodeFallback } from '../hooks/use-transcode-fallback';
+import { useFrameHold } from '../hooks/use-frame-hold';
 import { usePlaybackProgress } from '../hooks/use-playback-progress';
 import { useDanmakuSettings } from '../hooks/use-danmaku-settings';
 import { useBingeRelay } from '../hooks/use-binge-relay';
 import { usePlayerOverlay } from '../hooks/use-player-overlay';
 import { usePlayerInteractions } from '../hooks/use-player-interactions';
 import { useMiniWindow } from '../hooks/use-mini-window';
+import { usePortraitWindow } from '../hooks/use-portrait-window';
 import { isAutoAdvanceStart, isPickerClickCooldown, markAutoAdvance } from '../playback-signals';
 import { usePinWindow } from '@/hooks/use-pin-window';
-
-export function PlayerPage() {
-  const navigate = useNavigate();
-  const seriesId = usePlayerStore((s) => s.seriesId);
-  const vidIndex = usePlayerStore((s) => s.vidIndex);
-  const setTarget = usePlayerStore((s) => s.setTarget);
-  // 封面占位图：历史页带封面进来，取流间隙不至于黑屏（信息流入口由 HomePage 自带）
-  const { data: history } = useWatchHistory();
-  const coverUrl = history?.items.find((i) => i.seriesId === seriesId)?.cover;
-  // 刷新/重启后内存 store 是空的：把上次播放目标读回来，
-  // 播放器直接续播（进度由本地播放档案的 resumeAt 接上）。
-  // 连上次播放目标都没有（首次启动/清过记录）：直接进推荐沉浸流——
-  // 打开就能播（第三方同款），而不是摆一个还要自己去找剧的空态；
-  // 推荐流里 ↑↓/滚轮 = 切剧，从详情/历史**选定**剧进来才是 ↑↓ = 切集。
-  useEffect(() => {
-    if (seriesId) return;
-    const last = readLastTarget();
-    if (last) {
-      setTarget(last.seriesId, last.vidIndex);
-      return;
-    }
-    void navigate({ to: '/' });
-  }, [seriesId, setTarget, navigate]);
-
-  // 兜底空态：正常只在重定向生效前闪一帧
-  if (!seriesId || !vidIndex) {
-    return <PlayerEmptyState />;
-  }
-
-  // key 随剧集变化 → 切集时组件整体重建，播放/转码状态自然清零，
-  // 不必在 effect 里同步 setState（那会触发级联渲染）。
-  return <PlayerView key={`${seriesId}:${vidIndex}`} coverUrl={coverUrl} />;
-}
-
-/** 未在播放时的占位：去推荐/历史挑一部剧即可开始。 */
-function PlayerEmptyState() {
-  const navigate = useNavigate();
-  return (
-    <div className="text-muted-foreground grid h-full place-items-center p-6">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <MonitorPlay className="size-10 opacity-40" aria-hidden />
-        <p className="text-sm">{t('player.empty')}</p>
-        <p className="text-xs opacity-70">{t('player.emptyHint')}</p>
-        <div className="mt-2 flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: '/history' })}>
-            {t('nav.history.title')}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void navigate({ to: '/' })}>
-            {t('nav.home.title')}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** 自动连播静默硬上限：主闸门是「首播之前不唤醒」，这只兜起播失败的死局。 */
 const QUIET_WINDOW_MS = 8_000;
@@ -147,7 +93,6 @@ export function PlayerView({
   const setVolumeOpen = usePlayerStore((s) => s.setVolumeOpen);
   const setSeriesPanelOpen = usePlayerStore((s) => s.setSeriesPanelOpen);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
   /**
    * 自动连播静默起步：handleEnded 切集时打了点，这次挂载若是它带来的，
    * 悬浮层以「无人操作」起步——不亮控制栏、不亮光标，起播的 play 事件
@@ -366,11 +311,30 @@ export function PlayerView({
   /** waiting 后时间轴恢复推进（timeupdate）或重新出画即视为不卡 */
   const videoStalled = stalled.key === streamKey && stalled.on;
 
+  // 同剧切集的末帧定格：取流窗口旧画面继续播、流交换后定格帧顶住，直到
+  // 新集首帧出画——封面只留给切剧接管与初次起播。显隐真值表与抓帧时机
+  // 在 use-frame-hold（同文件名的 test 是观感回归锁）。
+  const {
+    frame: heldFrame,
+    holdVisible,
+    coverHidden: holdCoverHidden,
+    capture: captureFrame,
+  } = useFrameHold({
+    videoRef,
+    seriesId,
+    episodeKey,
+    videoLive,
+    switching,
+    streamKey,
+    playSrc,
+    error,
+    compatActive: compat != null,
+  });
+
   // ---- 舞台交互三套裁决（滚轮/点击/键盘）抽在 use-player-interactions：
   //      沉浸流=换剧、选定剧/连播=切集的语义与 400ms 滚轮冷却都在那边
   const { onStageWheel, onStageClick } = usePlayerInteractions({
     videoRef,
-    seriesId,
     setSlideDir,
     seriesPanelOpen,
     downloading,
@@ -411,18 +375,20 @@ export function PlayerView({
     currentSeries,
   });
 
-  // 小屏进出（enterMini/exitMini/stopMini）抽在 use-mini-window；
+  // 小屏进出（enterMini/exitMini）抽在 use-mini-window；
   // 置顶开关抽在 src/hooks/use-pin-window 与 AppShell 顶栏共用——
   // 大屏顶栏与小屏紧凑条两个入口，切换的是同一个 set_always_on_top。
-  const { miniScreen, enterMini, exitMini, stopMini } = useMiniWindow({
-    videoRef,
-    persist,
-    onWheelStep,
+  const { miniScreen, enterMini, exitMini } = useMiniWindow({
     setControlsHovered,
     setCommentPanelOpen,
     setDanmakuPanelOpen,
     setVolumeOpen,
     setSeriesPanelOpen,
+  });
+  // 竖屏进出/重适配/铺满档全在本 hook（store 只是镜像）：控制形态的三分
+  // 支（小窗/竖屏/全量）在这里裁决，PlayerControls 不再自持竖屏态
+  const { portrait, portraitFull, togglePortrait, togglePortraitFull } = usePortraitWindow({
+    videoRef,
   });
   const { pinned, togglePinned } = usePinWindow();
 
@@ -432,6 +398,13 @@ export function PlayerView({
     // 元素本身确实存在（ended 只能由它自己触发），但不写检查就只能写 `!`。
     const video = videoRef.current;
     if (!seriesId || !vidIndex || !video) return;
+    // 评论面板开着 = 用户在读评论/等 AI 回复：本集播完**循环重播本集**，
+    // 不自动连播切集、不落「看完」进度（官方同款；关面板恢复连播）
+    if (commentPanelOpen) {
+      video.currentTime = 0;
+      void video.play();
+      return;
+    }
     persist(video.currentTime, true);
     // 看完自动删：先清掉刚看完这集的本地文件，再决定连播下一集。
     // 没下载过的集本来就没有文件，后端返回 false，不提示。
@@ -460,7 +433,12 @@ export function PlayerView({
       setQuietArmed(true);
       const total = currentSeries?.episodes.length ?? 0;
       if (total > 0 && vidIndex >= total) advanceAfterSeriesEnd();
-      else stepEpisode(1);
+      else {
+        // 自动连播完成本集 = 进入选中剧连播态（入口之二，另一个是
+        // 「观看完整短剧」横条）：既然在本剧连着看，滚轮/↑↓ 就该切集
+        setBinge(seriesId);
+        stepEpisode(1);
+      }
     }
   };
 
@@ -503,11 +481,11 @@ export function PlayerView({
     );
   }
 
-  // 封面占位：盖在 <video> 之上（z-[5] 压过视频、让位弹幕 z-10），首帧出画
-  // （playing）后交叉淡出。取流/解码的间隙里用户看到的是这部剧的封面而不是
-  // 黑屏——「滚动切剧卡顿」的观感大头在这。取流中（!playSrc）同样垫着。
+  // 封面占位：盖在 <video> 之上（z-[5] 压过视频、让位弹幕 z-10）。只属于
+  // 切剧接管与画面真空（初次起播/出错）：同剧切集的间隙由定格帧接棒，
+  // 显隐真值在 use-frame-hold 的 overlayVisibility——切集不再每次闪封面。
   const coverBackdrop = coverUrl ? (
-    <CoverBackdrop key={coverUrl} src={coverUrl} hidden={videoLive && !switching} />
+    <CoverBackdrop key={coverUrl} src={coverUrl} hidden={holdCoverHidden} />
   ) : null;
 
   return (
@@ -517,7 +495,6 @@ export function PlayerView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-w-0 flex-1 flex-col">
         <div
-          ref={stageRef}
           onWheel={onStageWheel}
           onClick={onStageClickGuarded}
           // 「移入显示」显式接 mouseenter：从画面外重新进入时浏览器可能
@@ -659,8 +636,9 @@ export function PlayerView({
                   onExitBinge={() => setBinge(null)}
                 />
                 {/* 快捷键提示只在暂停时露一面向中部提示——常驻顶栏会把分类 tab
-                  挡死（顶部让位给 tab），平时不打扰。小屏（480 宽）装不下。 */}
-                {paused && !error && !miniScreen && <KeyboardHint />}
+                  挡死（顶部让位给 tab），平时不打扰。小屏（480 宽）与竖屏窄条
+                  都装不下，不渲染。 */}
+                {paused && !error && !miniScreen && !portrait && <KeyboardHint />}
                 {/* 沉浸流分类 tab 栏已上移 AppShell 顶栏（portal 插槽，
                   画面顶部不再有悬浮 tab 层） */}
                 {/* 沉浸流评论区：右侧滑出（💬 触发）；进小屏时已收起 */}
@@ -682,7 +660,43 @@ export function PlayerView({
                   commentCount={currentEpisode?.commentCount}
                   diggCount={currentEpisode?.diggCount}
                   followCount={currentSeries?.followedCnt}
+                  // 追更钮显隐判定源（video_detail series_status，与详情页同源）
+                  seriesStatus={meta?.seriesStatus}
                 />
+                {/* 沉浸流底部「观看完整短剧 · 全N集」横条：进入选中剧连播态
+                  （滚轮/↑↓=切集）的**唯一手动入口**。已选中时不渲染——
+                  横条的使命就是进入选中态，选中了就没它的事了。显隐跟随
+                  播放控件（chromeShown），小屏不渲染（与互动栏同口径）。 */}
+                {onWheelStep && currentSeries && !miniScreen && !inBinge && (
+                  <ChromeSurface
+                    shown={chromeShown}
+                    data-wheel-block
+                    className="absolute inset-x-3 bottom-14 z-10"
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // 选中这部剧 = 连播锁定（切集）；同为「用户在场」信号，
+                        // 唤醒悬浮层让左上角连播指示亮出来
+                        wakeChrome();
+                        setBinge(seriesId);
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-black/60 px-3 py-2.5 text-sm text-white backdrop-blur-sm transition-colors hover:bg-black/75"
+                    >
+                      <span className="truncate">
+                        {t('player.watchFullSeries')}
+                        {currentSeries.episodeCount > 0 && (
+                          <span className="text-white/70">
+                            {' '}
+                            · {tf('player.totalEpisodes', { count: currentSeries.episodeCount })}
+                          </span>
+                        )}
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-white/60" aria-hidden />
+                    </button>
+                  </ChromeSurface>
+                )}
                 {/* 控制栏大小屏两套形态，共用同一个 <video>（元素在上面，
                   不随这里的切换卸载）——切大小屏播放零中断 */}
                 {miniScreen ? (
@@ -698,7 +712,6 @@ export function PlayerView({
                     }
                     onStepEpisode={(d) => stepEpisode(d)}
                     onExpand={exitMini}
-                    onClose={stopMini}
                     incognitoOn={incognito.on}
                     onToggleIncognito={incognito.toggle}
                     pinned={pinned}
@@ -711,10 +724,34 @@ export function PlayerView({
                     }}
                     onControlsLeave={() => setControlsHovered(false)}
                   />
+                ) : portrait ? (
+                  // 竖屏窄条：控件对齐小窗紧凑条（portrait 形态）——全量控制栏
+                  // 在竖条里必然溢出（选集浮层 460 宽更是放不下），hgplayer 竖屏
+                  // 同样是紧凑一行。⤢ = 退出竖屏；✕ 的位置给铺满切换
+                  <MiniScreenControls
+                    variant="portrait"
+                    videoRef={videoRef}
+                    total={currentSeries?.episodes.length ?? 0}
+                    hasNext={
+                      currentSeries?.episodes.some((e) => e.vidIndex === (vidIndex ?? 0) + 1) ??
+                      false
+                    }
+                    onStepEpisode={(d) => stepEpisode(d)}
+                    onExpand={togglePortrait}
+                    incognitoOn={incognito.on}
+                    onToggleIncognito={incognito.toggle}
+                    portraitFull={portraitFull}
+                    onTogglePortraitFull={togglePortraitFull}
+                    visible={chromeShown}
+                    onControlsEnter={() => {
+                      setControlsHovered(true);
+                      wakeChrome();
+                    }}
+                    onControlsLeave={() => setControlsHovered(false)}
+                  />
                 ) : (
                   <PlayerControls
                     videoRef={videoRef}
-                    stageRef={stageRef}
                     onControlsEnter={() => {
                       setControlsHovered(true);
                       wakeChrome();
@@ -727,11 +764,16 @@ export function PlayerView({
                     onDownloadingChange={setDownloading}
                     onStepEpisode={stepEpisode}
                     onOpenMini={enterMini}
+                    onEnterPortrait={togglePortrait}
                     incognito={incognito.on}
                     onToggleIncognito={incognito.toggle}
                     definition={activeDefinition}
                     definitions={definitions}
-                    onDefinitionChange={setDefinition}
+                    onDefinitionChange={(d) => {
+                      // 换档同样换流换元素：先定格当前帧，档位间隙不再闪封面
+                      captureFrame();
+                      setDefinition(d);
+                    }}
                     src={playSrc}
                     danmakuOn={danmakuOn}
                     onToggleDanmaku={toggleDanmaku}
@@ -739,14 +781,10 @@ export function PlayerView({
                     onDanmakuDisplayChange={updateDanmakuDisplay}
                     immersive
                     visible={chromeShown}
-                    // 信息流里主动点了某一级 = 要追这部：进入选中剧连播（/player，
-                    // 滚轮/↑↓ 自动变为切集），而不是留在推荐流继续换剧
-                    pickerHint={onWheelStep ? t('player.pickerBingeHint') : undefined}
+                    // 选中剧的入口只有「观看完整短剧」横条与自动连播完成本集
+                    // ——选集面板只负责跳到那一集，不锁连播
                     onPickEpisode={(idx) => {
                       setTarget(seriesId, idx);
-                      // 信息流里主动选了某集 = 要追这部：原地锁定本剧连播
-                      // （滚轮/↑↓ 切集 + 左上角亮出连播指示），画面无缝续播
-                      if (onWheelStep) setBinge(seriesId);
                     }}
                   />
                 )}
@@ -787,6 +825,9 @@ export function PlayerView({
               </>
             )}
           </div>
+          {/* 末帧定格层：渲染在切换动画容器外（定格帧是静止参考帧，不跟
+              新内容滑入），同剧切集的流交换间隙由它顶住直到新集首帧出画 */}
+          {heldFrame && <FrameHold frame={heldFrame} hidden={!holdVisible} cover={miniScreen} />}
         </div>
 
         <ErrorBar chromeShown={chromeShown} error={error} />

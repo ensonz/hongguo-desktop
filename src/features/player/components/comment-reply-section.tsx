@@ -20,6 +20,8 @@ export function ReplySection({
   onDigg,
   onReplyTo,
   onDeleteReply,
+  pendingAi = false,
+  aiName,
 }: {
   vid: string;
   commentId: string;
@@ -30,6 +32,10 @@ export function ReplySection({
   onDigg: (id: string, digg: boolean) => void;
   onReplyTo: (reply: ReplyItem) => void;
   onDeleteReply: (reply: ReplyItem) => void;
+  /** @小果AI 提及评论的「思考中…」占位（发送成功即显示，回复到达后撤除） */
+  pendingAi?: boolean;
+  /** AI bot 用户名（回复作者的渐变 Ai 后缀 + AI 生成标记） */
+  aiName?: string;
 }) {
   const q = useCommentReplies(vid, commentId, open);
   const replies = dedupBy(q.data?.pages.flatMap((p) => p.items) ?? [], (r) => r.replyId);
@@ -47,6 +53,8 @@ export function ReplySection({
       hasNextPage={q.hasNextPage}
       isFetchingNextPage={q.isFetchingNextPage}
       fetchNextPage={() => void q.fetchNextPage()}
+      pendingAi={pendingAi}
+      aiName={aiName}
       onDigg={onDigg}
       onReplyTo={onReplyTo}
       onDeleteReply={onDeleteReply}

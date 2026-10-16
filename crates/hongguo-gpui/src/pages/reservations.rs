@@ -9,8 +9,8 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_kit::component::Disableable;
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants};
 use gpui_kit::component::h_flex;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
@@ -18,7 +18,9 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Sizable, WindowExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img};
+use gpui_kit::{
+    App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
+};
 use hongguo_api::calendar::CalendarItem;
 use hongguo_service::app_state::AppStateInner;
 
@@ -220,10 +222,7 @@ impl ReservationView {
                     }
                     Err(e) => {
                         log::warn!("[Reservations] 取消预约失败: {e}");
-                        window.push_notification(
-                            Notification::error(format!("取消失败：{e}")),
-                            cx,
-                        );
+                        window.push_notification(Notification::error(format!("取消失败：{e}")), cx);
                     }
                 }
                 cx.notify();
@@ -349,13 +348,10 @@ impl ReservationView {
     }
 
     fn play_series(&self, series_id: &str, cx: &mut Context<Self>) {
-        let (vid_index, start_secs) = hongguo_service::play_service::resume::resolve_entry(
-            &self.state.store,
-            series_id,
-            &[],
-        )
-        .ok()
-        .unwrap_or((1, 0.0));
+        let (vid_index, start_secs) =
+            hongguo_service::play_service::resume::resolve_entry(&self.state.store, series_id, &[])
+                .ok()
+                .unwrap_or((1, 0.0));
         cx.emit(ReservationEvent::Play {
             series_id: series_id.to_string(),
             vid_index,
@@ -383,7 +379,11 @@ impl ReservationView {
             .child(search_box(&self.search, cx))
             .children(self.logged_in().then(|| {
                 Button::new("reservations-manage")
-                    .label(if self.managing { "退出管理" } else { "管理" })
+                    .label(if self.managing {
+                        "退出管理"
+                    } else {
+                        "管理"
+                    })
                     .outline()
                     .small()
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -450,7 +450,10 @@ impl ReservationView {
             .cloned()
             .collect();
         h_flex()
-            .id(ElementId::from(format!("reservation-row-{}", item.series_id)))
+            .id(ElementId::from(format!(
+                "reservation-row-{}",
+                item.series_id
+            )))
             .items_stretch()
             .gap_4()
             .rounded(gpui_kit::px(12.0))
@@ -474,7 +477,10 @@ impl ReservationView {
             // 封面（左下上线日期角标）
             .child(
                 div()
-                    .id(ElementId::from(format!("reservation-cover-{}", item.series_id)))
+                    .id(ElementId::from(format!(
+                        "reservation-cover-{}",
+                        item.series_id
+                    )))
                     .relative()
                     .w(gpui_kit::px(92.0))
                     .h(gpui_kit::px(123.0))
@@ -503,10 +509,8 @@ impl ReservationView {
                             .items_center()
                             .justify_center()
                             .child(
-                                gpui_kit::component::Icon::new(
-                                    gpui_kit::assets::IconName::Tv,
-                                )
-                                .text_color(theme.muted_foreground),
+                                gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Tv)
+                                    .text_color(theme.muted_foreground),
                             )
                             .into_any_element(),
                     })
@@ -607,22 +611,18 @@ impl ReservationView {
                                     .child(SharedString::from(tag))
                             }))
                             .children((item.publish_time > 0 && !item.is_online).then(|| {
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(SharedString::from(format!(
+                                div().text_xs().text_color(theme.muted_foreground).child(
+                                    SharedString::from(format!(
                                         "{} 上线",
                                         format_month_day_time(item.publish_time)
-                                    )))
+                                    )),
+                                )
                             })),
                     ),
             )
             // 动作列（管理态不渲染）
             .children((!managing).then(|| {
-                let mut column = v_flex()
-                    .flex_shrink_0()
-                    .justify_center()
-                    .gap_1p5();
+                let mut column = v_flex().flex_shrink_0().justify_center().gap_1p5();
                 if item.is_online {
                     let sid = item.series_id.clone();
                     column = column
@@ -635,9 +635,11 @@ impl ReservationView {
                             .label("播放")
                             .outline()
                             .small()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.play_series(&sid, cx);
-                            })),
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.play_series(&sid, cx);
+                                },
+                            )),
                         )
                         .child({
                             let item = item.clone();
@@ -648,9 +650,11 @@ impl ReservationView {
                             .label("详情")
                             .ghost()
                             .small()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.open_detail(&item, cx);
-                            }))
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.open_detail(&item, cx);
+                                },
+                            ))
                         });
                 } else {
                     let sid = item.series_id.clone();

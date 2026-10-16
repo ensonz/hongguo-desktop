@@ -9,7 +9,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import { dedupBy, keys, useInfiniteStream } from './common';
+import { dedupBy, fuzzyStaleTime, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 排行榜 / 新剧 / 上新日历 / 预约
 
@@ -128,7 +128,7 @@ export function useReservations(isOnline: boolean) {
   return useQuery({
     queryKey: keys.reservations(isOnline),
     queryFn: () => rank.reservations(isOnline),
-    staleTime: 60_000,
+    staleTime: fuzzyStaleTime(keys.reservations(isOnline)),
   });
 }
 

@@ -1,6 +1,6 @@
 # 前后端契约（IPC 命令 / 事件 / 外部 API 端点）
 
-前后端的所有交互形态与新增流程。核心原则：**类型契约两端同步演进**——Rust serde 模型 ↔ 前端 zod schema 是同一契约的两份手写副本，改一头必须改另一头。
+前后端的所有交互形态与新增流程。核心原则：**契约两端同源**（dev-habits『契约两端同源』）——本项目载体是 Rust serde 模型 ↔ 前端 zod schema 两份手写副本，改一头同一 commit 改另一头，漏改由 registry.ts 在编译期拦下。
 
 壳归属：IPC 命令、事件推送（前端 `EVENTS` 映射）、自定义协议是 **Tauri 壳专属**通道；GPUI 壳无 IPC，进程内直调 service、经壳内事件泵消费同一批 `ServiceEvent`（见 `references/gpui.md`）。第四节「外部 API 端点」两壳共用。
 
@@ -67,13 +67,14 @@ export const storage = {
 
 ## 三、事件推送
 
-**service 侧（唯一发布点，无任何 UI/事件机制）**：业务事件是闭集强类型枚举 `hongguo_service::events::ServiceEvent`（13 个变体：下载 6 / 合并 4 / 在线取流 / 兼容转码 / 登录 MFA），经 `AppState` 的 broadcast 总线发布（容量 1024，订阅者滞后丢旧记日志）。**service 不持有 `AppHandle`，命令层也不发业务事件**。
+**service 侧（唯一发布点，无任何 UI/事件机制）**：业务事件是闭集强类型枚举 `hongguo_service::events::ServiceEvent`（14 个变体：下载 6 / 合并 4 / 在线取流 / 兼容转码 / 登录 MFA / 追更提醒），经 `AppState` 的 broadcast 总线发布（容量 1024，订阅者滞后丢旧记日志）。**service 不持有 `AppHandle`，命令层也不发业务事件**。
 
 **壳侧转发**（`crates/hongguo-tauri/src/events.rs`）：bootstrap 阶段订阅一次，`forward` 把每个变体映射成**原名原载荷**的 `app.emit`（`let _ =` 忽略失败，前端不在场发不出去无害）。
 
 ```rust
 // 事件名常量在各域 events 模块：下载/合并/在线/兼容集中在
-// download_service::events::names，登录在 login_service::events::LOGIN_MFA_STATE
+// download_service::events::names，登录在 login_service::events::LOGIN_MFA_STATE，
+// 追更在 follow_service::events::FOLLOW_NOTICES
 pub mod names {
     pub const DOWNLOAD_PROGRESS: &str = "download-progress";
     // ...

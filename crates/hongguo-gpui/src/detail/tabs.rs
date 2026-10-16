@@ -1,9 +1,9 @@
 //! 下半区 tab 栏 + 选集网格（Tauri Tabs 三触发器同序同计数；选集格 =
 //! 序号 + 第 N 集 + 右侧时长角标，续播集描边高亮）。
 
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::v_flex;
-use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::*;
 use gpui_kit::{ElementId, SharedString, div};
 
@@ -24,44 +24,46 @@ impl DetailView {
             (DetailTab::Reviews, "剧评", self.reviews_total),
             (DetailTab::Related, "相关推荐", related_total),
         ];
-        Some(v_flex()
-            .mt_8()
-            .child(
-                h_flex()
-                    .gap_6()
-                    .border_b_1()
-                    .border_color(theme.secondary)
-                    .children(tabs.map(|(tab, label, count)| {
-                        let active = self.tab == tab;
-                        div()
-                            .id(ElementId::from(format!("detail-tab-{:?}", tab)))
-                            .pb_2()
-                            .text_sm()
-                            .cursor_pointer()
-                            .when(active, |s| {
-                                s.border_b_2()
-                                    .border_color(theme.foreground)
-                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                    .text_color(theme.foreground)
-                            })
-                            .when(!active, |s| s.text_color(theme.muted_foreground))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.tab = tab;
-                                cx.notify();
-                            }))
-                            .child(if count > 0 {
-                                format!("{label} {count}")
-                            } else {
-                                label.to_string()
-                            })
-                    })),
-            )
-            .child(match self.tab {
-                DetailTab::Episodes => self.render_episode_grid(cx),
-                DetailTab::Reviews => self.render_reviews(cx),
-                DetailTab::Related => self.render_related(cx),
-            })
-            .into_any_element())
+        Some(
+            v_flex()
+                .mt_8()
+                .child(
+                    h_flex()
+                        .gap_6()
+                        .border_b_1()
+                        .border_color(theme.secondary)
+                        .children(tabs.map(|(tab, label, count)| {
+                            let active = self.tab == tab;
+                            div()
+                                .id(ElementId::from(format!("detail-tab-{:?}", tab)))
+                                .pb_2()
+                                .text_sm()
+                                .cursor_pointer()
+                                .when(active, |s| {
+                                    s.border_b_2()
+                                        .border_color(theme.foreground)
+                                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                        .text_color(theme.foreground)
+                                })
+                                .when(!active, |s| s.text_color(theme.muted_foreground))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.tab = tab;
+                                    cx.notify();
+                                }))
+                                .child(if count > 0 {
+                                    format!("{label} {count}")
+                                } else {
+                                    label.to_string()
+                                })
+                        })),
+                )
+                .child(match self.tab {
+                    DetailTab::Episodes => self.render_episode_grid(cx),
+                    DetailTab::Reviews => self.render_reviews(cx),
+                    DetailTab::Related => self.render_related(cx),
+                })
+                .into_any_element(),
+        )
     }
 
     /// 选集网格（Tauri 2/3/4/5 列响应式 → GPUI 固定 4 列网格；卡内构成

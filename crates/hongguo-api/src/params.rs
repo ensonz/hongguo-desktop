@@ -35,6 +35,16 @@ pub mod interaction {
     pub const OBJECT_TYPE_VIDEO: i64 = 6;
     pub const OBJECT_TYPE_REVIEW: i64 = 2;
     pub const OBJECT_TYPE_COMMENT: i64 = 8;
+    /// 短剧（整部剧；追更的 do_action 对象，2026-10-15 抓 player v1.2.1 实包）。
+    pub const OBJECT_TYPE_SERIES: i64 = 10;
+
+    /// `action_type`（articleapi do_action 动作码）：点赞 3/4 之外的动作。
+    /// 追更 34 / 取消追更 35（2026-10-15 抓 player 实包往返三次锁定）。
+    pub const ACTION_TYPE_FOLLOW: i64 = 34;
+    pub const ACTION_TYPE_UNFOLLOW: i64 = 35;
+
+    /// 追更列表频道（get_user_action `action_channel`，抓包锁定）。
+    pub const ACTION_CHANNEL_FOLLOW: i64 = 9;
 
     /// `comment_type`：内容类型（剧评**发送**时是 0，列表 / 点赞是 2）。
     pub const COMMENT_TYPE_DANMAKU: i64 = 20;
@@ -74,6 +84,11 @@ pub mod interaction {
     pub const LIST_SOURCE_REVIEW: i64 = 1;
     pub const LIST_SOURCE_REVIEW_REPLIES: i64 = 501;
     pub const LIST_SOURCE_COMMENT_REPLIES: i64 = 504;
+    /// 创作者主页的作品 tab（commentapi/user/profile，2026-10-15 官方实包：
+    /// 详情页点创作者 → 主页，作品列表 tab_type=23 / sub_tab_type=22）
+    pub const LIST_SOURCE_PROFILE_WORKS: i64 = 1506;
+    pub const PROFILE_TAB_WORKS: i64 = 23;
+    pub const PROFILE_SUB_TAB_WORKS: i64 = 22;
 }
 
 // ---------------------------------------------------------------- 播放域路径

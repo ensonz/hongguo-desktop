@@ -4,7 +4,8 @@
 use std::rc::Rc;
 use std::sync::Arc;
 #[cfg(target_os = "windows")]
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
@@ -239,7 +240,8 @@ impl super::HomeView {
             && w >= 2.0
             && h >= 2.0
         {
-            self.video_target.set((w as usize, h as usize));
+            self.video_target
+                .store(super::pack_size(w as usize, h as usize), Ordering::Relaxed);
         }
         // 周期状态取证（5s 一跳）：封面收不收、帧/图/切换位各在哪一档，
         // 一行钉死——排障不用再猜是事件没到还是渲染没跟上。带舞台尺寸
@@ -269,7 +271,7 @@ impl super::HomeView {
                 "[Home][stage] 周期状态：video_ready={video_ready} frame={} switching={} {image_state} epoch={} 舞台={stage_size} 视口={}×{} 播放={:.1}/{}s",
                 self.frame.is_some(),
                 self.switching,
-                self.epoch,
+                self.epoch.load(Ordering::Relaxed),
                 window.viewport_size().width.to_f64(),
                 window.viewport_size().height.to_f64(),
                 self.player
@@ -361,11 +363,13 @@ impl super::HomeView {
                 // 焦点后，这是用户最自然的「回到播放操作」路径
                 .on_click(cx.listener(|this, _, window, cx| {
                     window.focus(&this.focus, cx);
+                    // 点画面是真实输入：连播静默就此解除（Tauri wakeOnMove
+                    // 静默闸门的另一面——pointerdown 解除）
+                    this.wake_on_input(cx);
                     if !this.in_binge() {
                         if let Some(now) = &this.now {
                             this.binge = Some(now.series_id.clone());
                         }
-                        this.wake_controls(cx);
                         cx.notify();
                         return;
                     }
@@ -514,6 +518,8 @@ impl super::HomeView {
             .track_focus(&self.focus)
             .on_key_down(
                 cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                    // 按键是真实输入：解除连播静默（Tauri wakeChrome 同款）
+                    this.wake_on_input(cx);
                     let keys = this.shortcut_keys.clone();
                     let key = ev.keystroke.key.as_str();
                     if key == keys.play_pause {
@@ -541,6 +547,8 @@ impl super::HomeView {
                         } else if this.picker_open {
                             this.picker_open = false;
                             this.picker_group_override = None;
+                        } else if this.dm_panel_open {
+                            this.dm_panel_open = false;
                         } else if this.in_binge() {
                             this.binge = None;
                         }
@@ -656,7 +664,8 @@ impl super::HomeView {
                         div()
                             .text_sm()
                             .text_color(gpui_kit::rgb(0xffffff))
-                            .child(SharedString::from(format!("起播失败：{err}"))),
+                            // 前缀由写入方拼（起播失败/播放失败），这里原样展示
+                            .child(SharedString::from(err.clone())),
                     )
                     .child(
                         Button::new("stage-retry-play")
@@ -690,6 +699,45 @@ impl super::HomeView {
                         .into_any_element()
                 }),
             )
+            // 弹幕设置面板开着：同款捕获层（点齿轮外的任意处=关闭；齿轮
+            // 本体在层下面，点击被层拦下即「点了只关闭」，与 Tauri 点外
+            // 关闭语义一致）
+            .children((self.dm_panel_open && !in_mini).then(|| {
+                div()
+                    .absolute()
+                    .size_full()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.dm_panel_open = false;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
+                    .into_any_element()
+            }))
+            // 轻量提示（Tauri toast 同位）：舞台顶部居中，分类 tab 行的
+            // 下方；无指针监听不吃点击
+            .children(self.toast.as_ref().map(|t| {
+                div()
+                    .absolute()
+                    .top_12()
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .px_3()
+                            .py_1p5()
+                            .rounded_md()
+                            .bg(gpui_kit::rgba(0x000000cc))
+                            .text_xs()
+                            .text_color(gpui_kit::rgb(0xffffff))
+                            .child(SharedString::from(t.message.clone())),
+                    )
+                    .into_any_element()
+            }))
             // 小屏拖拽条（Tauri MiniDragBar 同款）：顶栏在小屏不渲染，窗口
             // 拖动职责落在这条 24px 顶带——标记成 WindowControlArea::Drag，
             // 平台 WM_NCHITTEST 给 HTCAPTION 原生拖拽；拦下鼠标下传，拖拽

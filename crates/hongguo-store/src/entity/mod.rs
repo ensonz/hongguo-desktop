@@ -50,6 +50,8 @@ fn map_db_err(e: turso::Error) -> AppError {
 }
 
 mod device;
+mod follow;
+mod local_history;
 mod merge;
 mod playback;
 mod series;
@@ -59,6 +61,14 @@ mod task;
 pub use device::{
     backup_device_profile, device_meta_get, device_meta_set, device_profile, device_profile_backup,
     save_device_profile,
+};
+pub use follow::{
+    baseline_delete, baseline_get, baseline_set, notice_insert, notices_clear, notices_list,
+    notices_mark_read,
+};
+pub use local_history::{
+    delete_local_history, local_history_list, mark_local_history_reported, pending_local_history,
+    upsert_local_history,
 };
 pub use merge::{delete_merge_task, merge_tasks, upsert_merge_task};
 pub use playback::{playback_position, save_playback_position, series_last_position};

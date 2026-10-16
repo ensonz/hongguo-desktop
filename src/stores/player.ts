@@ -14,6 +14,14 @@ interface PlayerState {
   bingeSeriesId: string | null;
   setBinge: (seriesId: string | null) => void;
   /**
+   * 外部点名信号（详情/历史/收藏/搜索卡片、选集面板切季、剧终接下一季）：
+   * 首页信息流消费它把游标对到目标剧——流里有就对过去，没有就钉在最前。
+   * 自增计数：同一部剧连续点名也每次生效；区别于信息流自己的
+   * setTarget（游标驱动，不许触发对齐，否则会和用户滚动互相拽）。
+   */
+  gotoNonce: number;
+  requestGoto: (seriesId: string, vidIndex: number) => void;
+  /**
    * 跨客户端续播提示：云端历史有进度、本地播放档案没有时，信息流把
    * 「该看哪一集 + 集内位置」放这里，播放器起播无本地 resumeAt 时消费。
    * 消费即清；不匹配当前集的残留提示会被忽略（无害）。
@@ -45,11 +53,16 @@ interface PlayerState {
  * 不在这里再抄一份。抄的那份既不从后端读也不往回写，两边对不上，
  * 表现就是「改了没反应、重启又变回默认」。
  */
-export const usePlayerStore = create<PlayerState>((set) => ({
+export const usePlayerStore = create<PlayerState>((set, get) => ({
   seriesId: null,
   vidIndex: null,
   bingeSeriesId: null,
   setBinge: (seriesId) => set({ bingeSeriesId: seriesId }),
+  gotoNonce: 0,
+  requestGoto: (seriesId, vidIndex) => {
+    get().setTarget(seriesId, vidIndex);
+    set((s) => ({ gotoNonce: s.gotoNonce + 1 }));
+  },
   resumeHint: null,
   setResumeHint: (hint) => set({ resumeHint: hint }),
   danmakuPanelOpen: false,
@@ -61,8 +74,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setSeriesPanelOpen: (open) => set({ seriesPanelOpen: open }),
   setCommentPanelOpen: (open) => set({ commentPanelOpen: open }),
   setTarget: (seriesId, vidIndex) => {
-    // 目标持久化：刷新/重启后播放器能恢复到正在看的这部剧这集
-    // （进度由本地播放档案的 resumeAt 接上，见 PlayerPage 的恢复逻辑）
+    // 目标持久化：重启后由首页种子（云端历史排头）自然续上，
+    // 进度由本地播放档案的 resumeAt 接上（首页起点决策同口径）
     writeLastTarget({ seriesId, vidIndex });
     set((s) => ({
       seriesId,

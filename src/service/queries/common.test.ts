@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dedupBy } from './common';
+import { dedupBy, fuzzyStaleTime } from './common';
 
 // feed.ts 的模块链拉到 locales 与 tauri/invoke（模块级读 localStorage/
 // navigator/document 探测并初始化语言）——node 测试环境没有这些 global，
@@ -61,5 +61,26 @@ describe('dedupBy', () => {
 
   it('空输入返回空数组', () => {
     expect(dedupBy([], (i) => i)).toEqual([]);
+  });
+});
+
+describe('fuzzyStaleTime', () => {
+  it('值域在 [10s, 30s) 内', () => {
+    for (let i = 0; i < 200; i++) {
+      const v = fuzzyStaleTime(['probe', String(i)]);
+      expect(v).toBeGreaterThanOrEqual(10_000);
+      expect(v).toBeLessThan(30_000);
+    }
+  });
+
+  it('同一 key 跨调用稳定（重渲染不漂移）', () => {
+    const key = ['series-episodes', '7687919221593885758'];
+    expect(fuzzyStaleTime(key)).toBe(fuzzyStaleTime(key));
+    expect(fuzzyStaleTime(key)).toBe(fuzzyStaleTime([...key]));
+  });
+
+  it('不同 key 撒开（避免集体过期）', () => {
+    const values = new Set(Array.from({ length: 64 }, (_, i) => fuzzyStaleTime(['k', String(i)])));
+    expect(values.size).toBeGreaterThan(1);
   });
 });

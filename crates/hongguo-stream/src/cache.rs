@@ -86,13 +86,17 @@ pub struct StreamCache {
 /// （2026-10-06「视频处理失败」的根因）。多留几条，弹动就打不穿缓存。
 const KEEP_RECENT: usize = 3;
 
-/// 预取标记的上限。首页同一时刻最多预取一部，快速连滚会短暂多出一两
-/// 个标记，上限取 2 足够，防止标记无界增长把逐出豁免变成内存漏洞。
-const MAX_PREFETCH_MARKS: usize = 2;
+/// 预取标记的上限。连播与换剧预取共用 `Settings.prefetch_episodes` 档
+/// （issue #6），两路同时各铺最多 3 集，加上快速连滚短暂多出的一两个
+/// 标记。上限 = 3 + 3 + 2，防止标记无界增长把逐出豁免变成内存漏洞。
+const MAX_PREFETCH_MARKS: usize = 8;
 
 /// 在线流缓存的总字节预算。当前集 + 预取 + 最近保留加起来超过它时，
-/// 从最旧的「非当前」条目开始逐出，直到回到预算内。
-const RETAIN_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
+/// 从最旧的「非当前」条目开始逐出，直到回到预算内。换剧预取与连播预取
+/// 同档铺 N 集后双剧合计（渐进缓冲按整集长度计内存）在典型短剧
+/// （30-80MB/集）下会吃满 512MB——被逐出的预取等于白下流量，上调到
+/// 768MB 给满档（3+3）留余量。
+const RETAIN_BUDGET_BYTES: u64 = 768 * 1024 * 1024;
 
 impl StreamCache {
     /// 取或创建一个条目。
@@ -547,20 +551,25 @@ mod tests {
     fn prefetch_marks_are_bounded() {
         // 标记无界会把逐出豁免变成内存漏洞：只留最新 MAX_PREFETCH_MARKS 个。
         let c = StreamCache::default();
-        c.mark_prefetch("p1", 1080);
-        c.mark_prefetch("p2", 1080);
-        c.mark_prefetch("p3", 1080);
+        for i in 0..super::MAX_PREFETCH_MARKS + 2 {
+            c.mark_prefetch(&format!("p{i}"), 1080);
+        }
         assert_eq!(c.prefetch.lock().len(), super::MAX_PREFETCH_MARKS);
         assert!(
-            !c.prefetch.lock().iter().any(|(v, _)| v == "p1"),
+            !c.prefetch
+                .lock()
+                .iter()
+                .any(|(v, _)| v == "p0" || v == "p1"),
             "最老的标记被挤出"
         );
-        // 转正（set_current）与删除（remove）都要摘标记
+        // 转正（set_current）与删除（remove）都要摘标记。这里用循环范围外
+        // 的 vid：标记按 (vid, 档位) 成对，循环里已存在的 vid 换档位标记
+        // 后，remove 只摘得掉新档位那条。
         c.set_current("p3");
         assert!(c.prefetch.lock().iter().all(|(v, _)| v != "p3"));
-        c.mark_prefetch("p9", 720);
-        c.remove("p9", 720);
-        assert!(c.prefetch.lock().iter().all(|(v, _)| v != "p9"));
+        c.mark_prefetch("px", 720);
+        c.remove("px", 720);
+        assert!(c.prefetch.lock().iter().all(|(v, _)| v != "px"));
     }
 
     #[test]

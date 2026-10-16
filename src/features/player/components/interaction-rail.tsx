@@ -1,4 +1,4 @@
-//! 播放页互动栏：收藏 / 评论 / 点赞 / 分享（抖音系右缘竖排形态）。
+//! 播放页互动栏：收藏 / 评论 / 点赞 / 追更 / 分享（抖音系右缘竖排形态）。
 //!
 //! 布局对齐抖音：**icon 在上、计数在下**，实心纯白 + 投影贴着画面右缘，
 //! 不做圆底按钮。图标为自绘抖音系实心 SVG——lucide 线框形态不像；
@@ -8,16 +8,25 @@
 //! 发弹幕入口在控制栏（hgplayer 同款），不在这里。
 //!
 //! 2026-10-05 抓包端点：点赞 do_action(3/4)、收藏 bookshelf(0/1)、
-//! 状态 mget；口径见 docs 第 9 节。
+//! 状态 mget；口径见 docs 第 9 节。追更 2026-10-15 抓 player v1.2.1
+//! （do_action 34/35、object_type=10）。
 
 import { useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
+import { Tv } from 'lucide-react';
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 import { ChromeSurface } from './chrome-surface';
-import { useAccount, useInteractionState, useSeriesCollect, useVideoDigg } from '@/service/queries';
+import {
+  useAccount,
+  useFollowUpdates,
+  useInteractionState,
+  useSeriesCollect,
+  useVideoDigg,
+} from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
+import { useFollowState } from '@/hooks/use-follow-state';
 
 // ── 抖音系实心图标（自绘；激活态类优先于 fill/stroke 属性，直接生效） ──
 
@@ -90,6 +99,9 @@ interface InteractionRailProps {
   diggCount?: number;
   /** 全剧收藏数（同上） */
   followCount?: number;
+  /** 连载状态（video_detail series_status：0=连载中 1=已完结，官方追更钮
+   *  显隐判定源；undefined=meta 未到，回落追更列表判定） */
+  seriesStatus?: number;
 }
 
 /** 计数格式化：抖音系「1.4万」样式。 */
@@ -109,6 +121,7 @@ export function InteractionRail({
   commentCount,
   diggCount: publicDiggCount,
   followCount: publicFollowCount,
+  seriesStatus,
 }: InteractionRailProps) {
   const navigate = useNavigate();
   const { data: account } = useAccount();
@@ -126,6 +139,16 @@ export function InteractionRail({
   const diggCount = (publicDiggCount ?? 0) > 0 ? publicDiggCount! : (hit?.diggedCount ?? 0);
   const collectCount =
     (publicFollowCount ?? 0) > 0 ? publicFollowCount! : (seriesHit?.followedCnt ?? 0);
+
+  // 追更按钮按完结状态条件显示：官方只在连载剧（series_status=0）出追更
+  // （2026-10-15 实包：完结剧「全139集」无钮、连载剧「更新至83集」有钮）。
+  // meta 未到的窗口期回落追更列表判定（已追+完结=隐藏）
+  const followList = useFollowUpdates();
+  const followedItem = followList.data?.pages
+    .flatMap((p) => p.items)
+    .find((i) => i.seriesId === seriesId);
+  const showFollow =
+    seriesStatus !== undefined ? seriesStatus === 0 : !followedItem || !followedItem.finished;
 
   const digg = useVideoDigg();
   const collect = useSeriesCollect();
@@ -158,6 +181,13 @@ export function InteractionRail({
           toast.success(t(collected ? 'player.interact.uncollected' : 'player.interact.collected')),
       },
     );
+  };
+
+  // 追更（do_action 34/35，服务端跟随列表）：状态/乐观逻辑与详情页同源
+  const follow = useFollowState(seriesId);
+  const onFollow = () => {
+    if (!loggedIn) return requireLogin();
+    follow.set(!follow.isOn);
   };
 
   const onShare = async () => {
@@ -198,6 +228,15 @@ export function InteractionRail({
         text={diggCount > 0 ? fmtCount(diggCount) : undefined}
         onClick={onDigg}
       />
+      {/* 追更（📺 + 已追态高亮）：仅连载中的剧显示——已完结剧不会有新集 */}
+      {showFollow && (
+        <RailItem
+          icon={<Tv className={cn('size-7', follow.isOn && 'text-primary')} />}
+          label={t(follow.isOn ? 'player.interact.following' : 'player.interact.follow')}
+          text={follow.isOn ? t('player.interact.following') : t('player.interact.follow')}
+          onClick={onFollow}
+        />
+      )}
       <RailItem
         icon={<DouyinShareIcon className="size-7" />}
         label={t('player.interact.share')}

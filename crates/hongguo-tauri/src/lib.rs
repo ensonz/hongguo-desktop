@@ -44,6 +44,9 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
         // 进程插件只用到 relaunch（下载完成后重启进新版本）
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // 老板键的全局快捷键（issue #4）：注册/注销走 Rust 侧
+        // （commands/boss_key_cmd），不经前端 → 无需 capabilities
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // 窗口关闭拦截的「前端就绪」闸门（见 setup 里的 CloseRequested 处理）
         .manage(commands::app_cmd::WindowCloseGate::default());
 
@@ -61,13 +64,26 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             // 启动装配的顺序即依赖顺序：先建应用状态（含数据库），装载设置
             // 与下载队列，把待跑任务推入调度。设备健康复检 / 磁盘补登记 /
             // 转码探测不拦启动，各自在 init 里后台化（见 bootstrap/mod.rs）。
-            app.manage(build_app_state());
+            let app_state = build_app_state();
+            app.manage(app_state.clone());
             bootstrap::store::init(app.handle())?;
             bootstrap::device::init(app.handle())?;
             bootstrap::events::init(app.handle())?;
             bootstrap::rescan::init(app.handle())?;
             bootstrap::downloader::init(app.handle())?;
             bootstrap::transcoder::init()?;
+            // 追更更新检查：启动查一轮 + 每 20 分钟一轮（未登录空转，
+            // 登录后自动生效；对齐 hongguo-player 的检查节奏）
+            hongguo_service::follow_service::start_notice_loop(app_state.clone());
+            // 老板键按持久化设置注册（被占用只记日志，不拦启动）
+            commands::boss_key_cmd::init(app.handle(), &app_state.settings().boss_key);
+            // 本地观看历史补传（issue #10）：带账号启动时把离线攒下的行推云端
+            if app_state.settings().account.is_some() {
+                let st = app_state.clone();
+                hongguo_service::runtime::spawn(async move {
+                    hongguo_service::history_service::upload_pending(&st).await;
+                });
+            }
 
             // 窗口关闭一律先问前端：自绘 ×、Alt+F4、任务栏关闭都走
             // CloseRequested，前端 ready 后拦截并让它弹退出确认框
@@ -129,9 +145,14 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::app_cmd::open_external_page,
             commands::app_cmd::mark_window_ready,
             commands::app_cmd::exit_app,
+            commands::boss_key_cmd::set_boss_key,
             commands::window_cmd::enter_mini_screen,
             commands::window_cmd::exit_mini_screen,
             commands::window_cmd::set_always_on_top,
+            commands::window_cmd::enter_portrait_screen,
+            commands::window_cmd::exit_portrait_screen,
+            commands::window_cmd::fit_portrait_screen,
+            commands::window_cmd::set_portrait_full,
             commands::incognito_cmd::set_incognito,
             // 设置
             commands::settings_cmd::get_settings,
@@ -139,6 +160,7 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::settings_cmd::test_proxy,
             // 剧集
             commands::series_cmd::get_series_episodes,
+            commands::series_cmd::get_series_snapshot,
             commands::series_cmd::resolve_series,
             commands::series_cmd::related_series,
             commands::series_cmd::series_meta,
@@ -159,7 +181,6 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             // 云端观看历史
             commands::history_cmd::watch_history_list,
             commands::history_cmd::watch_history_delete,
-            commands::history_cmd::cloud_report_progress,
             // 登录
             commands::login_cmd::login_send_code,
             commands::login_cmd::login_sms_login,
@@ -178,6 +199,8 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::danmaku_cmd::series_review_send,
             commands::danmaku_cmd::comment_replies,
             commands::danmaku_cmd::review_replies,
+            commands::danmaku_cmd::creator_profile,
+            commands::danmaku_cmd::creator_works,
             // 互动（点赞/收藏/发弹幕/回复，2026-10-05/06 抓包端点）
             commands::interact_cmd::danmaku_send,
             commands::interact_cmd::comment_send,
@@ -189,6 +212,20 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::interact_cmd::comment_delete,
             commands::interact_cmd::series_collect,
             commands::interact_cmd::series_collect_batch,
+            // @小果AI 提及（评论区快捷图标）
+            commands::interact_cmd::mention_list,
+            // 追更（开关 / 列表 / 是否已追 / 更新提醒）
+            commands::follow_cmd::follow_update,
+            commands::follow_cmd::follow_updates,
+            commands::follow_cmd::is_following,
+            commands::follow_cmd::follow_notices,
+            commands::follow_cmd::follow_notices_read,
+            commands::follow_cmd::follow_notices_clear,
+            commands::follow_cmd::follow_check_updates,
+            // 观看历史（云端 + 本地离线记录，issue #10）
+            commands::history_cmd::record_watch_history,
+            commands::history_cmd::local_history_list,
+            commands::history_cmd::local_history_delete,
             commands::interact_cmd::interaction_state,
             commands::interact_cmd::bookshelf_list,
             // 下载

@@ -15,6 +15,7 @@ export * from './error';
 export * from './feed';
 export * from './detail';
 export * from './danmaku';
+export * from './follow';
 export * from './interact';
 export * from './rank';
 export * from './search';

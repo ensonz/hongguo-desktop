@@ -13,19 +13,20 @@
 //! 回复行格式对齐 hgplayer（2026-10-10 截图）：`回复 @xxx：` 前缀在
 //! 正文行（@ 浅蓝高亮）、相对时间（N 天前）、头像 32px。
 
-import { useEffect, useMemo, useState } from 'react';
-import { Heart, Loader2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Heart, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
-import { interact } from '@/service/commands';
+import { danmaku, interact } from '@/service/commands';
 import {
   useAccount,
   useCommentDigg,
   useComments,
+  useMentionList,
   useReplyDigg,
   useSendComment,
   useSendReply,
@@ -41,8 +42,35 @@ import { relativeTime } from '@/utils/relative-time';
 import { isImeComposing } from '@/utils/ime';
 import { EmojiText } from '@/components/common/emoji/emoji-text';
 import { ReplySection } from './comment-reply-section';
-import { EmojiSendBox } from '@/components/common/emoji/emoji-send-box';
-import type { CommentItem, ReplyItem } from '@/service/schema';
+import { EmojiSendBox, type EmojiSendBoxHandle } from '@/components/common/emoji/emoji-send-box';
+
+/** aibot_mention_context 带的最近评论条数（官方实包 4–6 条）。 */
+const MENTION_CONTEXT_LIMIT = 6;
+/** @小果AI 回复轮询间隔与放弃时限（官方到达 10–40s，留足余量）。 */
+const AI_REPLY_POLL_MS = 5000;
+const AI_REPLY_WAIT_MS = 120000;
+
+/** 评论正文：`@昵称\uFFFC` 提及前缀（U+FFFC 是提及段占位符）渲染成
+ *  官方同款蓝色 @昵称（AI bot 加渐变 Ai 后缀），其余正文（表情代码等）
+ *  走 EmojiText。 */
+function CommentText({ text, aiName }: { text: string; aiName?: string }) {
+  const mention = /^@([^\s\uFFFC]+)\uFFFC\s*/.exec(text);
+  if (!mention) return <EmojiText text={text} />;
+  return (
+    <>
+      <span className="mr-1 text-sky-400">
+        @{mention[1]}
+        {mention[1] === aiName && (
+          <span className="bg-gradient-to-r from-amber-400 to-pink-500 bg-clip-text font-semibold text-transparent">
+            Ai
+          </span>
+        )}
+      </span>
+      <EmojiText text={text.slice(mention[0].length)} />
+    </>
+  );
+}
+import type { CommentItem, ReplyItem, ReplyPage } from '@/service/schema';
 
 interface Props {
   vid: string;
@@ -73,11 +101,29 @@ export function CommentPanel({ vid, onClose }: Props) {
   const total = data?.pages[0]?.total || comments?.length || 0;
   const send = useSendComment();
   const sendReply = useSendReply();
+  // @ 提及（官方交互，2026-10-15 抓 player 实包）：输入 `@` 触发
+  // relation/list 候选弹层，选中小果插入提及段，发表时走 rich_text
+  // tp=15 + aibot_mention_context（AI bot 会回复剧情介绍）。
+  // ⚠️ vid 是「分集vid:seriesId」组合形态——relation/list 的 target 是
+  // seriesId（后半段）；取错段查出来恒空，@ 候选就是死的。
+  const seriesId = vid.split(':')[1] ?? '';
+  const mentionQ = useMentionList(seriesId);
+  const aibot = mentionQ.data?.find((m) => m.isAiBot) ?? null;
   /** 点赞（缓存写回型乐观更新，hooks 内失败回滚）：评论与回复分走
    *  两个 hook——回复的乐观值要写进所属评论的回复缓存，key 不同 */
   const commentDigg = useCommentDigg(vid);
   const replyDigg = useReplyDigg(vid);
   const [text, setText] = useState('');
+  /** 评论输入框句柄：@ 提及插入要落在浏览器维护的光标上（脚本拼文本
+   *  + 程序化选区会与 Chromium 编辑光标脱节，见 rich-emoji-input） */
+  const sendBoxRef = useRef<EmojiSendBoxHandle | null>(null);
+  /** 最近一次插入的提及对象（uid 供发送；发完/撤销即清） */
+  const [mentionUser, setMentionUser] = useState<{ userId: string; name: string } | null>(null);
+  /** @提及评论的「思考中…」占位（评论 id 列表）：轮询到 AI 回复后撤除 */
+  const [aiPending, setAiPending] = useState<string[]>([]);
+  /** 输入以 `@词` 结尾 = 提及候选弹层开着（官方同款触发：打 @ 即弹；
+   *  \uFFFC 是提及段的结尾占位符，含它说明提及已插入，不再触发） */
+  const mentionOpen = /(^|\s)@([^\s@￼]*)$/.test(text);
   /** 回复输入框展开在哪条评论上（空 = 无） */
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   /** 回复「回复」时被回复对象（二级回复；name 供占位文案，id 供
@@ -120,6 +166,53 @@ export function CommentPanel({ vid, onClose }: Props) {
       .catch((e) => toast.error(String(e)));
   };
 
+  /** @提及评论的 AI 回复轮询：每拍拉一次回复首页，到达即写缓存（去重 +
+   * 计数）并撤占位；超时放弃撤占位（服务端偶尔且回复时不再干等）。面板
+   * 卸载或换集即停。 */
+  useEffect(() => {
+    if (aiPending.length === 0 || !vid.includes(':')) return;
+    const [groupId = '', bookId = ''] = vid.split(':');
+    const startedAt = new Map(aiPending.map((id) => [id, Date.now()]));
+    let cancelled = false;
+    const timer = setInterval(() => {
+      for (const commentId of aiPending) {
+        if (Date.now() - (startedAt.get(commentId) ?? 0) > AI_REPLY_WAIT_MS) {
+          setAiPending((prev) => prev.filter((x) => x !== commentId));
+          continue;
+        }
+        void danmaku
+          .commentReplies(groupId, bookId, commentId, '')
+          .then((page) => {
+            if (cancelled || page.items.length === 0) return;
+            const existing = new Set(
+              (
+                queryClient
+                  .getQueryData<InfiniteData<ReplyPage, string>>(
+                    keys.commentReplies(vid, commentId),
+                  )
+                  ?.pages.flatMap((p) => p.items) ?? []
+              ).map((r) => r.replyId),
+            );
+            const fresh = page.items.filter((r) => !existing.has(r.replyId));
+            for (const reply of fresh) {
+              appendReply(queryClient, keys.commentReplies(vid, commentId), reply);
+            }
+            if (fresh.length > 0) {
+              // 「展开 N 条」计数 +1（回复缓存 total 由 appendReply 自增；
+              // 权威计数随下次重拉对齐服务端）
+              bumpReplyCount(queryClient, keys.comments(vid), commentId, 1);
+              setAiPending((prev) => prev.filter((x) => x !== commentId));
+            }
+          })
+          .catch(() => undefined);
+      }
+    }, AI_REPLY_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [aiPending, vid, queryClient]);
+
   const submit = () => {
     const content = text.trim();
     if (!content || send.isPending) return;
@@ -127,11 +220,32 @@ export function CommentPanel({ vid, onClose }: Props) {
       toast.info(t('player.interact.loginRequired'));
       return;
     }
+    // @ 提及（草稿含提及段占位符 \uFFFC 时按提及评论发送）：text 传剥掉
+    // 提及段后的正文（Rust 侧会重拼 `@名字\uFFFC 正文` + rich_text
+    // tp=15/uri=uid + aibot_mention_context=面板最近评论 id——官方实包
+    // 1539/1616 传的是评论 id 嵌套数组，不是 vid）
+    const withMention = content.includes('\uFFFC') && mentionUser != null;
     send.mutate(
-      { vid, text: content },
       {
-        onSuccess: () => {
+        vid,
+        text: withMention ? content.replace(/@[^\s\uFFFC]*\uFFFC\s*/, '').trim() : content,
+        mentionUserId: withMention ? mentionUser.userId : undefined,
+        contextCommentIds: withMention
+          ? comments.slice(0, MENTION_CONTEXT_LIMIT).map((c) => c.commentId)
+          : undefined,
+      },
+      {
+        onSuccess: (comment) => {
           setText('');
+          setMentionUser(null);
+          // @提及评论：官方同款「思考中…」占位——回复区强制展开并轮询，
+          // AI 回复到达后由轮询写进缓存并撤占位
+          if (withMention) {
+            setAiPending((prev) =>
+              prev.includes(comment.commentId) ? prev : [...prev, comment.commentId],
+            );
+            setReplySectionOpen(comment.commentId, true);
+          }
         },
         onError: (e) => toast.error(String(e)),
       },
@@ -273,7 +387,7 @@ export function CommentPanel({ vid, onClose }: Props) {
                         {c.userName || t('player.comments.anon')}
                       </p>
                       <p className="mt-0.5 text-sm leading-snug break-words whitespace-pre-wrap">
-                        <EmojiText text={c.text} />
+                        <CommentText text={c.text} aiName={aibot?.userName} />
                       </p>
                       <div className="mt-1 flex items-center gap-3 text-[11px] text-neutral-500">
                         <span>{relativeTime(c.createTime)}</span>
@@ -307,6 +421,8 @@ export function CommentPanel({ vid, onClose }: Props) {
                         replyCount={c.replyCount}
                         myUserId={myUserId}
                         open={openReplies.has(c.commentId)}
+                        pendingAi={aiPending.includes(c.commentId)}
+                        aiName={aibot?.userName}
                         onToggle={() =>
                           setReplySectionOpen(c.commentId, !openReplies.has(c.commentId))
                         }
@@ -380,17 +496,84 @@ export function CommentPanel({ vid, onClose }: Props) {
 
       {/* 底部发评论 */}
       <div className="shrink-0 border-t border-white/10 p-3">
-        <EmojiSendBox
-          value={text}
-          onChange={setText}
-          onSubmit={submit}
-          placeholder={t('player.comments.placeholder')}
-          maxLength={200}
-          pending={send.isPending}
-          pickerAlign="right"
-          inputClassName="h-9 min-w-0 flex-1 scrollbar-none overflow-x-auto rounded-md bg-neutral-800/80 px-3 text-sm leading-9 whitespace-pre text-white"
-          sendClassName="h-9 px-4"
-        />
+        {/* @ 候选条（官方交互：输入 @ 触发 relation/list；官方形态是
+            输入行上方的一排大头像候选，AI 头像带橙勾徽标、名字带渐变
+            Ai 后缀）。点击候选用 onMouseDown 防输入框失焦；插入走输入框
+            句柄（浏览器编辑命令），不经 state 重建 DOM——那会脱节编辑
+            光标、吞掉提及段尾随空格 */}
+        {mentionOpen && (
+          <div className="relative">
+            <div className="absolute bottom-2 left-0 z-10 flex w-full scrollbar-none items-center gap-2 overflow-x-auto rounded-lg border border-white/10 bg-neutral-800 p-2 shadow-lg">
+              {mentionQ.isPending ? (
+                <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-white/60">
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  {t('player.comments.mentionLoading')}
+                </div>
+              ) : (mentionQ.data?.length ?? 0) > 0 ? (
+                mentionQ.data!.map((u) => (
+                  <button
+                    key={u.userId}
+                    type="button"
+                    onMouseDown={(e) => {
+                      // 焦点纪律：不让输入框失焦（选完还要继续打字）
+                      e.preventDefault();
+                      setMentionUser({ userId: u.userId, name: u.userName });
+                      sendBoxRef.current?.insertMention(u.userName);
+                    }}
+                    className="flex w-14 shrink-0 flex-col items-center gap-1 rounded-md p-1 transition-colors hover:bg-white/10"
+                  >
+                    <span className="relative">
+                      {u.avatar ? (
+                        <img src={u.avatar} alt="" className="size-11 rounded-full object-cover" />
+                      ) : (
+                        <span className="grid size-11 place-items-center rounded-full bg-neutral-600 text-sm">
+                          {u.userName.slice(0, 1)}
+                        </span>
+                      )}
+                      {u.isAiBot && (
+                        <span className="absolute -right-0.5 -bottom-0.5 grid size-4 place-items-center rounded-full bg-orange-500 text-white ring-2 ring-neutral-800">
+                          <Check className="size-2.5" strokeWidth={3} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex max-w-full items-baseline gap-px text-[11px] leading-tight text-white/90">
+                      <span className="truncate">{u.userName}</span>
+                      {u.isAiBot && (
+                        <span className="bg-gradient-to-r from-amber-400 to-pink-500 bg-clip-text font-semibold text-transparent">
+                          Ai
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-2.5 text-xs text-white/60">
+                  {loggedIn
+                    ? t('player.comments.mentionUnavailable')
+                    : t('player.interact.loginRequired')}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <EmojiSendBox
+              ref={sendBoxRef}
+              value={text}
+              mentionAiName={aibot?.userName}
+              onChange={setText}
+              onSubmit={submit}
+              onEscape={() => setText((prev) => prev.replace(/(^|\s)@[^\s@￼]*$/, '$1'))}
+              placeholder={t('player.comments.placeholder')}
+              maxLength={200}
+              pending={send.isPending}
+              pickerAlign="right"
+              inputClassName="h-9 min-w-0 flex-1 scrollbar-none overflow-x-auto rounded-md bg-neutral-800/80 px-3 text-sm leading-9 whitespace-pre text-white"
+              sendClassName="h-9 px-4"
+            />
+          </div>
+        </div>
       </div>
 
       {/* 删除确认（comment/del service_id=4：评论与回复同款） */}

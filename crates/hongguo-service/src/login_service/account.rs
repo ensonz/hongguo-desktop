@@ -44,6 +44,9 @@ pub fn complete_login(state: &AppState, account: AccountState) -> AppResult<()> 
     *state.login_mfa.write() = None;
     persist_account(state, Some(account))?;
     refresh_profile_after_login(state.clone());
+    // 离线历史补传（issue #10）：登录前攒下的本地观看历史推云端
+    let st = state.clone();
+    crate::runtime::spawn(async move { crate::history_service::upload_pending(&st).await });
     Ok(())
 }
 

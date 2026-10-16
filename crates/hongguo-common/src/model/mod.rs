@@ -3,12 +3,16 @@
 //! 每个文件一个聚合，不把 Series / Task / Settings 混在一个 model.rs 里——
 //! 它们的生命周期与变更频率完全不同，混在一起改任何一个都会碰到另外几个。
 
+pub mod follow;
+pub mod history;
 pub mod merge;
 pub mod playback;
 pub mod series;
 pub mod settings;
 pub mod task;
 
+pub use follow::{FollowNotice, NOTICE_KIND_FOLLOW, NOTICE_KIND_ONLINE};
+pub use history::LocalHistoryItem;
 pub use merge::{MergeCandidate, MergeMode, MergePreflight, MergeStatus, MergeTask};
 pub use playback::{
     PlayRequest, PlayResponse, PlaybackMap, PlaybackPosition, SeriesProgress, VideoDefinition,

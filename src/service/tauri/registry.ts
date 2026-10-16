@@ -19,13 +19,18 @@ import {
   calendarPageSchema,
   commentItemSchema,
   commentPageSchema,
+  creatorProfileSchema,
+  creatorWorksPageSchema,
   danmakuSchema,
   decodeCapabilitySchema,
   downloadTaskSchema,
   feedPageSchema,
   feedTabSchema,
+  followNoticeSchema,
+  followUpdatePageSchema,
   hevcInstallResultSchema,
   interactionStateSchema,
+  mentionUserSchema,
   loginResultSchema,
   mergeCandidateSchema,
   mergePreflightSchema,
@@ -36,6 +41,7 @@ import {
   proxyConfigSchema,
   proxyTestResultSchema,
   queueStatusSchema,
+  localHistoryItemSchema,
   rankPageSchema,
   relatedSeriesSchema,
   replyItemSchema,
@@ -73,6 +79,16 @@ export const COMMANDS = {
   enter_mini_screen: { args: noArgs, response: voidResp },
   exit_mini_screen: { args: noArgs, response: voidResp },
   set_always_on_top: { args: z.object({ enabled: z.boolean() }), response: voidResp },
+  enter_portrait_screen: { args: z.object({ aspect: z.number() }), response: voidResp },
+  exit_portrait_screen: { args: noArgs, response: voidResp },
+  fit_portrait_screen: {
+    args: z.object({ aspect: z.number(), full: z.boolean() }),
+    response: voidResp,
+  },
+  set_portrait_full: {
+    args: z.object({ aspect: z.number(), full: z.boolean() }),
+    response: voidResp,
+  },
   set_incognito: { args: z.object({ enabled: z.boolean() }), response: voidResp },
   /** 关闭拦截就位（app-shell 监听挂上后调用，后端才开始拦 CloseRequested） */
   mark_window_ready: { args: noArgs, response: voidResp },
@@ -137,6 +153,14 @@ export const COMMANDS = {
     args: z.object({ seriesId: z.string(), cursor: z.string().optional() }),
     response: seriesReviewPageSchema,
   },
+  creator_profile: {
+    args: z.object({ userId: z.string() }),
+    response: creatorProfileSchema,
+  },
+  creator_works: {
+    args: z.object({ userId: z.string(), cursor: z.string().optional() }),
+    response: creatorWorksPageSchema,
+  },
   series_review_send: {
     args: z.object({ seriesId: z.string(), text: z.string(), score: z.number() }),
     response: commentItemSchema,
@@ -192,8 +216,20 @@ export const COMMANDS = {
     response: z.string(),
   },
   comment_send: {
-    args: z.object({ groupId: z.string(), bookId: z.string(), text: z.string() }),
+    args: z.object({
+      groupId: z.string(),
+      bookId: z.string(),
+      text: z.string(),
+      // @小果AI 提及评论（可选；两字段同时在场才生效，contextCommentIds
+      // 进 aibot_mention_context——官方传最近评论 id）
+      mentionUserId: z.string().optional(),
+      contextCommentIds: z.array(z.string()).optional(),
+    }),
     response: commentItemSchema,
+  },
+  mention_list: {
+    args: z.object({ seriesId: z.string() }),
+    response: mentionUserSchema.array(),
   },
   comment_reply: {
     args: z.object({
@@ -240,6 +276,24 @@ export const COMMANDS = {
   },
   interaction_state: { args: noArgs, response: interactionStateSchema },
   bookshelf_list: { args: noArgs, response: bookshelfEntrySchema.array() },
+
+  // ---- 追更 ---------------------------------------------------------
+  follow_update: {
+    args: z.object({ seriesId: z.string(), follow: z.boolean() }),
+    response: voidResp,
+  },
+  follow_updates: {
+    args: z.object({ cursor: z.string() }),
+    response: followUpdatePageSchema,
+  },
+  is_following: { args: z.object({ seriesId: z.string() }), response: z.boolean() },
+  follow_notices: { args: noArgs, response: followNoticeSchema.array() },
+  follow_notices_read: {
+    args: z.object({ ids: z.array(z.number()) }),
+    response: z.number(),
+  },
+  follow_notices_clear: { args: noArgs, response: voidResp },
+  follow_check_updates: { args: noArgs, response: z.number() },
 
   // ---- 登录 ---------------------------------------------------------
   login_send_code: {
@@ -346,6 +400,7 @@ export const COMMANDS = {
 
   // ---- 剧集 ---------------------------------------------------------
   get_series_episodes: { args: z.object({ seriesId: z.string() }), response: seriesSchema },
+  get_series_snapshot: { args: z.object({ seriesId: z.string() }), response: seriesSchema },
   resolve_series: { args: z.object({ input: z.string() }), response: seriesSchema },
   related_series: { args: z.object({ seriesId: z.string() }), response: relatedSeriesSchema },
   series_meta: { args: z.object({ seriesId: z.string() }), response: seriesMetaSchema },
@@ -378,13 +433,23 @@ export const COMMANDS = {
     args: z.object({ offset: z.number() }),
     response: watchHistoryPageSchema,
   },
-  cloud_report_progress: {
+  // 记录观看历史（本地必记 + 登录态顺路上报云端，issue #10）
+  record_watch_history: {
     args: z.object({
       seriesId: z.string(),
       vid: z.string(),
       vidIndex: z.number(),
       positionMs: z.number(),
+      durationMs: z.number(),
+      title: z.string(),
+      cover: z.string(),
+      episodeCnt: z.number(),
     }),
+    response: voidResp,
+  },
+  local_history_list: { args: noArgs, response: z.array(localHistoryItemSchema) },
+  local_history_delete: {
+    args: z.object({ seriesIds: z.array(z.string()) }),
     response: voidResp,
   },
   watch_history_delete: {

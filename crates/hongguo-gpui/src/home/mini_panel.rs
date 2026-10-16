@@ -235,8 +235,6 @@ impl super::HomeView {
                 // 触发钮卸载自毁），这里清的是常显记账位
                 self.comments_panel_open = false;
                 self.dm_panel_open = false;
-                self.dm_hovered = false;
-                self.dm_panel_hovered = false;
                 self.downloads_open = false;
                 self.picker_open = false;
                 self.picker_group_override = None;

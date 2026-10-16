@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::v_flex;
-use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::*;
 use gpui_kit::{ElementId, ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_api::detail::{RelatedItem, fetch_related_series};
@@ -56,9 +56,10 @@ impl DetailView {
                     .gap_3()
                     .child(Self::section_title("相关作品·系列"))
                     .child(
-                        h_flex().flex_wrap().gap_3().children(
-                            related.works.iter().map(|item| self.related_card(item, cx)),
-                        ),
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .children(related.works.iter().map(|item| self.related_card(item, cx))),
                     )
             }))
             .children((!related.guess.is_empty()).then(|| {
@@ -66,18 +67,21 @@ impl DetailView {
                     .gap_3()
                     .child(Self::section_title("猜你喜欢"))
                     .child(
-                        h_flex().flex_wrap().gap_3().children(
-                            related.guess.iter().map(|item| self.related_card(item, cx)),
-                        ),
+                        h_flex()
+                            .flex_wrap()
+                            .gap_3()
+                            .children(related.guess.iter().map(|item| self.related_card(item, cx))),
                     )
             }))
-            .children((related.works.is_empty() && related.guess.is_empty()).then(|| {
-                div()
-                    .py_6()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("暂无相关推荐")
-            }))
+            .children(
+                (related.works.is_empty() && related.guess.is_empty()).then(|| {
+                    div()
+                        .py_6()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("暂无相关推荐")
+                }),
+            )
             .into_any_element()
     }
 
@@ -101,7 +105,10 @@ impl DetailView {
             stats.push(format!("{}次播放", Self::fmt_count(item.play_cnt)));
         }
         div()
-            .id(ElementId::from(format!("detail-related-{}", item.series_id)))
+            .id(ElementId::from(format!(
+                "detail-related-{}",
+                item.series_id
+            )))
             .w(gpui_kit::px(116.0))
             .cursor_pointer()
             .on_click({
