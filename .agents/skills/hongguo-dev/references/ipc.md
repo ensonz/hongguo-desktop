@@ -67,13 +67,14 @@ export const storage = {
 
 ## 三、事件推送
 
-**service 侧（唯一发布点，无任何 UI/事件机制）**：业务事件是闭集强类型枚举 `hongguo_service::events::ServiceEvent`（13 个变体：下载 6 / 合并 4 / 在线取流 / 兼容转码 / 登录 MFA），经 `AppState` 的 broadcast 总线发布（容量 1024，订阅者滞后丢旧记日志）。**service 不持有 `AppHandle`，命令层也不发业务事件**。
+**service 侧（唯一发布点，无任何 UI/事件机制）**：业务事件是闭集强类型枚举 `hongguo_service::events::ServiceEvent`（14 个变体：下载 6 / 合并 4 / 在线取流 / 兼容转码 / 登录 MFA / 追更提醒），经 `AppState` 的 broadcast 总线发布（容量 1024，订阅者滞后丢旧记日志）。**service 不持有 `AppHandle`，命令层也不发业务事件**。
 
 **壳侧转发**（`crates/hongguo-tauri/src/events.rs`）：bootstrap 阶段订阅一次，`forward` 把每个变体映射成**原名原载荷**的 `app.emit`（`let _ =` 忽略失败，前端不在场发不出去无害）。
 
 ```rust
 // 事件名常量在各域 events 模块：下载/合并/在线/兼容集中在
-// download_service::events::names，登录在 login_service::events::LOGIN_MFA_STATE
+// download_service::events::names，登录在 login_service::events::LOGIN_MFA_STATE，
+// 追更在 follow_service::events::FOLLOW_NOTICES
 pub mod names {
     pub const DOWNLOAD_PROGRESS: &str = "download-progress";
     // ...
