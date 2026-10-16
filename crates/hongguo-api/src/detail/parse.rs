@@ -432,7 +432,10 @@ mod tests {
         assert_eq!(m.tags, vec!["玄幻", "逆袭"], "data_type=3 才是题材标签");
         assert_eq!(m.record_number, "（番茄）网微剧备字（2026）第847205号");
         assert_eq!(m.intro, "穿越者落地成盒，重启人生第二回合。");
-        assert_eq!(m.update_tag, "更新至45集", "统计行原文取 episode_right_text");
+        assert_eq!(
+            m.update_tag, "更新至45集",
+            "统计行原文取 episode_right_text"
+        );
         assert_eq!(m.series_status, 0, "连载剧");
         assert_eq!(m.update_frequency, "每周六更新5集");
         assert_eq!(m.episode_total_cnt, 80);

@@ -260,17 +260,13 @@ impl SettingsView {
             },
         )
         .detach();
-        cx.subscribe_in(
-            &prefetch,
-            window,
-            |this, _, event: &SliderEvent, _, cx| {
-                let SliderEvent::Change(value) = event else {
-                    return;
-                };
-                let n = value.start().round().clamp(0.0, 3.0) as u32;
-                this.patch(cx, |s| s.prefetch_episodes = n);
-            },
-        )
+        cx.subscribe_in(&prefetch, window, |this, _, event: &SliderEvent, _, cx| {
+            let SliderEvent::Change(value) = event else {
+                return;
+            };
+            let n = value.start().round().clamp(0.0, 3.0) as u32;
+            this.patch(cx, |s| s.prefetch_episodes = n);
+        })
         .detach();
         Self {
             state,
