@@ -11,6 +11,7 @@ import { ChromeSurface } from './chrome-surface';
 import { CompatOverlay } from './compat-overlay';
 import { CoverBackdrop } from './cover-backdrop';
 import { ErrorBar } from './error-bar';
+import { FrameHold } from './frame-hold';
 import { HevcInstallCard } from './hevc-install-card';
 import { ImmersiveInfoOverlay } from './immersive-info-overlay';
 import { KeyboardHint } from './keyboard-hint';
@@ -38,6 +39,7 @@ import type { FailureCounts } from '../hooks/recovery-policy';
 import { hevcSession } from '../hooks/hevc-session';
 import { usePlaybackSource } from '../hooks/use-playback-source';
 import { useTranscodeFallback } from '../hooks/use-transcode-fallback';
+import { useFrameHold } from '../hooks/use-frame-hold';
 import { usePlaybackProgress } from '../hooks/use-playback-progress';
 import { useDanmakuSettings } from '../hooks/use-danmaku-settings';
 import { useBingeRelay } from '../hooks/use-binge-relay';
@@ -309,6 +311,26 @@ export function PlayerView({
   /** waiting 后时间轴恢复推进（timeupdate）或重新出画即视为不卡 */
   const videoStalled = stalled.key === streamKey && stalled.on;
 
+  // 同剧切集的末帧定格：取流窗口旧画面继续播、流交换后定格帧顶住，直到
+  // 新集首帧出画——封面只留给切剧接管与初次起播。显隐真值表与抓帧时机
+  // 在 use-frame-hold（同文件名的 test 是观感回归锁）。
+  const {
+    frame: heldFrame,
+    holdVisible,
+    coverHidden: holdCoverHidden,
+    capture: captureFrame,
+  } = useFrameHold({
+    videoRef,
+    seriesId,
+    episodeKey,
+    videoLive,
+    switching,
+    streamKey,
+    playSrc,
+    error,
+    compatActive: compat != null,
+  });
+
   // ---- 舞台交互三套裁决（滚轮/点击/键盘）抽在 use-player-interactions：
   //      沉浸流=换剧、选定剧/连播=切集的语义与 400ms 滚轮冷却都在那边
   const { onStageWheel, onStageClick } = usePlayerInteractions({
@@ -459,11 +481,11 @@ export function PlayerView({
     );
   }
 
-  // 封面占位：盖在 <video> 之上（z-[5] 压过视频、让位弹幕 z-10），首帧出画
-  // （playing）后交叉淡出。取流/解码的间隙里用户看到的是这部剧的封面而不是
-  // 黑屏——「滚动切剧卡顿」的观感大头在这。取流中（!playSrc）同样垫着。
+  // 封面占位：盖在 <video> 之上（z-[5] 压过视频、让位弹幕 z-10）。只属于
+  // 切剧接管与画面真空（初次起播/出错）：同剧切集的间隙由定格帧接棒，
+  // 显隐真值在 use-frame-hold 的 overlayVisibility——切集不再每次闪封面。
   const coverBackdrop = coverUrl ? (
-    <CoverBackdrop key={coverUrl} src={coverUrl} hidden={videoLive && !switching} />
+    <CoverBackdrop key={coverUrl} src={coverUrl} hidden={holdCoverHidden} />
   ) : null;
 
   return (
@@ -747,7 +769,11 @@ export function PlayerView({
                     onToggleIncognito={incognito.toggle}
                     definition={activeDefinition}
                     definitions={definitions}
-                    onDefinitionChange={setDefinition}
+                    onDefinitionChange={(d) => {
+                      // 换档同样换流换元素：先定格当前帧，档位间隙不再闪封面
+                      captureFrame();
+                      setDefinition(d);
+                    }}
                     src={playSrc}
                     danmakuOn={danmakuOn}
                     onToggleDanmaku={toggleDanmaku}
@@ -799,6 +825,9 @@ export function PlayerView({
               </>
             )}
           </div>
+          {/* 末帧定格层：渲染在切换动画容器外（定格帧是静止参考帧，不跟
+              新内容滑入），同剧切集的流交换间隙由它顶住直到新集首帧出画 */}
+          {heldFrame && <FrameHold frame={heldFrame} hidden={!holdVisible} cover={miniScreen} />}
         </div>
 
         <ErrorBar chromeShown={chromeShown} error={error} />
