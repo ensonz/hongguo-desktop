@@ -17,34 +17,47 @@ use crate::params::interaction::{
 };
 use hongguo_common::{AppError, AppResult};
 
-/// 评论区请求体（与弹幕同端点不同形态）。
+/// 播放页评论面板请求体。
 ///
-/// 2026-10-06 抓 hgplayer 1.1.5 重锁：评论区形态与弹幕形态在服务端是
-/// **两套校验**——沿用 1.1.3 的弹幕形 business_param + server_channel=1000
-/// 会被拒（实测 103001 参数错误）；评论必须用 `need_count/req_type` +
-/// `server_channel=18`，且 `need_count: true` 让响应带上评论总数
-/// （`common_list_info.total`，互动栏评论计数的数据源）。
+/// 2026-10-16 官方实包重锁（flows-official-follow.jsonl:3308，播放页
+/// ShortSeriesActivity 面板实测）：面板是**单集维度**——`group_id=vid`、
+/// `group_type=30`、`server_channel=18`、`comment_source=4`、`count=10`、
+/// `business_param.sort="video_innerflow"`；`need_count` 仅首屏 true
+/// （total 回传本集评论总数，互动栏角标同源），翻页置 false 并回传
+/// 响应下发的会话游标。剧集维度（group=series / channel=27）是沉浸流
+/// 信息流面板的另一条流，只有流内评论（本集评论不在其中），勿混用。
 pub(super) fn comments_payload(group_id: &str, book_id: &str, cursor: &str) -> Value {
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "aid": 8662,
         "business_param": {
             "book_id": book_id,
-            "need_count": true,
+            "need_count": cursor.is_empty(),
             "req_type": 0,
+            "sort": "video_innerflow",
+            "start_offset_time": 0,
+            "playlet_consume_duration_ms": 0,
+            "playlet_item_consume_duration_ms": 0,
+            "outflow_comment_count": 0,
+            "is_last_episode": false,
         },
         "comment_source": LIST_SOURCE_COMMENT,
         "comment_type": COMMENT_TYPE_COMMENT,
         "compliance_status": 0,
-        "count": 20,
-        "cursor": cursor,
+        "count": 10,
         "group_id": group_id,
         "group_type": GROUP_TYPE_COMMENT,
         "server_channel": SERVER_CHANNEL_COMMENT,
         "sort": 1,
-    })
+    });
+    // 首屏不带 cursor 键（官方同款），翻页才回传响应下发的游标原样串
+    if !cursor.is_empty() {
+        payload["cursor"] = Value::String(cursor.to_string());
+    }
+    payload
 }
 
-/// 拉评论区的一页（cursor 传上一页返回的 next_cursor，首页传空）。
+/// 拉播放页评论区的一页（`group_id`=vid、`book_id`=series_id；cursor 传
+/// 上一页返回的游标，首页传空）。
 pub async fn fetch_comments_page(
     group_id: &str,
     book_id: &str,
@@ -405,8 +418,8 @@ pub(super) fn review_replies_payload(series_id: &str, comment_id: &str, cursor: 
     payload
 }
 
-/// 拉一条**单集评论**的回复列表一页（`cursor` 传上一页返回的
-/// `next_cursor`，首页传空）。
+/// 拉一条**单集评论**的回复列表一页（`group_id`=vid、`book_id`=series_id；
+/// `cursor` 传上一页返回的 `next_cursor`，首页传空）。
 pub async fn fetch_comment_replies(
     group_id: &str,
     book_id: &str,
@@ -716,10 +729,19 @@ mod profile_probe {
         let uid = std::env::var("PROBE_UID").unwrap_or_else(|_| "463328455691016".into());
 
         let profile = fetch_creator_profile(&uid, &env).await.expect("profile");
-        println!("[profile] {} avatar={}", profile.user_name, !profile.avatar.is_empty());
+        println!(
+            "[profile] {} avatar={}",
+            profile.user_name,
+            !profile.avatar.is_empty()
+        );
 
         let page = fetch_creator_works(&uid, "", &env).await.expect("works");
-        println!("[works] total={} has_more={} cursor_len={}", page.total, page.has_more, page.cursor.len());
+        println!(
+            "[works] total={} has_more={} cursor_len={}",
+            page.total,
+            page.has_more,
+            page.cursor.len()
+        );
         for w in &page.works {
             println!(
                 "  《{}》{}集 播放{} tags={:?} sid={}",
@@ -727,7 +749,9 @@ mod profile_probe {
             );
         }
         if page.has_more && !page.cursor.is_empty() {
-            let next = fetch_creator_works(&uid, &page.cursor, &env).await.expect("works#2");
+            let next = fetch_creator_works(&uid, &page.cursor, &env)
+                .await
+                .expect("works#2");
             println!("[works#2] {} 条", next.works.len());
         }
     }

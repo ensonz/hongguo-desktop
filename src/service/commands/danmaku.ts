@@ -4,12 +4,15 @@ import { call } from '../tauri/invoke';
 
 export const danmaku = {
   list: (groupId: string, bookId: string) => call('danmaku_list', { groupId: groupId, bookId }),
-  /** 评论区（ct=4/src=4 形态；一窗 20 条，cursor 翻页，返回列表+总数）。 */
+  /**
+   * 播放页评论区（单集维度流：group=vid/group_type=30/channel=18/
+   * sort=video_innerflow，2026-10-16 官方实包形态）。一窗 10 条，
+   * cursor 翻页，返回列表+总数（total 与互动栏角标同源）。 */
   comments: (groupId: string, bookId: string, cursor = '') =>
     call('comment_list', { groupId, bookId, cursor: cursor || undefined }),
   /**
-   * 一条单集评论的回复列表（reply/list 独立端点，评论维度 src=504/ch=18，
-   * 2026-10-10 抓 hgplayer 1.1.8 锁定）。cursor 翻页（数字串原样回传）。
+   * 一条单集评论的回复列表（回复流同单集维度 src=504/ch=18；2026-10-16
+   * 官方实包）。cursor 翻页（原样回传）。
    */
   commentReplies: (groupId: string, bookId: string, commentId: string, cursor = '') =>
     call('comment_replies', { groupId, bookId, commentId, cursor: cursor || undefined }),

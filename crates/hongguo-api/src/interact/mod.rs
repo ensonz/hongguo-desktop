@@ -97,8 +97,8 @@ pub async fn send_danmaku(
     .comment_id)
 }
 
-/// 发评论（`data_type=4`，offset 恒 0）。返回**服务端回显的完整评论对象**
-/// （comment/add 响应的 comment_info 与列表条目同构，2026-10-10 抓包
+/// 发一条评论（`data_type=4`，offset 恒 0）。返回**服务端回显的完整评论
+/// 对象**（comment/add 响应的 comment_info 与列表条目同构，2026-10-10 抓包
 /// 实锤：头像/昵称/uid/时间全带）——前端直接插入列表，别手拼条目
 /// （手拼缺 userId 删除按钮出不来，缺头像昵称样式和服务端条目两样）。
 pub async fn send_comment(
@@ -121,30 +121,43 @@ pub async fn send_comment(
     .await
 }
 
-/// 发一条 **@小果AI** 的评论（2026-10-15 抓 player 登录态实包锁定）。
+/// 发一条 **@小果AI** 的提及评论（2026-10-15/16 官方实包锁定）。
 ///
-/// ⚠️ 提及评论是**剧级**形态（与单集评论不同流）：`group_id=series_id`、
-/// `group_type=1`（实包原样；发成分集流服务端降级提及，AI 不回复）。
+/// 形态与普通评论同流（播放页面板 = 单集流：`group_id=vid`、
+/// `group_type=30`；官方单集流里的提及评论活体见
+/// flows-official-follow.jsonl:3314——comment 7681486101919679268
+/// `group_id=vid`、带 tp=15 text_exts、AI 回复 reply_count=3）。
 /// `text` 为用户正文（可空），最终请求 text 前置 `@小果\u{FFFC}`，
-/// rich_text 段 tp=15/uri=小果 uid，business_param 另带
-/// aibot_mention_context（最近观看剧集 vid，嵌套数组 JSON 串）。
+/// rich_text 段 tp=15/uri=小果 uid（有正文时段文本含尾随空格、e=5，
+/// 实包 1616 原样），business_param 另带 aibot_mention_context
+/// （**最近评论 id** 的嵌套数组 JSON 串——实包里是评论 id 不是 vid）。
 /// 返回完整评论回显。
 pub async fn send_comment_mention(
+    group_id: &str,
     book_id: &str,
     mention: &CommentMention,
     text: &str,
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
-    let final_text = if text.trim().is_empty() {
-        MENTION_TEXT.to_string()
+    let body = text.trim();
+    let (final_text, segment_text, segment_end) = if body.is_empty() {
+        (
+            MENTION_TEXT.to_string(),
+            MENTION_TEXT.to_string(),
+            MENTION_TEXT_UNITS,
+        )
     } else {
-        format!("{MENTION_TEXT} {}", text.trim())
+        (
+            format!("{MENTION_TEXT} {body}"),
+            format!("{MENTION_TEXT} "),
+            MENTION_TEXT_UNITS + 1,
+        )
     };
     let ctx = serde_json::to_string(
         &mention
-            .vids
+            .comment_ids
             .iter()
-            .map(|v| serde_json::json!([v]))
+            .map(|id| serde_json::json!([id]))
             .collect::<Vec<_>>(),
     )
     .unwrap_or_default();
@@ -152,16 +165,16 @@ pub async fn send_comment_mention(
         "aid": 8662,
         "commit_source": COMMIT_SOURCE_COMMENT,
         "data_type": DATA_TYPE_COMMENT,
-        // 剧级形态（实包）：group_id 是 series_id，group_type=1
-        "group_id": book_id,
-        "group_type": GROUP_TYPE_REVIEW,
+        // 与面板同流：group_id 是分集 vid，group_type=30
+        "group_id": group_id,
+        "group_type": GROUP_TYPE_COMMENT,
         "text": final_text,
         "rich_text": [{
             "s": 0,
-            "e": MENTION_TEXT_UNITS,
+            "e": segment_end,
             "tp": 15,
             "uri": mention.user_id,
-            "text": MENTION_TEXT,
+            "text": segment_text,
         }],
         "business_param": {
             "ignore_urge_rule": false,
@@ -666,13 +679,13 @@ pub async fn fetch_mention_list(series_id: &str, env: &ApiEnv) -> AppResult<Vec<
     Ok(items)
 }
 
-/// AI 提及的草稿：@ 小果AI 的 uid 与 AI 上下文剧集（官方
-/// aibot_mention_context = 最近观看剧集 vid 的嵌套数组）。
+/// AI 提及的草稿：@ 小果AI 的 uid 与 AI 上下文评论（官方
+/// aibot_mention_context = 最近评论 id 的嵌套数组，实包 1539/1616）。
 pub struct CommentMention {
     /// AI bot uid（relation/list 的 is_ai_bot 条目）
     pub user_id: String,
-    /// AI 上下文剧集 vid（当前播放集优先）
-    pub vids: Vec<String>,
+    /// AI 上下文评论 id（面板最近评论优先）
+    pub comment_ids: Vec<String>,
 }
 
 /// 提及评论的文本常量：官方形态 text/段文本均为 `@小果\u{FFFC}`
@@ -1135,7 +1148,7 @@ mod probe {
 
         let ccid = send_comment(vid, series, "probe 评论", &env)
             .await
-            .expect("发评论（1.1.5 新形态）");
+            .expect("发评论（播放页单集流形态）");
         println!("[interact] comment comment_id={}", ccid.comment_id);
 
         let reply = send_reply(vid, series, &ccid.comment_id, None, "probe 回复", &env)

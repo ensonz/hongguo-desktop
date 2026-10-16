@@ -371,6 +371,13 @@ export function PlayerView({
     // 元素本身确实存在（ended 只能由它自己触发），但不写检查就只能写 `!`。
     const video = videoRef.current;
     if (!seriesId || !vidIndex || !video) return;
+    // 评论面板开着 = 用户在读评论/等 AI 回复：本集播完**循环重播本集**，
+    // 不自动连播切集、不落「看完」进度（官方同款；关面板恢复连播）
+    if (commentPanelOpen) {
+      video.currentTime = 0;
+      void video.play();
+      return;
+    }
     persist(video.currentTime, true);
     // 看完自动删：先清掉刚看完这集的本地文件，再决定连播下一集。
     // 没下载过的集本来就没有文件，后端返回 false，不提示。

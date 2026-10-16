@@ -83,8 +83,10 @@ export function useSendDanmaku() {
 }
 
 /**
- * 一集的评论区（无限翻页：第一页秒回，面板底部「加载更多」续拉；
- * total 取自第一页的 need_count 回传，失败时报错由面板显示不打断播放）。
+ * 播放页评论区（单集维度流：group=vid/group_type=30/channel=18/
+ * sort=video_innerflow，2026-10-16 官方实包——面板整页与互动栏角标
+ * 同源；剧集维度 channel=27 是沉浸流信息流面板的另一条流，只有流内
+ * 评论）。无限翻页，面板底部「加载更多」续拉。
  */
 export function useComments(vid: string) {
   const { groupId, bookId } = parseVid(vid);
@@ -109,12 +111,12 @@ export function useSendComment() {
       vid: string;
       text: string;
       mentionUserId?: string;
-      aibotVids?: string[];
+      contextCommentIds?: string[];
     }) => {
       const { groupId, bookId } = parseVid(input.vid);
       return interactCmd.sendComment(groupId, bookId, input.text, {
         userId: input.mentionUserId ?? '',
-        aibotVids: input.aibotVids ?? [],
+        contextCommentIds: input.contextCommentIds ?? [],
       });
     },
     onSuccess: (comment, input) => {
@@ -168,8 +170,8 @@ export function useSendReply() {
 }
 
 /**
- * 一条单集评论的回复列表（按需拉取：`enabled` 传「是否展开」）。
- * 一页 10 条，面板内「展开更多回复」续拉（cursor 数字串原样回传）。
+ * 一条评论的回复列表（回复流同单集维度：group=vid/group_type=30；
+ * 按需拉取：`enabled` 传「是否展开」）。面板内「展开更多回复」续拉。
  */
 export function useCommentReplies(vid: string, commentId: string, enabled: boolean) {
   const { groupId, bookId } = parseVid(vid);

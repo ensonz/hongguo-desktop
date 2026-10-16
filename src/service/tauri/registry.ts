@@ -219,9 +219,10 @@ export const COMMANDS = {
       groupId: z.string(),
       bookId: z.string(),
       text: z.string(),
-      // @小果AI 提及评论（可选；两字段同时在场才生效）
+      // @小果AI 提及评论（可选；两字段同时在场才生效，contextCommentIds
+      // 进 aibot_mention_context——官方传最近评论 id）
       mentionUserId: z.string().optional(),
-      aibotVids: z.array(z.string()).optional(),
+      contextCommentIds: z.array(z.string()).optional(),
     }),
     response: commentItemSchema,
   },

@@ -92,11 +92,14 @@ interface RowActions {
 }
 
 /** 一条回复行：头像 / 昵称 / 表情文本 / 时间 / ♡（回复点赞与评论点赞同形态，
- *  object_id 传 reply_id）。自己的回复（userId 对上登录 uid）带删除入口。 */
+ *  object_id 传 reply_id）。自己的回复（userId 对上登录 uid）带删除入口。
+ *  `aiName` 对上回复作者时：名字带官方同款渐变 Ai 后缀 + 「内容由AI生成」
+ *  标记（@小果AI 回复的官方样式）。 */
 function ReplyRow({
   reply,
   myUserId,
   variant,
+  aiName,
   onDigg,
   onReplyTo,
   onDelete,
@@ -104,11 +107,13 @@ function ReplyRow({
   reply: ReplyItem;
   myUserId: string;
   variant: ReplyThreadVariant;
+  aiName?: string;
 } & RowActions) {
   const skin = SKIN[variant];
   const isLiked = reply.userDigg;
   const count = reply.diggCount;
   const isMine = !!myUserId && reply.userId === myUserId;
+  const isAi = !!aiName && reply.userName === aiName;
   return (
     <div className="flex gap-2">
       {variant === 'page' ? (
@@ -127,7 +132,15 @@ function ReplyRow({
         <div className={skin.avatarFallback}>{(reply.userName || '友').slice(0, 1)}</div>
       )}
       <div className="min-w-0 flex-1">
-        <p className={skin.name}>{reply.userName || t(skin.keys.anon)}</p>
+        <p className={skin.name}>
+          {reply.userName || t(skin.keys.anon)}
+          {isAi && (
+            <span className="bg-gradient-to-r from-amber-400 to-pink-500 bg-clip-text font-semibold text-transparent">
+              {' '}
+              Ai
+            </span>
+          )}
+        </p>
         <p className="mt-0.5 text-xs leading-snug break-words whitespace-pre-wrap">
           {reply.replyToName && (
             <span className={skin.replyToPrefix}>
@@ -144,6 +157,7 @@ function ReplyRow({
         </p>
         <div className={skin.meta}>
           <span>{relativeTime(reply.createTime)}</span>
+          {isAi && <span>{t('player.comments.aiGenerated')}</span>}
           <button type="button" onClick={() => onReplyTo(reply)} className={skin.actionBtn}>
             {t(skin.keys.reply)}
           </button>
@@ -186,6 +200,8 @@ export function ReplyThread({
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
+  pendingAi = false,
+  aiName,
   onDigg,
   onReplyTo,
   onDeleteReply,
@@ -202,29 +218,42 @@ export function ReplyThread({
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
+  /** @小果AI 提及评论的「思考中…」占位：发送成功即显示，回复到达后由
+   *  调用方撤除。占位期无回复也强制展开线程（官方同款）。 */
+  pendingAi?: boolean;
+  /** AI bot 用户名：回复作者对上时带渐变 Ai 后缀 + AI 生成标记 */
+  aiName?: string;
   onDigg: (id: string, digg: boolean) => void;
   onReplyTo: (reply: ReplyItem) => void;
   onDeleteReply: (reply: ReplyItem) => void;
 }) {
-  if (replyCount <= 0) return null;
+  if (replyCount <= 0 && !pendingAi) return null;
   const skin = SKIN[variant];
   return (
     <div className={variant === 'player' ? 'mt-1' : 'mt-1.5'}>
-      <button type="button" onClick={onToggle} className={skin.toggle}>
-        {open ? (
-          <>
-            {t(skin.keys.collapseReplies)}
-            <ChevronDown className="size-3 rotate-180" />
-          </>
-        ) : (
-          <>
-            {tf(skin.keys.expandReplies, { n: replyCount })}
-            <ChevronDown className="size-3" />
-          </>
-        )}
-      </button>
-      {open && (
+      {replyCount > 0 && (
+        <button type="button" onClick={onToggle} className={skin.toggle}>
+          {open ? (
+            <>
+              {t(skin.keys.collapseReplies)}
+              <ChevronDown className="size-3 rotate-180" />
+            </>
+          ) : (
+            <>
+              {tf(skin.keys.expandReplies, { n: replyCount })}
+              <ChevronDown className="size-3" />
+            </>
+          )}
+        </button>
+      )}
+      {(open || pendingAi) && (
         <div className={skin.thread}>
+          {pendingAi && (
+            <div className={cn(skin.pending, 'flex items-center gap-2 py-1 text-xs')}>
+              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              <span>{t('player.comments.aiThinking')}</span>
+            </div>
+          )}
           {isPending && (
             <div className={skin.pending}>
               <Loader2 className="size-3.5 animate-spin" />
@@ -241,6 +270,7 @@ export function ReplyThread({
               reply={r}
               myUserId={myUserId}
               variant={variant}
+              aiName={aiName}
               onDigg={onDigg}
               onReplyTo={onReplyTo}
               onDelete={onDeleteReply}
