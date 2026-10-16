@@ -1,7 +1,6 @@
 //! 播放编排：起播链（档案 → 起点决策 → prepare → 引擎 open）、滚轮/连播
 //! 切换、切清晰度、自动连播、进度落盘与流/档案预取。
 
-#[cfg(target_os = "windows")]
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};

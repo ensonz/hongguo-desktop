@@ -4,7 +4,8 @@
 use std::rc::Rc;
 use std::sync::Arc;
 #[cfg(target_os = "windows")]
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
