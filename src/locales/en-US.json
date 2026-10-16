@@ -524,7 +524,8 @@
     "filter": {
       "title": "Filters",
       "reset": "Clear filter",
-      "all": "Overall"
+      "all": "Overall",
+      "month": "Monthly"
     },
     "loadFailed": "Failed to load ranking",
     "empty": "Nothing in this list yet",

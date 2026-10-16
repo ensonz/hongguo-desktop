@@ -12,7 +12,9 @@ pub struct RankItem {
     pub cover: String,
     #[serde(default)]
     pub vid: String,
-    /// 榜单名次（recommend_info.rank，从 1 起）
+    /// 服务端是否给了名次的标记（recommend_info.rank 原值，0=无如预约榜）。
+    /// ⚠️ 它是页内位次、可重复，不能当全局名次用——连续名次由前端按
+    /// 拼接序号重排（2026-10-17 解包实锤）
     pub rank: u32,
     /// "玄幻·全200集" 形态的副标题
     #[serde(default)]
@@ -75,6 +77,11 @@ pub struct RankSubList {
     #[serde(default)]
     pub description: String,
     pub panel: Vec<RankPanelRow>,
+    /// 榜单历史（月榜）选项行（background_selector.inner_rows：综合行
+    /// date_all=总榜 + 年份行 date_YYYYMM；2026-10-17 抓包：必看/收藏/
+    /// 臻果等月榜型子榜随行下发，选中值经 background_selected_items 回传）
+    #[serde(default)]
+    pub background: Vec<RankPanelRow>,
 }
 
 /// 顶部内容 tab（全部/真人剧/漫剧/AI剧/演员/系列剧，2026-10-05 抓包 +
@@ -105,4 +112,8 @@ pub struct RankPage {
     /// 上下文，2026-10-09 抓包实锤）
     #[serde(default)]
     pub session_id: String,
+    /// 榜单版本戳（响应随行下发；客户端在后续请求原样回传，官方全局
+    /// 记最新值，2026-10-17 抓包实锤）
+    #[serde(default)]
+    pub rank_version: String,
 }

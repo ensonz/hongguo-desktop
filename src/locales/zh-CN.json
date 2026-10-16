@@ -524,7 +524,8 @@
     "filter": {
       "title": "筛选",
       "reset": "清除筛选",
-      "all": "总榜"
+      "all": "总榜",
+      "month": "月榜"
     },
     "loadFailed": "榜单加载失败",
     "empty": "这个榜单暂时没有内容",

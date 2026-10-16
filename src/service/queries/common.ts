@@ -81,7 +81,8 @@ export const keys = {
   followNotices: ['follow-notices'] as const,
   /** 榜单整组失效用根 key（如预约态就地翻新时 findAll 前缀匹配） */
   rankRoot: RANK,
-  rank: (selected: string, sub: string, panel: string) => [...RANK, selected, sub, panel] as const,
+  rank: (selected: string, sub: string, panel: string, background: string) =>
+    [...RANK, selected, sub, panel, background] as const,
   newCalendar: (date: string) => ['new-calendar', date] as const,
   /** 预约整组失效用根 key（登录/预约变更后两个 tab 一起翻面） */
   reservationsRoot: RESERVATIONS,

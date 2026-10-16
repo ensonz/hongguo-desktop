@@ -4,39 +4,47 @@ use tauri::State;
 
 use hongguo_api::calendar::{CalendarPage, fetch_new_calendar};
 use hongguo_api::new_drama::fetch_new_drama;
-use hongguo_api::rank::{RankPage, fetch_rank_ex};
+use hongguo_api::rank::{RankPage, RankReq, fetch_rank_ex};
 use hongguo_api::reservation::{delete_reservations, fetch_reservations, reserve_series};
 use hongguo_api::search::{SearchPage, SuggestItem, search_series, search_suggest};
 use hongguo_common::{AppError, AppResult};
 use hongguo_service::app_state::AppState;
 
-/// 拉一个榜单（任意 tab × 子榜 × 筛选组合；offset 游标翻页，每页 20 条）。
+/// 拉一个榜单（任意 tab × 子榜 × 筛选 × 月榜组合；offset 游标翻页）。
 ///
 /// - `selected`：内容 tab id（all/human/comic_series_rank/ai_playlet/
-///   series_album；ranklist_celebrity 为演员榜，无剧集数据，前端不提供）
+///   ranklist_celebrity/series_album；空串按 all 归一）
 /// - `sub`：子榜 id（响应 tabs schema 下发，如 ranklist_hot_sc）
 /// - `panel`：筛选面板选中项（gender_female/cate_308…；None 或空 = 总榜）
+/// - `background`：榜单历史选中项（date_202609 = 2026 年 9 月榜；None/空
+///   = 当前月）
+/// - `offset`/`session_id`：翻页游标；`rank_version`：响应下发的版本戳回传
+#[expect(
+    clippy::too_many_arguments,
+    reason = "平铺参数表与 registry.ts 的 IPC 契约一一对应，包结构体反而要二次拆装"
+)]
 #[tauri::command]
 pub async fn rank_list(
     state: State<'_, AppState>,
     selected: String,
     sub: String,
     panel: Option<String>,
+    background: Option<String>,
     offset: Option<i64>,
     session_id: Option<String>,
+    rank_version: Option<String>,
 ) -> AppResult<RankPage> {
-    let selected = if selected.trim().is_empty() {
-        "all".into()
-    } else {
-        selected
-    };
     let env = state.api_env();
     fetch_rank_ex(
-        &selected,
-        &sub,
-        panel.as_deref(),
-        offset.unwrap_or(0),
-        session_id.as_deref().unwrap_or(""),
+        RankReq {
+            selected: &selected,
+            sub: &sub,
+            panel: panel.as_deref(),
+            background: background.as_deref(),
+            offset: offset.unwrap_or(0),
+            session_id: session_id.as_deref().unwrap_or(""),
+            rank_version: rank_version.as_deref().unwrap_or(""),
+        },
         &env,
     )
     .await

@@ -6,15 +6,18 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { t } from '@/locales';
 import { cn } from '@/lib/utils';
 
-/** 「总榜 ▾」筛选按钮 + 弹出面板（row_name 分行，选项单选整组替换）。 */
+/** 「总榜 ▾」筛选按钮 + 弹出面板（row_name 分行，选项单选整组替换）。
+ *  `placeholder` 覆盖未选中时的按钮文案（月榜入口用「月榜」）。 */
 export function FilterPanelButton({
   rows,
   value,
   onPick,
+  placeholder,
 }: {
   rows: { name: string; items: { id: string; name: string }[] }[];
   value: string;
   onPick: (id: string) => void;
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedName = rows
@@ -26,7 +29,10 @@ export function FilterPanelButton({
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm">
           <SlidersHorizontal className="size-4" aria-hidden />
-          {selectedName ?? rows[0]?.items.find((it) => it.id === '')?.name ?? t('rank.filter.all')}
+          {selectedName ??
+            placeholder ??
+            rows[0]?.items.find((it) => it.id === '')?.name ??
+            t('rank.filter.all')}
           <ChevronDown
             className={cn('size-4 transition-transform', open && 'rotate-180')}
             aria-hidden
