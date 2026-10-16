@@ -65,6 +65,8 @@ pub async fn fetch_new_drama(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
+        // 新剧推荐端点没有榜单版本戳语义
+        rank_version: String::new(),
     })
 }
 

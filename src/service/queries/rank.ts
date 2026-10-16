@@ -14,31 +14,50 @@ import { dedupBy, fuzzyStaleTime, keys, useInfiniteStream } from './common';
 // ---------------------------------------------------------------- 排行榜 / 新剧 / 上新日历 / 预约
 
 /**
- * 一个榜单（内容tab × 子榜 × 筛选 组合缓存；社交态数据不缓存——
+ * 一个榜单（内容tab × 子榜 × 筛选 × 月榜 组合缓存；社交态数据不缓存——
  * 2026-10-10 定规，每次挂载重拉。切筛选时用 keepPreviousData 保住
  * 旧列表，避免整页闪 loading）。
  *
- * 无限滚动（**2026-10-09 抓 hgplayer 滚动榜单实锤的协议**）：每页固定
- * 20 条（limit 参数恒 "0" 不参与），首页 offset=0 不带 session_id；翻页
- * offset=响应的 next_offset（步进 10）并回传响应的 session_id。相邻页
- * 重叠 10 条——按 seriesId 去重。tabs 取首页（选项表每页随行下发）。
+ * 无限滚动（**2026-10-17 抓官方 App 滚动榜单实锤的协议**）：每页 10 条
+ * （limit 参数恒 "0" 不参与），首页 offset=0 不带 session_id；翻页
+ * offset=响应的 next_offset（步进 10）并回传响应的 session_id 与
+ * rank_version。页间可能重叠——按 seriesId 去重（后端已按会话记账 +
+ * filter_ids 让服务端排重，这里是兜底）。tabs 取首页（选项表每页随行
+ * 下发）。
  */
-export function useRank(selected: string, sub: string, panel: string) {
+export function useRank(selected: string, sub: string, panel: string, background: string) {
   const query = useInfiniteQuery({
-    queryKey: keys.rank(selected, sub, panel),
+    queryKey: keys.rank(selected, sub, panel, background),
     queryFn: ({ pageParam }) =>
-      rank.list(selected, sub, panel, pageParam.offset, pageParam.sessionId),
-    initialPageParam: { offset: 0, sessionId: '' },
+      rank.list(
+        selected,
+        sub,
+        panel,
+        background,
+        pageParam.offset,
+        pageParam.sessionId,
+        pageParam.rankVersion,
+      ),
+    initialPageParam: { offset: 0, sessionId: '', rankVersion: '' },
     getNextPageParam: (last) =>
       last.hasMore && last.nextOffset > 0
-        ? { offset: last.nextOffset, sessionId: last.sessionId }
+        ? {
+            offset: last.nextOffset,
+            sessionId: last.sessionId,
+            rankVersion: last.rankVersion,
+          }
         : undefined,
     staleTime: 0,
     placeholderData: keepPreviousData,
   });
 
   const items = useMemo(
-    () => dedupBy(query.data?.pages.flatMap((p) => p.items) ?? [], (i) => i.seriesId),
+    () =>
+      dedupBy(query.data?.pages.flatMap((p) => p.items) ?? [], (i) => i.seriesId).map((it, idx) =>
+        // 服务端 recommend_info.rank 是页内位次（每页 1~10、可重复），
+        // 连续名次按拼接序号重算；0 = 无名次榜（预约榜）保持 0
+        it.rank > 0 ? { ...it, rank: idx + 1 } : it,
+      ),
     [query.data],
   );
   const tabs = query.data?.pages[0]?.tabs ?? [];

@@ -4,16 +4,28 @@ import { call } from '../tauri/invoke';
 
 export const rank = {
   /**
-   * 拉一个榜单（任意 内容tab × 子榜 × 筛选 组合）。
-   * selected/sub 用响应 tabs schema 下发的 id；panel 为空串 = 总榜（无筛选）。
+   * 拉一个榜单（任意 内容tab × 子榜 × 筛选 × 月榜 组合）。
+   * selected/sub 用响应 tabs schema 下发的 id；panel 为空串 = 总榜（无筛选）；
+   * background 为月榜选项 id（date_202609 形态，空串 = 当前月）；
+   * offset/sessionId/rankVersion 是上一页响应下发的翻页游标。
    */
-  list: (selected: string, sub: string, panel: string = '', offset = 0, sessionId = '') =>
+  list: (
+    selected: string,
+    sub: string,
+    panel: string = '',
+    background: string = '',
+    offset = 0,
+    sessionId = '',
+    rankVersion = '',
+  ) =>
     call('rank_list', {
       selected,
       sub,
       panel: panel === '' ? undefined : panel,
+      background: background === '' ? undefined : background,
       offset: offset || undefined,
       sessionId: sessionId || undefined,
+      rankVersion: rankVersion || undefined,
     }),
   /** 新剧推荐（gender: 2=全部；offset 步长 18；翻页回传响应的 sessionId）。 */
   newDrama: (gender: number, offset?: number, sessionId?: string) =>

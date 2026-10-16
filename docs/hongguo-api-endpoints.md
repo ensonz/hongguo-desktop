@@ -37,7 +37,7 @@ body 逐值对齐抓包：`dr_scene:"player"` + biz_param 含
 静态兜底设备被共享消耗时同样回 200+0——排障先分辨「形态错」与「限频」
 （换一个长时间未打该端点的环境对照）。
 
-## 1. 排行榜（内容 tab × 子榜 × 筛选面板）
+## 1. 排行榜（内容 tab × 子榜 × 筛选面板 × 月榜）
 
 ```
 GET /reading/bookapi/bookmall/cell/change/v        # 注意 /v 不带斜杠
@@ -45,7 +45,38 @@ GET /reading/bookapi/bookmall/cell/change/v        # 注意 /v 不带斜杠
 
 固定参数：`cell_id=7470092475068071998, tab_type=26, selected_items=all,
 category_id=0, cell_sub_id=0, client_req_type=2, client_template=2, gender=2,
-limit=0, offset=0, unlimited_selector_change_type=2`
+limit=0, offset=0`（其余定位参数见下）
+
+**翻页协议（2026-10-17 抓官方 App 实流 69 条锁定，每条无一例外）**：
+
+- 每页 **10 条**，响应 `next_offset` 步进 10（旧口径「每页 20 条、相邻页
+  重叠 10 条」是 hgplayer 的形态，官方 App 每页 10 条；首屏响应可交付
+  11 条——`next_offset` 仍是 10）
+- **首屏**（换 tab/子榜/筛选/月榜后的第一批）：`offset=0`、
+  **`unlimited_selector_change_type=2`**、不带 `session_id`、不带
+  `filter_ids`
+- **翻页续载**：`offset=next_offset`、**`usct=1`**、回传响应下发的
+  `session_id` + `filter_ids`（本会话已下发的 series_id 逗号表，官方带
+  尾逗号）+ `rank_version`（见下）。**续载带 usct=2 会被服务端当「换一批」
+  处理——滚动加载重复/错乱的根因**
+- ⚠️ **`filter_ids` 是全局排异（2026-10-17 实验实锤）**：带满 fid 的旧
+  窗口重放，服务端不是重发原窗口，而是**跳过全部已见、从未见段接着发**
+  （滚 3 页后重放 offset=10 → 回第 32~41 位）。因此该协议只能顺序增量，
+  **任何带旧游标的全页重放都会跳档**（前端 staleTime=0 重挂载重拉正是
+  这个形态，曾致「中间缺 20 条」）。项目的对策：`rank_list` 后端持有
+  会话累积账本，对外**窗口语义**——同 (session, offset) 重放恒得同批
+  条目（幂等），账本不够深才向上游顺序补页；`recommend_info.rank` 是
+  页内位次（可重复缺号），连续名次由客户端按拼接序号自算
+- `rank_version`：响应随行下发（data 与 cell_view 两层同值，JSON 数字），
+  客户端全局记最新值、后续请求原样回传（字符串形态）
+
+**月榜（榜单历史，2026-10-17 抓必看榜实测）**：月榜型子榜（必看/收藏/
+臻果…）的选项表在响应 `cell_selector.outer_row.items[].sub_cell_selector.
+outer_row.items[].background_selector.inner_rows[]`，与 panel_selector
+同构：综合行 `date_all`（总榜）+ 年份行 `date_YYYYMM`（2026年 10月…
+2025年 …）。选中值经 **`background_selected_items=date_YYYYMM`** 回传
+（2026年9月 = `date_202609`），与 `panel_selected_items` 相互独立、可
+同时携带；默认（当前月）可不传。
 
 ### 1.0 首页推荐流（书城换一换，2026-10-08 抓包 + 逆向全量锁定）
 

@@ -9,7 +9,8 @@ const rankItemSchema = z.object({
   title: z.string(),
   cover: z.string(),
   vid: z.string(),
-  /** 榜单名次（从 1 起；0 表示接口没给，如预约榜） */
+  /** 榜单名次（连续名次，从 1 起；0 表示该榜无名次，如预约榜。
+   *  服务端 recommend_info.rank 是页内位次，前端按拼接序号重排） */
   rank: z.number().int().nonnegative(),
   /** "玄幻·全200集" 形态的副标题 */
   subTitle: z.string(),
@@ -50,6 +51,8 @@ const rankSubListSchema = z.object({
   /** 子榜描述行（如 "10月4日已更新·基于红果观看/互动以及个人兴趣排序"） */
   description: z.string(),
   panel: z.array(rankPanelRowSchema),
+  /** 榜单历史（月榜）选项行（date_all=总榜；date_YYYYMM=历史月份） */
+  background: z.array(rankPanelRowSchema).default([]),
 });
 export type RankSubList = z.infer<typeof rankSubListSchema>;
 
@@ -65,11 +68,13 @@ export const rankPageSchema = z.object({
   items: z.array(rankItemSchema),
   /** 内容 tab → 子榜 → 筛选面板的选项表（响应 cell_selector 展开） */
   tabs: z.array(rankTabSchema),
-  /** 分页游标（每页固定 20 条、相邻页重叠 10 条需去重；has_more=false 到底） */
+  /** 分页游标（每页 10 条、next_offset 步进 10；has_more=false 到底） */
   hasMore: z.boolean().default(false),
   nextOffset: z.number().default(0),
   /** 浏览会话标识：翻页原样回传（服务端按它维持榜单上下文） */
   sessionId: z.string().default(''),
+  /** 榜单版本戳：响应下发、后续请求回传（官方客户端全局记最新值） */
+  rankVersion: z.string().default(''),
 });
 export type RankPage = z.infer<typeof rankPageSchema>;
 

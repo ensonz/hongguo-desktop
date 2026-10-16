@@ -32,6 +32,8 @@ export function normalizeTabs(tabs: RankTab[], filterTitle: string): RankTab[] {
                 },
               ]
             : [],
+        // 一级形态（老版本身份）没有月榜 schema
+        background: [],
       })),
     },
   ];

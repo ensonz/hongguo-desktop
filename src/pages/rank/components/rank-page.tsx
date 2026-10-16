@@ -38,7 +38,9 @@ export function RankPage() {
   const [sub, setSub] = useSessionState('hongguo.rank.sub', 'ranklist_hot_sc');
   // 筛选面板选中项（'' = 总榜，即无筛选）
   const [panel, setPanel] = useSessionState('hongguo.rank.panel', '');
-  const rank = useRank(selected, sub, panel);
+  // 榜单历史选中项（'' = 当前月；date_YYYYMM = 历史月份榜）
+  const [background, setBackground] = useSessionState('hongguo.rank.background', '');
+  const rank = useRank(selected, sub, panel, background);
   const { items: listItems, isLoading, error, isFetching, refetch } = rank;
 
   const filterTitle = t('rank.filter.title');
@@ -55,12 +57,14 @@ export function RankPage() {
   if (currentTab && currentSub && currentSub.id !== sub) {
     setSub(currentSub.id);
     setPanel('');
+    setBackground('');
   }
 
   const switchTab = (id: string) => {
     if (id === selected) return;
     setSelected(id);
     setPanel('');
+    setBackground('');
     const first = tabs.find((tab) => tab.id === id)?.subs[0];
     setSub(first?.id ?? '');
   };
@@ -116,6 +120,7 @@ export function RankPage() {
               if (v === '') return;
               setSub(v);
               setPanel('');
+              setBackground('');
             }}
             className="flex flex-col gap-1"
           >
@@ -145,19 +150,37 @@ export function RankPage() {
                 </span>
               )}
             </p>
-            {currentSub && currentSub.panel.length > 0 && (
-              <FilterPanelButton
-                rows={currentSub.panel}
-                value={panel}
-                onPick={(id) => setPanel(id)}
-              />
+            {currentSub && (currentSub.panel.length > 0 || currentSub.background.length > 0) && (
+              <div className="flex items-center gap-2">
+                {/* 榜单历史（月榜）：仅月榜型子榜下发选项（必看/收藏/臻果…） */}
+                {currentSub.background.length > 0 && (
+                  <FilterPanelButton
+                    rows={currentSub.background}
+                    value={background}
+                    onPick={(id) => setBackground(id)}
+                    placeholder={t('rank.filter.month')}
+                  />
+                )}
+                {currentSub.panel.length > 0 && (
+                  <FilterPanelButton
+                    rows={currentSub.panel}
+                    value={panel}
+                    onPick={(id) => setPanel(id)}
+                  />
+                )}
+              </div>
             )}
           </div>
 
           {/* 列表滚动区（页面唯一会滚的地方）：切子榜/筛选用 key 重挂载
               归零滚动——新榜单从第 1 名看起，而不是停在旧榜单的滚动位置。
               去播放再回来时（同 sub/panel）恢复上次滚动位置 */}
-          <RankListScroll sub={sub} panel={panel} ready={!isLoading && listItems.length > 0}>
+          <RankListScroll
+            sub={sub}
+            panel={panel}
+            background={background}
+            ready={!isLoading && listItems.length > 0}
+          >
             {isLoading ? (
               <SkeletonRows count={8} height="h-24 rounded-xl" />
             ) : error ? (
@@ -208,15 +231,17 @@ export function RankPage() {
 }
 
 /** 榜单滚动容器：保留 key 重挂载归零的语义，另在「去播放再回来」时
- *  （同 sub/panel 的重挂载）恢复上次滚动位置。 */
+ *  （同 sub/panel/月榜 的重挂载）恢复上次滚动位置。 */
 function RankListScroll({
   sub,
   panel,
+  background,
   ready,
   children,
 }: {
   sub: string;
   panel: string;
+  background: string;
   ready: boolean;
   children: React.ReactNode;
 }) {
@@ -224,7 +249,7 @@ function RankListScroll({
   useScrollRestore('hongguo.rank.scroll', () => ref.current, ready);
   return (
     <div
-      key={`${sub}:${panel}`}
+      key={`${sub}:${panel}:${background}`}
       ref={ref}
       className="min-h-0 flex-1 scrollbar-thin overflow-y-auto"
     >

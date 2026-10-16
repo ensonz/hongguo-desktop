@@ -74,6 +74,8 @@ fn normalize_tabs(tabs: &[RankTab]) -> Vec<RankTab> {
                             .collect(),
                     }]
                 },
+                // 一级形态（老版本身份）没有月榜 schema
+                background: Vec::new(),
             })
             .collect(),
     }]
@@ -91,6 +93,8 @@ pub(crate) struct RankView {
     items: Vec<RankItem>,
     next_offset: i64,
     session_id: String,
+    /// 响应下发的版本戳，翻页回传（2026-10-17 官方实流协议）。
+    rank_version: String,
     has_more: bool,
     loading: bool,
     failed: bool,
@@ -114,6 +118,7 @@ impl RankView {
             items: Vec::new(),
             next_offset: 0,
             session_id: String::new(),
+            rank_version: String::new(),
             has_more: false,
             loading: false,
             failed: false,
@@ -143,14 +148,19 @@ impl RankView {
         } else {
             String::new()
         };
+        let rank_version = self.rank_version.clone();
         let rx = bridge::spawn(async move {
             let env = state.api_env();
             hongguo_api::rank::fetch_rank_ex(
-                &selected,
-                &sub,
-                panel.as_deref(),
-                offset,
-                &session,
+                hongguo_api::rank::RankReq {
+                    selected: &selected,
+                    sub: &sub,
+                    panel: panel.as_deref(),
+                    background: None,
+                    offset,
+                    session_id: &session,
+                    rank_version: &rank_version,
+                },
                 &env,
             )
             .await
@@ -167,8 +177,20 @@ impl RankView {
                         } else {
                             view.items = page.items.clone();
                         }
+                        // recommend_info.rank 是页内位次（每页 1~10、可重复，
+                        // 2026-10-17 解包实锤），连续名次按拼接序号重算；
+                        // rank=0 是无名次榜（预约榜）保持 0
+                        for (idx, it) in view.items.iter_mut().enumerate() {
+                            if it.rank > 0 {
+                                it.rank = (idx + 1) as u32;
+                            }
+                        }
                         view.next_offset = page.next_offset;
                         view.session_id = page.session_id.clone();
+                        // 版本戳全局记最新（官方客户端语义：跨 tab/子榜回传）
+                        if !page.rank_version.is_empty() {
+                            view.rank_version = page.rank_version.clone();
+                        }
                         view.has_more = page.has_more;
                         if !page.tabs.is_empty() {
                             view.raw_tabs = page.tabs.clone();
