@@ -15,7 +15,6 @@ import { exitPortraitScreen } from '@/features/player/hooks/use-portrait-window'
  */
 
 export function useMiniWindow(params: {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
   /** 进出小屏都要清悬停态：组件卸载不触发 mouseleave，残留会让控制条常显不收 */
   setControlsHovered: (hovered: boolean) => void;
   setCommentPanelOpen: (open: boolean) => void;
@@ -24,7 +23,6 @@ export function useMiniWindow(params: {
   setSeriesPanelOpen: (open: boolean) => void;
 }) {
   const {
-    videoRef,
     setControlsHovered,
     setCommentPanelOpen,
     setDanmakuPanelOpen,
@@ -68,16 +66,5 @@ export function useMiniWindow(params: {
     void appApi.exitMiniScreen().catch(() => undefined);
   }, [setMiniScreen, setControlsHovered]);
 
-  /** 结束播放：退出小屏（小屏里唯一的「关掉」出口）。 */
-  const stopMini = useCallback(() => {
-    const video = videoRef.current;
-    if (video && !video.paused) {
-      video.pause(); // onPause 里会强制落一次进度
-    }
-    setMiniScreen(false);
-    setControlsHovered(false); // 同 enterMini：悬停态别跨大小屏残留
-    void appApi.exitMiniScreen().catch(() => undefined);
-  }, [setMiniScreen, setControlsHovered, videoRef]);
-
-  return { miniScreen, enterMini, exitMini, stopMini };
+  return { miniScreen, enterMini, exitMini };
 }

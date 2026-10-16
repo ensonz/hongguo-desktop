@@ -26,7 +26,6 @@ import {
   useStorageActions,
 } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
-import { useUiStore } from '@/stores/ui';
 import { STREAM_SCHEME } from '@/utils/scheme';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
@@ -45,6 +44,7 @@ import { useBingeRelay } from '../hooks/use-binge-relay';
 import { usePlayerOverlay } from '../hooks/use-player-overlay';
 import { usePlayerInteractions } from '../hooks/use-player-interactions';
 import { useMiniWindow } from '../hooks/use-mini-window';
+import { usePortraitWindow } from '../hooks/use-portrait-window';
 import { isAutoAdvanceStart, isPickerClickCooldown, markAutoAdvance } from '../playback-signals';
 import { usePinWindow } from '@/hooks/use-pin-window';
 
@@ -82,8 +82,6 @@ export function PlayerView({
   onFirstFrame?: () => void;
 }) {
   const navigate = useNavigate();
-  // 竖屏播放中：快捷键提示浮层不出现（窄条被整面盖住，参考小屏不渲染同款）
-  const portrait = useUiStore((s) => s.portrait);
   const seriesPanelOpen = usePlayerStore((s) => s.seriesPanelOpen);
   const commentPanelOpen = usePlayerStore((s) => s.commentPanelOpen);
   const danmakuPanelOpen = usePlayerStore((s) => s.danmakuPanelOpen);
@@ -355,16 +353,20 @@ export function PlayerView({
     currentSeries,
   });
 
-  // 小屏进出（enterMini/exitMini/stopMini）抽在 use-mini-window；
+  // 小屏进出（enterMini/exitMini）抽在 use-mini-window；
   // 置顶开关抽在 src/hooks/use-pin-window 与 AppShell 顶栏共用——
   // 大屏顶栏与小屏紧凑条两个入口，切换的是同一个 set_always_on_top。
-  const { miniScreen, enterMini, exitMini, stopMini } = useMiniWindow({
-    videoRef,
+  const { miniScreen, enterMini, exitMini } = useMiniWindow({
     setControlsHovered,
     setCommentPanelOpen,
     setDanmakuPanelOpen,
     setVolumeOpen,
     setSeriesPanelOpen,
+  });
+  // 竖屏进出/重适配/铺满档全在本 hook（store 只是镜像）：控制形态的三分
+  // 支（小窗/竖屏/全量）在这里裁决，PlayerControls 不再自持竖屏态
+  const { portrait, portraitFull, togglePortrait, togglePortraitFull } = usePortraitWindow({
+    videoRef,
   });
   const { pinned, togglePinned } = usePinWindow();
 
@@ -688,13 +690,37 @@ export function PlayerView({
                     }
                     onStepEpisode={(d) => stepEpisode(d)}
                     onExpand={exitMini}
-                    onClose={stopMini}
                     incognitoOn={incognito.on}
                     onToggleIncognito={incognito.toggle}
                     pinned={pinned}
                     onTogglePinned={togglePinned}
                     visible={chromeShown}
                     // B站同款：悬在小屏控制条上不许收（静止 3 秒收起对控件操作是抢走）
+                    onControlsEnter={() => {
+                      setControlsHovered(true);
+                      wakeChrome();
+                    }}
+                    onControlsLeave={() => setControlsHovered(false)}
+                  />
+                ) : portrait ? (
+                  // 竖屏窄条：控件对齐小窗紧凑条（portrait 形态）——全量控制栏
+                  // 在竖条里必然溢出（选集浮层 460 宽更是放不下），hgplayer 竖屏
+                  // 同样是紧凑一行。⤢ = 退出竖屏；✕ 的位置给铺满切换
+                  <MiniScreenControls
+                    variant="portrait"
+                    videoRef={videoRef}
+                    total={currentSeries?.episodes.length ?? 0}
+                    hasNext={
+                      currentSeries?.episodes.some((e) => e.vidIndex === (vidIndex ?? 0) + 1) ??
+                      false
+                    }
+                    onStepEpisode={(d) => stepEpisode(d)}
+                    onExpand={togglePortrait}
+                    incognitoOn={incognito.on}
+                    onToggleIncognito={incognito.toggle}
+                    portraitFull={portraitFull}
+                    onTogglePortraitFull={togglePortraitFull}
+                    visible={chromeShown}
                     onControlsEnter={() => {
                       setControlsHovered(true);
                       wakeChrome();
@@ -716,6 +742,7 @@ export function PlayerView({
                     onDownloadingChange={setDownloading}
                     onStepEpisode={stepEpisode}
                     onOpenMini={enterMini}
+                    onEnterPortrait={togglePortrait}
                     incognito={incognito.on}
                     onToggleIncognito={incognito.toggle}
                     definition={activeDefinition}

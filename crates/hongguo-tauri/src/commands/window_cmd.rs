@@ -188,12 +188,15 @@ pub fn set_always_on_top(app: AppHandle, enabled: bool) -> AppResult<()> {
 
 // 竖屏播放（对齐 hgplayer 1.1.8 的 rE/kc/Nf/oE/Fc，算法自其前端 bundle
 // 逐行还原）：窗口收窄成按视频宽高比算宽的竖条，竖屏视频刚好包住画面
-// 不留两侧黑边。两档——普通档保持当前窗口高；铺满档（portraitFull）
-// 撑满工作区高并居中。
+// 不留两侧黑边。两档——普通档保持当前窗口高（最多工作区高的 70%）；
+// 铺满档（portraitFull）撑满工作区高并居中。
 //
-// 与 hgplayer 的两处刻意差异：最小宽度取 360（hgplayer Gv=240 配它的
+// 与 hgplayer 的三处刻意差异：最小宽度取 360（hgplayer Gv=240 配它的
 // 竖屏专属布局；本壳沿用「控制条一行不换行」的 360 下限口径，同
-// MINI_MIN）；标题栏高度按 0 算（本壳无框，macOS overlay 内容满窗）。
+// MINI_MIN）；标题栏高度按 0 算（本壳无框，macOS overlay 内容满窗）；
+// 普通档高度最多吃工作区高的 70%（hgplayer 整窗天生竖条尺寸，「保持
+// 当前高」没有巨条问题，本壳从大窗/最大化进竖屏会得到撑满的巨条——
+// 用户实测「默认尺寸太大」）。
 // 其余对齐：最大化状态进竖屏直接进铺满档；普通档在**当前窗口 x** 上
 // 居中（不跳屏幕中心）；宽高比钳宽溢出工作区时反推高度（hgplayer 同
 // 款，不再回钳工作区高）。
@@ -207,6 +210,9 @@ static PORTRAIT_FULL_RESTORE: std::sync::Mutex<Option<(i32, i32, u32, u32)>> =
 
 /// 竖屏下的最小尺寸（hgplayer nE=400 同高；宽见上面模块注释）。
 const PORTRAIT_MIN: (f64, f64) = (360.0, 400.0);
+
+/// 普通档高度上限 = 工作区高 × 此系数（刻意差异第三处，见模块注释）。
+const PORTRAIT_DEFAULT_HEIGHT_RATIO: f64 = 0.7;
 
 fn portrait_restore() -> std::sync::MutexGuard<'static, Option<SavedGeometry>> {
     PORTRAIT_RESTORE
@@ -235,8 +241,13 @@ fn fit_portrait(win: &tauri::WebviewWindow, aspect: f64, full: bool) {
     let wa_w = right - left;
     let wa_h = bottom - top;
 
-    // 高：铺满档撑满工作区；普通档保持当前高（夹进工作区）
-    let mut h = if full { wa_h } else { cur_h.min(wa_h) };
+    // 高：铺满档撑满工作区；普通档保持当前高，但最多吃工作区高的 70%
+    //（大窗进竖屏不再得到撑满巨条；系数见 PORTRAIT_DEFAULT_HEIGHT_RATIO）
+    let mut h = if full {
+        wa_h
+    } else {
+        cur_h.min((wa_h * PORTRAIT_DEFAULT_HEIGHT_RATIO).round())
+    };
     // 宽 =（高 − 标题栏）× 宽高比；溢出工作区时钳宽反推高
     let mut w = (h * aspect).round();
     if w > wa_w {

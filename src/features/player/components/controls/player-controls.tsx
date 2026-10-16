@@ -11,7 +11,6 @@ import {
   Pause,
   PictureInPicture2,
   Play,
-  RectangleHorizontal,
   RectangleVertical,
   Settings2,
   SkipBack,
@@ -27,7 +26,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWindowFullscreen } from '@/hooks/use-window-fullscreen';
-import { usePortraitWindow } from '../../hooks/use-portrait-window';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
 import { cn } from '@/lib/utils';
@@ -96,6 +94,12 @@ interface Props {
    * 状态与取流编排都在播放页，这里只挂按钮。
    */
   onOpenMini: () => void;
+  /**
+   * 进入竖屏播放（几何与 IME 组合都收在 use-portrait-window，宿主持有）。
+   * 竖屏形态的控件由 MiniScreenControls 承担，本组件只在横屏出现，
+   * 所以这里只有「进入」方向，没有退出键。
+   */
+  onEnterPortrait: () => void;
   /** 隐身模式开关（鼠标离开窗口自动隐藏 + 暂停）。状态在播放页。 */
   incognito: boolean;
   onToggleIncognito: () => void;
@@ -129,10 +133,6 @@ interface Props {
  * 快进/快退不占按钮位，由快捷键 `←` `→` 承担；播放键旁的步进按钮是
  * **上一集 / 下一集**（与 `↑` `↓` 同一逻辑）。完整选集仍在右侧 `SeriesPanel`，
  * 这里只给最常用的「接着看下一集」一个单击入口。
- *
- * 竖屏（portrait）是裁剪态：窗口收窄成竖条后横屏全量按钮必然溢出，
- * 只留播放/时间/选集/音量/铺满/退出竖屏；弹幕发送/开关/设置这类互动
- * 操作不进竖条（用户口径，参考小屏的关键钮集合）。
  */
 export function PlayerControls({
   videoRef,
@@ -151,6 +151,7 @@ export function PlayerControls({
   src,
   onStepEpisode,
   onOpenMini,
+  onEnterPortrait,
   incognito,
   onToggleIncognito,
   immersive,
@@ -167,10 +168,6 @@ export function PlayerControls({
   const [rate, setRate] = useState(1);
   // 全屏：窗口级真值（Esc/绿按钮变化经 useWindowFullscreenSync 回流）
   const { fullscreen, toggleFullscreen } = useWindowFullscreen();
-  // 竖屏：窗口收窄成竖条（几何在后端，store 是镜像）；竖屏中全屏键让位给铺满切换
-  const { portrait, portraitFull, togglePortrait, togglePortraitFull } = usePortraitWindow({
-    videoRef,
-  });
   // 面板/浮层开合在全局播放 store：切集/切剧重挂载不丢
   const danmakuPanelOpen = usePlayerStore((s) => s.danmakuPanelOpen);
   const setDanmakuPanelOpen = usePlayerStore((s) => s.setDanmakuPanelOpen);
@@ -351,110 +348,93 @@ export function PlayerControls({
         <IconButton label={t('player.play')} onClick={togglePlay}>
           {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
         </IconButton>
-        {/* 竖屏只留关键钮（参考小屏口径，见组件头注释）：上下集藏掉——
-            选集浮层与 ↑↓ 快捷键都可达，窄条宽度让给退出竖屏等竖屏专属钮 */}
-        {!portrait && (
-          <>
-            <IconButton
-              label={t('player.prevEpisode')}
-              disabled={!hasPrev}
-              onClick={() => onStepEpisode(-1)}
-            >
-              <SkipBack className="size-4" />
-            </IconButton>
-            <IconButton
-              label={t('player.nextEpisode')}
-              disabled={!hasNext}
-              onClick={() => onStepEpisode(1)}
-            >
-              <SkipForward className="size-4" />
-            </IconButton>
-          </>
-        )}
+        <IconButton
+          label={t('player.prevEpisode')}
+          disabled={!hasPrev}
+          onClick={() => onStepEpisode(-1)}
+        >
+          <SkipBack className="size-4" />
+        </IconButton>
+        <IconButton
+          label={t('player.nextEpisode')}
+          disabled={!hasNext}
+          onClick={() => onStepEpisode(1)}
+        >
+          <SkipForward className="size-4" />
+        </IconButton>
 
         <span className="ml-1 shrink-0 font-mono text-xs whitespace-nowrap text-white/90 tabular-nums">
           {formatDuration(current)} / {formatDuration(duration)}
         </span>
 
         {/* 弹幕发送框（hgplayer 同款位置：控制栏左段时间之后，常驻）。
-            w-52 在窄舞台下放不下，允许收缩到 w-32，输入框本身 min-w-0 兜底。
-            竖屏不渲染：弹幕发送这类互动操作不进竖条 */}
-        {!portrait && (
-          <DanmakuSendBox
-            vid={currentVid ? `${currentVid}:${seriesId}` : ''}
-            currentSec={current}
-          />
-        )}
+            w-52 在窄舞台下放不下，允许收缩到 w-32，输入框本身 min-w-0 兜底 */}
+        <DanmakuSendBox vid={currentVid ? `${currentVid}:${seriesId}` : ''} currentSec={current} />
 
         <div className="ml-auto flex items-center gap-1">
           {/* modal={false}：modal 菜单开着时会把整个 body 设成
               pointer-events:none（只有弹层自己豁免），控件重挂载撞上它就是
               大片区域悬浮不灵/点不动——选集浮层底下两排点不了就是它。非模态
-              菜单不动 body，行为对齐普通弹层（点外部/选中即收）。
-              倍速/清晰度竖屏都不渲染（关键钮之外的调节收进横屏） */}
-          {!portrait && (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className={cn(CHROME_BUTTON, 'font-mono')}>
-                  <Gauge className="size-4" />
-                  {rate}x
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" data-wheel-block>
-                <DropdownMenuLabel>{t('player.playbackRate')}</DropdownMenuLabel>
-                {RATES.map((r) => (
-                  <DropdownMenuItem key={r} onSelect={() => applyRate(r)}>
-                    <span className="font-mono">{r}x</span>
-                    {r === rate && <span className="ml-auto text-xs">✓</span>}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              菜单不动 body，行为对齐普通弹层（点外部/选中即收）。 */}
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className={cn(CHROME_BUTTON, 'font-mono')}>
+                <Gauge className="size-4" />
+                {rate}x
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-wheel-block>
+              <DropdownMenuLabel>{t('player.playbackRate')}</DropdownMenuLabel>
+              {RATES.map((r) => (
+                <DropdownMenuItem key={r} onSelect={() => applyRate(r)}>
+                  <span className="font-mono">{r}x</span>
+                  {r === rate && <span className="ml-auto text-xs">✓</span>}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* 清晰度切换。本地已下载的集只有一版，definitions 为空——
               这时按钮照常出现但置灰并说明原因：直接不渲染会让用户以为
               「这个功能本来就没有」，而在线流那一集它又出现了。 */}
-          {!portrait && (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(CHROME_BUTTON, 'font-mono')}
-                  disabled={definitions.length === 0}
-                  title={definitions.length === 0 ? t('player.definitionLocalOnly') : undefined}
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(CHROME_BUTTON, 'font-mono')}
+                disabled={definitions.length === 0}
+                title={definitions.length === 0 ? t('player.definitionLocalOnly') : undefined}
+              >
+                <MonitorPlay className="size-4" />
+                {definition > 0 ? `${definition}P` : t('player.definitionAuto')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" data-wheel-block>
+              <DropdownMenuLabel>{t('player.definition')}</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => onDefinitionChange(undefined)}>
+                {t('player.definitionAuto')}
+                {definition === 0 && <span className="ml-auto text-xs">✓</span>}
+              </DropdownMenuItem>
+              {definitions.map((d) => (
+                <DropdownMenuItem
+                  key={d.value}
+                  onSelect={() => onDefinitionChange(d.value)}
+                  className="justify-between"
                 >
-                  <MonitorPlay className="size-4" />
-                  {definition > 0 ? `${definition}P` : t('player.definitionAuto')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" data-wheel-block>
-                <DropdownMenuLabel>{t('player.definition')}</DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => onDefinitionChange(undefined)}>
-                  {t('player.definitionAuto')}
-                  {definition === 0 && <span className="ml-auto text-xs">✓</span>}
+                  <span className="font-mono">
+                    {d.value}P{/* 竖屏剧的宽高是反的，只报分辨率会误导 */}
+                    {d.height > d.width && (
+                      <span className="text-muted-foreground ml-2 text-xs">
+                        {d.width}×{d.height}
+                      </span>
+                    )}
+                  </span>
+                  {definition === d.value && <span className="ml-auto text-xs">✓</span>}
                 </DropdownMenuItem>
-                {definitions.map((d) => (
-                  <DropdownMenuItem
-                    key={d.value}
-                    onSelect={() => onDefinitionChange(d.value)}
-                    className="justify-between"
-                  >
-                    <span className="font-mono">
-                      {d.value}P{/* 竖屏剧的宽高是反的，只报分辨率会误导 */}
-                      {d.height > d.width && (
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          {d.width}×{d.height}
-                        </span>
-                      )}
-                    </span>
-                    {definition === d.value && <span className="ml-auto text-xs">✓</span>}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {immersive && (
             <div ref={seriesAnchorRef} className="relative flex items-center">
@@ -465,8 +445,7 @@ export function PlayerControls({
                 onClick={() => setSeriesPanelOpen(!seriesPanelOpen)}
               >
                 <ListVideo className="size-4" />
-                {/* 竖屏只留「选集」两个字——窄条装不下带全集数的宽标签 */}
-                {episodes.length > 0 && !portrait
+                {episodes.length > 0
                   ? `${t('player.episodes')} · ${tf('player.totalEpisodes', { count: episodes.length })}`
                   : t('player.episodes')}
               </Button>
@@ -492,86 +471,75 @@ export function PlayerControls({
             </div>
           )}
 
-          {/* 竖屏不渲染：下载/小屏是横屏宽窗的批量操作入口 */}
-          {!portrait && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={CHROME_BUTTON}
-              onClick={() => onDownloadingChange(true)}
-            >
-              <Download className="size-4" />
-              {t('player.download')}
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className={CHROME_BUTTON}
+            onClick={() => onDownloadingChange(true)}
+          >
+            <Download className="size-4" />
+            {t('player.download')}
+          </Button>
 
           {/* 小屏播放（对齐 hgplayer）：同一窗口缩成 480×270 落屏幕右下角，
-              播放不断——不是系统 PiP（尺寸归系统管），也不是第二个窗口。
-              竖屏不渲染（进小屏会先退竖屏，窄条里入口无意义） */}
-          {!portrait && (
-            <IconButton label={t('player.miniWindow')} onClick={onOpenMini}>
-              <PictureInPicture2 className="size-4" />
-            </IconButton>
-          )}
+              播放不断——不是系统 PiP（尺寸归系统管），也不是第二个窗口 */}
+          <IconButton label={t('player.miniWindow')} onClick={onOpenMini}>
+            <PictureInPicture2 className="size-4" />
+          </IconButton>
 
-          {/* 弹幕设置：齿轮 + 上方浮层面板。竖屏不渲染（互动操作不进竖条） */}
-          {!portrait && (
-            <div ref={danmakuPanelRef} className="relative flex items-center">
-              <IconButton
-                label={t('player.danmakuSettings')}
-                onClick={() => setDanmakuPanelOpen(!danmakuPanelOpen)}
-              >
-                <Settings2
-                  className={cn('size-4', danmakuPanelOpen ? 'text-white' : 'text-white/70')}
-                  aria-hidden
-                />
-              </IconButton>
-              {danmakuPanelOpen && (
-                <div className="absolute right-0 bottom-full z-30 mb-3 w-60 rounded-xl border border-white/10 bg-black/85 p-4 backdrop-blur-sm">
-                  <div className="flex flex-col gap-4">
-                    <DisplaySlider
-                      label={t('player.danmakuOpacity')}
-                      value={danmakuDisplay.opacity}
-                      min={0.1}
-                      max={1}
-                      onChange={(v) => onDanmakuDisplayChange({ opacity: v })}
-                    />
-                    <DisplaySlider
-                      label={t('player.danmakuFontSize')}
-                      value={danmakuDisplay.fontScale}
-                      min={0.5}
-                      max={2}
-                      onChange={(v) => onDanmakuDisplayChange({ fontScale: v })}
-                    />
-                    <DisplaySlider
-                      label={t('player.danmakuDensity')}
-                      value={danmakuDisplay.density}
-                      min={0}
-                      max={1}
-                      onChange={(v) => onDanmakuDisplayChange({ density: v })}
-                    />
-                    <DisplaySlider
-                      label={t('player.danmakuArea')}
-                      value={danmakuDisplay.area}
-                      min={0.25}
-                      max={1}
-                      onChange={(v) => onDanmakuDisplayChange({ area: v })}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 弹幕开关。竖屏不渲染：显示层继续走当前开关状态，互动入口不进竖条 */}
-          {!portrait && (
-            <IconButton label={t('player.danmaku')} onClick={onToggleDanmaku}>
-              <MessageSquareText
-                className={cn('size-5', danmakuOn ? 'text-white' : 'text-white/40')}
+          {/* 弹幕设置：齿轮 + 上方浮层面板 */}
+          <div ref={danmakuPanelRef} className="relative flex items-center">
+            <IconButton
+              label={t('player.danmakuSettings')}
+              onClick={() => setDanmakuPanelOpen(!danmakuPanelOpen)}
+            >
+              <Settings2
+                className={cn('size-4', danmakuPanelOpen ? 'text-white' : 'text-white/70')}
                 aria-hidden
               />
             </IconButton>
-          )}
+            {danmakuPanelOpen && (
+              <div className="absolute right-0 bottom-full z-30 mb-3 w-60 rounded-xl border border-white/10 bg-black/85 p-4 backdrop-blur-sm">
+                <div className="flex flex-col gap-4">
+                  <DisplaySlider
+                    label={t('player.danmakuOpacity')}
+                    value={danmakuDisplay.opacity}
+                    min={0.1}
+                    max={1}
+                    onChange={(v) => onDanmakuDisplayChange({ opacity: v })}
+                  />
+                  <DisplaySlider
+                    label={t('player.danmakuFontSize')}
+                    value={danmakuDisplay.fontScale}
+                    min={0.5}
+                    max={2}
+                    onChange={(v) => onDanmakuDisplayChange({ fontScale: v })}
+                  />
+                  <DisplaySlider
+                    label={t('player.danmakuDensity')}
+                    value={danmakuDisplay.density}
+                    min={0}
+                    max={1}
+                    onChange={(v) => onDanmakuDisplayChange({ density: v })}
+                  />
+                  <DisplaySlider
+                    label={t('player.danmakuArea')}
+                    value={danmakuDisplay.area}
+                    min={0.25}
+                    max={1}
+                    onChange={(v) => onDanmakuDisplayChange({ area: v })}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <IconButton label={t('player.danmaku')} onClick={onToggleDanmaku}>
+            <MessageSquareText
+              className={cn('size-5', danmakuOn ? 'text-white' : 'text-white/40')}
+              aria-hidden
+            />
+          </IconButton>
 
           {/* 音量：hover 弹出竖条浮层（绝对定位不占布局——旧的横向展开
               会把弹幕按钮挤走），浮层盖在按钮上方，移出即收起。
@@ -584,53 +552,21 @@ export function PlayerControls({
           />
 
           {/* 隐身模式（一只眼睛）：开启后鼠标离开窗口 → 整窗透明 + 暂停，
-              鼠标回来即恢复显示。看不该看的东西时的「闪避键」。竖屏不渲染 */}
-          {!portrait && (
-            <IconButton label={t('player.incognito')} onClick={onToggleIncognito}>
-              <Eye
-                className={cn('size-4', incognito ? 'text-white' : 'text-white/55')}
-                aria-hidden
-              />
-            </IconButton>
-          )}
+              鼠标回来即恢复显示。看不该看的东西时的「闪避键」 */}
+          <IconButton label={t('player.incognito')} onClick={onToggleIncognito}>
+            <Eye className={cn('size-4', incognito ? 'text-white' : 'text-white/55')} aria-hidden />
+          </IconButton>
 
           {/* 竖屏播放（hgplayer 同款）：窗口收窄成按视频宽高比算宽的竖条，
               竖屏视频刚好包住画面不留两侧黑边。小屏里不出现（本组件不渲染
-              在小屏） */}
-          <IconButton
-            label={portrait ? t('player.exitPortrait') : t('player.portrait')}
-            onClick={togglePortrait}
-          >
-            {portrait ? (
-              <RectangleHorizontal className="size-4" />
-            ) : (
-              <RectangleVertical className="size-4" />
-            )}
+              在小屏）；竖屏中的控件是 MiniScreenControls 竖屏形态，所以
+              这里只做「进入」入口 */}
+          <IconButton label={t('player.portrait')} onClick={onEnterPortrait}>
+            <RectangleVertical className="size-4" />
           </IconButton>
 
-          {/* 全屏键在竖屏中让位给「铺满」切换（hgplayer wu：portrait 时
-              全屏语义收编为 portraitFull 切换，Esc 退铺满回竖条） */}
-          <IconButton
-            label={
-              portrait
-                ? portraitFull
-                  ? t('player.exitPortraitFill')
-                  : t('player.portraitFill')
-                : t('player.fullscreen')
-            }
-            onClick={portrait ? togglePortraitFull : toggleFullscreen}
-          >
-            {portrait ? (
-              portraitFull ? (
-                <Minimize className="size-4" />
-              ) : (
-                <Maximize className="size-4" />
-              )
-            ) : fullscreen ? (
-              <Minimize className="size-4" />
-            ) : (
-              <Maximize className="size-4" />
-            )}
+          <IconButton label={t('player.fullscreen')} onClick={toggleFullscreen}>
+            {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
           </IconButton>
         </div>
       </div>
