@@ -71,10 +71,14 @@ fn parse_history(data: Option<&Value>) -> AppResult<WatchHistoryPage> {
             series_id,
             title: str_field(raw, "book_name"),
             cover: str_field(raw, "thumb_url"),
+            // 线上 vid_index 统一 0 基（官方 App / hgplayer / 我们对齐后
+            // 的写入都是），+1 转回领域值（前端/本地存储 1 基）
             vid_index: raw
                 .get("vid_index")
                 .and_then(Value::as_i64)
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .max(0)
+                + 1,
             vid: raw
                 .get("vid_str")
                 .and_then(Value::as_str)
@@ -118,6 +122,14 @@ fn num_to_string(v: &Value) -> String {
     }
 }
 
+/// vid_index 基准换算：领域值（前端 / 本地存储）一律 **1 基**，官方线上
+/// 协议（read_history/update、read_progress/upload，含删除形态）一律
+/// **0 基**——抓包实锤第 1 集 vid_index=0。曾把 1 基值直发线上，跨端
+/// 续播差一集（2026-10-17 实锤官方会话记录后定位），写侧统一在此换算。
+fn wire_vid_index(domain: i64) -> i64 {
+    (domain - 1).max(0)
+}
+
 /// 批量删除云端观看历史（2026-10-11 逆向 hgplayer 1.1.8 delete.go 逐字段锁定）：
 /// 复用 `read_history/update`，每条带 `is_delete=true + use_soft_delete=true`，
 /// 其余进度字段全零（官方删除样本形态）。响应 `update_fail_datas` 非空 =
@@ -156,7 +168,7 @@ pub async fn delete_watch_history(items: &[(String, String, i64)], env: &ApiEnv)
                 "user_digg": false,
                 "user_playlet_comment_flag": false,
                 "vid": str_or_num(vid),
-                "vid_index": vid_index,
+                "vid_index": wire_vid_index(*vid_index),
             })
         })
         .collect();
@@ -189,6 +201,7 @@ pub async fn delete_watch_history(items: &[(String, String, i64)], env: &ApiEnv)
 /// **数字**，upload 里 book_id/item_id 是**字符串**；duration/retain 等
 /// hgplayer 传 0 的字段保持 0。`player_accumulate_total_time` 官方样本里
 /// 等于当时进度，这里同用 position_ms 承载（我们未单独累计观看时长）。
+/// `vid_index` 收领域值（1 基，前端/本地存储原样传入），线上按 0 基发送。
 pub async fn report_watch_progress(
     series_id: &str,
     vid: &str,
@@ -226,7 +239,7 @@ pub async fn report_watch_progress(
             "user_digg": false,
             "user_playlet_comment_flag": false,
             "vid": vid_num,
-            "vid_index": vid_index,
+            "vid_index": wire_vid_index(vid_index),
         }],
     });
     let upload_body = serde_json::json!({
@@ -248,7 +261,7 @@ pub async fn report_watch_progress(
             "progress_type": 0,
             "read_timestamp_ms": now,
             "tone_id": 0,
-            "vid_index": vid_index,
+            "vid_index": wire_vid_index(vid_index),
         }],
     });
 
@@ -302,6 +315,35 @@ fn check_update_fails(v: &Value) -> AppResult<()> {
             fails.len()
         ))),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 基准换算：领域 1 基 ↔ 线上 0 基；0/负值钳 0（不发负数下标）。
+    #[test]
+    fn wire_vid_index_converts_domain_to_zero_based() {
+        assert_eq!(wire_vid_index(1), 0, "第 1 集 → 线上 0");
+        assert_eq!(wire_vid_index(8), 7);
+        assert_eq!(wire_vid_index(0), 0, "0/负值护栏");
+        assert_eq!(wire_vid_index(-3), 0);
+    }
+
+    /// 云端行读取：线上 0 基 +1 转领域值；缺席/负值按第 1 集兜底。
+    #[test]
+    fn parse_history_maps_zero_based_wire() {
+        let data = serde_json::json!({
+            "data_list": [
+                { "book_id_str": "111", "vid_index": 0, "current_play_position": 35000 },
+                { "book_id_str": "222", "vid_index": 7 },
+                { "book_id": 333 }
+            ]
+        });
+        let page = parse_history(Some(&data)).unwrap();
+        let vis: Vec<i64> = page.items.iter().map(|i| i.vid_index).collect();
+        assert_eq!(vis, [1, 8, 1], "线上 0→第1集、7→第8集、缺席→第1集");
     }
 }
 

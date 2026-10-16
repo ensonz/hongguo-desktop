@@ -865,7 +865,11 @@ JSON **数字**（精度内直接发数字）：
 - hgplayer 传 0 的字段（duration/retain/episode_cnt 等）照抄 0；
   `player_accumulate_total_time` 样本里等于当时进度，我们同用 position_ms
 - 我们实现：`history.rs report_watch_progress` 一次打双接口，前端
-  persist 节流（~1 分钟 + 切集/退出），匿名后端静默跳过
+  persist 节流（~1 分钟 + 切集/退出），匿名后端静默跳过。
+  ⚠️ **vid_index 基准（2026-10-17 定）**：线上协议是 **0 基**（样本
+  第 1 集 = 0），域值（前端/本地存储）是 1 基——写侧统一 -1 换算
+  （`wire_vid_index`，删除形态同源），读侧 +1 转回。曾把 1 基直发
+  线上，与官方/hgplayer 会话混存后跨端续播差一集
 
 ### 9.5 互动状态列表 `GET /reading/ugc/action/mget/v`
 

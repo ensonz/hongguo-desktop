@@ -11,6 +11,7 @@ import {
   useBookshelf,
   useFeed,
   useFeedTabs,
+  useLocalHistory,
   usePrefetchSeriesEpisodes,
   useSeriesEpisodes,
   useSeriesProgress,
@@ -103,11 +104,19 @@ export function HomePage() {
   /** 回首页恢复是否已尝试（一次性；见下方渲染期恢复块）。 */
   const [restored, setRestored] = useState(false);
 
-  // 登录后的「你的内容」种子：云端观看历史 + 书架（追更）排在推荐流最前
+  // 登录后的「你的内容」种子：观看历史 + 书架（追更）排在推荐流最前
   // ——同一个号打开就是你的剧，对齐第三方（它的首页就是书架/续看驱动）。
-  // 历史/书架条目没有横版封面，标题等 currentSeries 解析出来自然显示；
-  // 未登录时种子为空，行为与从前一致。
+  // 历史/书架条目没有横版封面，标题等 currentSeries 解析出来自然显示。
   const { data: account } = useAccount();
+  // 历史源双模式（与历史页同款判定）：登录读云端（跨端续播），匿名读
+  // 本地记录。云端接口匿名也不报错，会回设备级历史行——那是匿名期快速
+  // 测试留下的 vi=0/pos=0 垃圾，拿它当续播依据就是「每次都回第 1 集」
+  // 的根源；本应用的真进度在本地历史/播放档案里。
+  const loggedIn = !!account;
+  const cloudHistory = useWatchHistory(loggedIn);
+  const localHistory = useLocalHistory(!loggedIn);
+  const historyItems = loggedIn ? cloudHistory.data?.items : localHistory.data;
+  const historyPending = loggedIn ? cloudHistory.isPending : localHistory.isPending;
   // 顶栏 tab 列表（服务端下发；拉取前/失败回落三件套，见 buildTabList）
   const { data: serverTabs } = useFeedTabs();
   const homeTabs = useMemo(() => buildTabList(serverTabs), [serverTabs]);
@@ -124,13 +133,11 @@ export function HomePage() {
       // 存不进只影响下次启动
     }
   }
-  const { data: history, isPending: historyPending } = useWatchHistory();
   const { data: bookshelf } = useBookshelf();
   const seedItems = useMemo<StreamItem[]>(() => {
-    if (!account) return [];
     const seen = new Set<string>();
     const out: StreamItem[] = [];
-    for (const h of history?.items ?? []) {
+    for (const h of historyItems ?? []) {
       if (!h.seriesId || seen.has(h.seriesId)) continue;
       seen.add(h.seriesId);
       out.push({ seriesId: h.seriesId, title: h.title, cover: h.cover, horizCover: '' });
@@ -141,7 +148,7 @@ export function HomePage() {
       out.push({ seriesId: b.seriesId, title: '', cover: '', horizCover: '' });
     }
     return out;
-  }, [account, history, bookshelf]);
+  }, [historyItems, bookshelf]);
 
   // 三 tab 同一数据面，统一成 StreamItem[]。
   // useMemo 稳定身份：数组每渲染新建会让依赖它的 effect/哨兵反复重跑。
@@ -294,11 +301,11 @@ export function HomePage() {
     if (playingId === currentSeries.seriesId) return;
     if (progressQuery.isPending || historyPending) return;
 
-    // >3 秒都续播（不看片尾）：本地档案优先，云端历史兜底（共享决策，
+    // >3 秒都续播（不看片尾）：本地档案优先，观看历史兜底（共享决策，
     // 与详情页「继续看」/后端 resolve_entry 同口径）
     const entry = resolveResumeEntry(
       localProgress,
-      history?.items.find((i) => i.seriesId === currentSeries.seriesId),
+      historyItems?.find((i) => i.seriesId === currentSeries.seriesId),
     );
 
     setTarget(currentSeries.seriesId, entry?.index ?? 1);
@@ -314,7 +321,7 @@ export function HomePage() {
     playingId,
     localProgress,
     progressQuery.isPending,
-    history,
+    historyItems,
     historyPending,
     setTarget,
     setResumeHint,

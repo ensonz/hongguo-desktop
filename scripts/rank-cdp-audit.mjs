@@ -143,9 +143,7 @@ function diffSeq(dom, ref) {
   const n = Math.max(dom.length, ref.length);
   for (let i = 0; i < n; i++) {
     if (dom[i] !== ref[i]) {
-      problems.push(
-        `第${i + 1}位不一致 DOM="${dom[i] ?? '<缺>'}" API="${ref[i] ?? '<缺>'}"`,
-      );
+      problems.push(`第${i + 1}位不一致 DOM="${dom[i] ?? '<缺>'}" API="${ref[i] ?? '<缺>'}"`);
       if (problems.length >= 5) break;
     }
   }
@@ -225,13 +223,17 @@ for (const { tab, sub } of contexts) {
           `轮换噪声 DOM 条数与单次参照差 ${Math.abs(domTitles.length - ref.titles.length)}`,
       );
       if (outside.length > 0) {
-        console.log(`   WARN ${outside.length} 条不在参照并集（池子轮换新面孔）: ${outside.slice(0, 3).join(' / ')}`);
+        console.log(
+          `   WARN ${outside.length} 条不在参照并集（池子轮换新面孔）: ${outside.slice(0, 3).join(' / ')}`,
+        );
       }
     } else {
       failed++;
       console.log(`FAIL ${label}:`);
       if (dupTitles.length > 0)
-        console.log(`   - 重复 ${dupTitles.length} 条: ${[...new Set(dupTitles)].slice(0, 3).join(' / ')}`);
+        console.log(
+          `   - 重复 ${dupTitles.length} 条: ${[...new Set(dupTitles)].slice(0, 3).join(' / ')}`,
+        );
       for (const b of rankBreaks) console.log(`   - ${b}`);
     }
   } catch (e) {
