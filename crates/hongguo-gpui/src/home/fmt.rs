@@ -80,10 +80,11 @@ pub(crate) fn relative_time(ts_ms: i64) -> String {
 }
 
 impl super::HomeView {
-    /// `m:ss`（与 Tauri 版时间格式一致）。
+    /// `mm:ss`（分钟补零，Tauri `formatDuration` 同款——「00:05」不显「0:05」，
+    /// 读数宽度随进度稳定不抖）。
     pub(super) fn fmt_secs(secs: f64) -> String {
         let s = secs.max(0.0) as u64;
-        format!("{}:{:02}", s / 60, s % 60)
+        format!("{:02}:{:02}", s / 60, s % 60)
     }
 
     /// 倍速按钮文案：整数不带小数点（1x / 1.5x / 0.75x）。

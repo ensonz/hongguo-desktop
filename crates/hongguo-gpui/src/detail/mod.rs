@@ -22,15 +22,16 @@ mod tabs;
 
 use std::sync::Arc;
 
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::v_flex;
-use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::*;
 use gpui_kit::{App, RenderImage, div};
 use hongguo_api::danmaku::CommentItem;
 use hongguo_api::detail::RelatedSeries;
 use hongguo_api::interact::InteractionItem;
-use hongguo_common::model::Series;use hongguo_service::app_state::AppStateInner;
+use hongguo_common::model::Series;
+use hongguo_service::app_state::AppStateInner;
 
 use crate::bridge;
 use crate::cover_img;
@@ -183,7 +184,8 @@ impl DetailView {
             let (series, upcoming) = match cached {
                 Some(s) => (s, false),
                 None => {
-                    match hongguo_service::series_service::resolver::resolve_series(&sid, &env).await
+                    match hongguo_service::series_service::resolver::resolve_series(&sid, &env)
+                        .await
                     {
                         Ok(s) => {
                             state.store.upsert_series(&s)?;

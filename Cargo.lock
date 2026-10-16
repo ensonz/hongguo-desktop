@@ -3393,6 +3393,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "global-hotkey"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c386b0a4a70cb2d39fffd74480f985b6f0bfbcb934b6a6b6b7e630e448f242e"
+dependencies = [
+ "crossbeam-channel",
+ "keyboard-types 0.7.0",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "once_cell",
+ "serde",
+ "thiserror 2.0.21",
+ "windows-sys 0.59.0",
+ "x11rb",
+ "xkeysym",
+]
+
+[[package]]
 name = "globset"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4325,7 +4343,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-api"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "aes 0.9.3",
  "chrono",
@@ -4345,7 +4363,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-common"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "dirs 7.0.0",
@@ -4357,7 +4375,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-desktop"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "hongguo-tauri",
  "serde_json",
@@ -4373,7 +4391,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-gpui"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4407,7 +4425,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-media"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "hongguo-common",
  "hongguo-video",
@@ -4423,7 +4441,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-media-platform"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "hongguo-common",
  "hongguo-media",
@@ -4438,7 +4456,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-media-platform-api"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "core-video",
  "hongguo-common",
@@ -4446,7 +4464,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-media-platform-macos"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "core-foundation 0.10.0",
  "core-video",
@@ -4462,7 +4480,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-media-platform-windows"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "hongguo-common",
  "hongguo-media",
@@ -4476,7 +4494,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-playback"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "cpal",
  "hongguo-common",
@@ -4492,7 +4510,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-protocol"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "hongguo-common",
@@ -4508,7 +4526,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-service"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4533,7 +4551,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-signer"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -4547,7 +4565,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-store"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "dirs 7.0.0",
@@ -4563,7 +4581,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-stream"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "hongguo-common",
  "hongguo-video",
@@ -4573,7 +4591,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-tauri"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "env_logger",
@@ -4595,6 +4613,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
@@ -4605,7 +4624,7 @@ dependencies = [
 
 [[package]]
 name = "hongguo-video"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "aes 0.9.3",
  "base64 0.23.1",
@@ -5469,6 +5488,17 @@ dependencies = [
 
 [[package]]
 name = "keyboard-types"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b750dcadc39a09dbadd74e118f6dd6598df77fa01df0cfcdc52c28dece74528a"
+dependencies = [
+ "bitflags 2.13.2",
+ "serde",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "keyboard-types"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
@@ -6114,7 +6144,7 @@ dependencies = [
  "crossbeam-channel",
  "dpi",
  "gtk",
- "keyboard-types",
+ "keyboard-types 0.8.3",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
@@ -9962,6 +9992,21 @@ dependencies = [
  "thiserror 2.0.21",
  "toml 1.1.7+spec-1.1.0",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-global-shortcut"
+version = "2.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93ff17919fe09852d269bd37b1d3d2e993b9dbb514afe7acbf3346c1d3627e2d"
+dependencies = [
+ "global-hotkey",
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -2,9 +2,9 @@
 //!
 //! 卡片：账户（登录态/退出）/ 下载目录（可选目录）/ 命名与并发 / 网络代理
 //! （含测试连接）/ 播放（三开关 + 转码后端探测 + ffmpeg 指引）/ 存储
-//! （占用与缓存清理）/ 更新（版本展示）/ 保存。草稿语义同 Tauri：改过才
-//! 进草稿，保存成功丢草稿回「跟随服务端」。保存与探测走 service
-//! （`settings_service::save`、`storage_service`、`capability::probe`），
+//! （缓存目录 + 占用与缓存清理）/ 更新（版本展示）/ 保存。草稿语义同
+//! Tauri：改过才进草稿，保存成功丢草稿回「跟随服务端」。保存与探测走
+//! service（`settings_service::save`、`storage_service`、`capability::probe`），
 //! 与 Tauri 的 settings/transcode command 同一段。
 
 use std::sync::Arc;
@@ -23,9 +23,7 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Disableable, Sizable, WindowExt};
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    App, ClipboardItem, Entity, RenderImage, SharedString, Window, div,
-};
+use gpui_kit::{App, ClipboardItem, Entity, RenderImage, SharedString, Window, div};
 use hongguo_common::model::settings::{NamingTemplate, ProxyMode};
 use hongguo_common::model::{AccountState, ProxyTestResult, Settings};
 use hongguo_media_platform::capability::probe::DecodeCapability;
@@ -119,10 +117,12 @@ pub(crate) struct SettingsView {
     /// 草稿（None = 未修改，跟随服务端值）。
     draft: Option<Settings>,
     dir_input: Entity<InputState>,
+    cache_dir_input: Entity<InputState>,
     proxy_input: Entity<InputState>,
     naming_select: Entity<SelectState<SearchableVec<SharedString>>>,
     proxy_select: Entity<SelectState<SearchableVec<SharedString>>>,
     concurrency: Entity<SliderState>,
+    prefetch: Entity<SliderState>,
     capability: Option<DecodeCapability>,
     redetecting: bool,
     redetect_done: bool,
@@ -180,6 +180,8 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) -> Self {
         let dir_input = cx.new(|cx| InputState::new(window, cx));
+        let cache_dir_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("留空跟随数据目录"));
         let proxy_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("http://127.0.0.1:7890"));
         let naming_select = cx.new(|cx| {
@@ -208,15 +210,26 @@ impl SettingsView {
                 cx,
             )
         });
-        let concurrency =
-            cx.new(|_| SliderState::new().min(1.).max(10.).step(1.).default_value(3.));
+        let concurrency = cx.new(|_| {
+            SliderState::new()
+                .min(1.)
+                .max(10.)
+                .step(1.)
+                .default_value(3.)
+        });
+        let prefetch = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(3.)
+                .step(1.)
+                .default_value(1.)
+        });
         cx.subscribe_in(
             &naming_select,
             window,
             |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event
-                    && let Some(ix) =
-                        NAMING_LABELS.iter().position(|l| *l == value.as_str())
+                    && let Some(ix) = NAMING_LABELS.iter().position(|l| *l == value.as_str())
                 {
                     this.patch(cx, |s| s.naming = naming_from_index(ix));
                 }
@@ -228,8 +241,7 @@ impl SettingsView {
             window,
             |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event
-                    && let Some(ix) =
-                        PROXY_LABELS.iter().position(|l| *l == value.as_str())
+                    && let Some(ix) = PROXY_LABELS.iter().position(|l| *l == value.as_str())
                 {
                     this.patch(cx, |s| s.proxy.mode = proxy_from_index(ix));
                 }
@@ -248,16 +260,26 @@ impl SettingsView {
             },
         )
         .detach();
+        cx.subscribe_in(&prefetch, window, |this, _, event: &SliderEvent, _, cx| {
+            let SliderEvent::Change(value) = event else {
+                return;
+            };
+            let n = value.start().round().clamp(0.0, 3.0) as u32;
+            this.patch(cx, |s| s.prefetch_episodes = n);
+        })
+        .detach();
         Self {
             state,
             loaded: false,
             loading: false,
             draft: None,
             dir_input,
+            cache_dir_input,
             proxy_input,
             naming_select,
             proxy_select,
             concurrency,
+            prefetch,
             capability: None,
             redetecting: false,
             redetect_done: false,
@@ -275,9 +297,7 @@ impl SettingsView {
     }
 
     fn current(&self) -> Settings {
-        self.draft
-            .clone()
-            .unwrap_or_else(|| self.state.settings())
+        self.draft.clone().unwrap_or_else(|| self.state.settings())
     }
 
     fn patch(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Settings)) {
@@ -313,15 +333,17 @@ impl SettingsView {
                 view.cache_usage = Some(cache_usage);
                 view.capability = Some(capability);
                 // 快捷键映射从偏好文件带上（与播放器同一份）
-                let prefs_path = hongguo_store::paths::data_dir()
-                    .join(crate::playback_prefs::FILE_NAME);
-                view.shortcut_keys =
-                    crate::playback_prefs::load_from(&prefs_path).keys;
+                let prefs_path =
+                    hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
+                view.shortcut_keys = crate::playback_prefs::load_from(&prefs_path).keys;
                 // 表单初值跟随服务端
                 let settings = view.state.settings();
                 let dir = settings.download_dir.clone();
                 view.dir_input
                     .update(cx, |input, cx| input.set_value(dir, window, cx));
+                let cache_dir = settings.cache_dir.clone();
+                view.cache_dir_input
+                    .update(cx, |input, cx| input.set_value(cache_dir, window, cx));
                 let url = settings.proxy.url.clone();
                 view.proxy_input
                     .update(cx, |input, cx| input.set_value(url, window, cx));
@@ -336,6 +358,9 @@ impl SettingsView {
                 let concurrency = settings.max_concurrency as f32;
                 view.concurrency
                     .update(cx, |state, cx| state.set_value(concurrency, window, cx));
+                let prefetch = settings.prefetch_episodes as f32;
+                view.prefetch
+                    .update(cx, |state, cx| state.set_value(prefetch, window, cx));
                 if let Some(account) = &settings.account
                     && !account.avatar_url.is_empty()
                 {
@@ -355,8 +380,9 @@ impl SettingsView {
                 if let Ok(bytes) = bytes
                     && let Ok(decoded) = image::load_from_memory(&bytes)
                 {
-                    view.account_avatar =
-                        Some(Arc::new(crate::image_upload::render_image(decoded.to_rgba8())));
+                    view.account_avatar = Some(Arc::new(crate::image_upload::render_image(
+                        decoded.to_rgba8(),
+                    )));
                     cx.notify();
                 }
             });
@@ -382,6 +408,31 @@ impl SettingsView {
                         .update(cx, |input, cx| input.set_value(text, window, cx));
                     let text = view.dir_input.read(cx).value().to_string();
                     view.patch(cx, |s| s.download_dir = text);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// 选缓存目录：与下载目录同流程，写进 cache_dir_input（空 = 跟随数据目录）。
+    fn pick_cache_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(gpui_kit::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("选择缓存目录".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = rx.await;
+            let _ = this.update_in(cx, |view, window, cx| {
+                if let Ok(Ok(Some(paths))) = result
+                    && let Some(path) = paths.first()
+                {
+                    let text = path.to_string_lossy().to_string();
+                    view.cache_dir_input
+                        .update(cx, |input, cx| input.set_value(text, window, cx));
+                    let text = view.cache_dir_input.read(cx).value().to_string();
+                    view.patch(cx, |s| s.cache_dir = text);
                 }
             });
         })
@@ -423,8 +474,7 @@ impl SettingsView {
                     }
                     Err(e) => {
                         log::warn!("[Settings] 代理测试失败: {e}");
-                        window
-                            .push_notification(Notification::error(format!("连接失败：{e}")), cx);
+                        window.push_notification(Notification::error(format!("连接失败：{e}")), cx);
                     }
                 }
                 cx.notify();
@@ -492,6 +542,7 @@ impl SettingsView {
         }
         let mut next = self.current();
         next.download_dir = self.dir_input.read(cx).value().trim().to_string();
+        next.cache_dir = self.cache_dir_input.read(cx).value().trim().to_string();
         if next.proxy.mode == ProxyMode::Manual {
             next.proxy.url = self.proxy_input.read(cx).value().trim().to_string();
         }
@@ -505,12 +556,18 @@ impl SettingsView {
                 let dir = saved.download_dir.clone();
                 self.dir_input
                     .update(cx, |input, cx| input.set_value(dir, window, cx));
+                let cache_dir = saved.cache_dir.clone();
+                self.cache_dir_input
+                    .update(cx, |input, cx| input.set_value(cache_dir, window, cx));
                 let url = saved.proxy.url.clone();
                 self.proxy_input
                     .update(cx, |input, cx| input.set_value(url, window, cx));
                 let concurrency = saved.max_concurrency as f32;
                 self.concurrency
                     .update(cx, |state, cx| state.set_value(concurrency, window, cx));
+                let prefetch = saved.prefetch_episodes as f32;
+                self.prefetch
+                    .update(cx, |state, cx| state.set_value(prefetch, window, cx));
             }
             Err(e) => {
                 log::warn!("[Settings] 保存失败: {e}");
@@ -592,10 +649,7 @@ impl SettingsView {
             .find(|a| **a != action && a.get(&self.shortcut_keys) == key)
         {
             window.push_notification(
-                Notification::error(format!(
-                    "「{}」已被其他动作占用",
-                    shortcut_key_label(&key)
-                )),
+                Notification::error(format!("「{}」已被其他动作占用", shortcut_key_label(&key))),
                 cx,
             );
             // 冲突时保留捕获态（换一个键再试），与 Tauri 的「当场拦截」同效
@@ -615,8 +669,7 @@ impl SettingsView {
         let keys = self.shortcut_keys.clone();
         crate::bridge::spawn(async move {
             tokio::task::spawn_blocking(move || {
-                let path = hongguo_store::paths::data_dir()
-                    .join(crate::playback_prefs::FILE_NAME);
+                let path = hongguo_store::paths::data_dir().join(crate::playback_prefs::FILE_NAME);
                 let mut prefs = crate::playback_prefs::load_from(&path);
                 prefs.keys = keys;
                 crate::playback_prefs::save_to(&path, &prefs);
@@ -647,13 +700,10 @@ impl SettingsView {
                             .ghost()
                             .small()
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.shortcut_keys =
-                                    crate::playback_prefs::ShortcutKeys::default();
+                                this.shortcut_keys = crate::playback_prefs::ShortcutKeys::default();
                                 this.capturing = None;
                                 this.persist_shortcut_keys(cx);
-                                cx.emit(SettingsEvent::ShortcutKeys(
-                                    this.shortcut_keys.clone(),
-                                ));
+                                cx.emit(SettingsEvent::ShortcutKeys(this.shortcut_keys.clone()));
                                 cx.notify();
                             })),
                     ),
@@ -736,12 +786,12 @@ impl SettingsView {
                         .items_center()
                         .gap_3()
                         .child(match &self.account_avatar {
-                            Some(bitmap) => gpui_kit::img(gpui_kit::ImageSource::Render(
-                                Arc::clone(bitmap),
-                            ))
-                            .size_8()
-                            .rounded_full()
-                            .into_any_element(),
+                            Some(bitmap) => {
+                                gpui_kit::img(gpui_kit::ImageSource::Render(Arc::clone(bitmap)))
+                                    .size_8()
+                                    .rounded_full()
+                                    .into_any_element()
+                            }
                             None => div()
                                 .size_8()
                                 .rounded_full()
@@ -857,6 +907,22 @@ impl SettingsView {
                             .child("1–10，保存后立即生效"),
                     ),
             )
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(Label::new(format!(
+                        "连播预取集数 — {}（0=关闭）",
+                        current.prefetch_episodes
+                    )))
+                    .child(Slider::new(&self.prefetch))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("起播后自动向后预载接下来几集，切集不用等"),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -871,7 +937,9 @@ impl SettingsView {
                     .child("网络代理"),
             )
             .child(Select::new(&self.proxy_select).w_full())
-            .children((current.proxy.mode == ProxyMode::Manual).then(|| Input::new(&self.proxy_input)))
+            .children(
+                (current.proxy.mode == ProxyMode::Manual).then(|| Input::new(&self.proxy_input)),
+            )
             .child(
                 h_flex()
                     .items_center()
@@ -1036,6 +1104,35 @@ impl SettingsView {
                     .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                     .child("磁盘占用"),
             )
+            // 缓存目录：空 = 跟随数据目录。保存即时生效于新写入，旧目录残留
+            // 不迁移——与下载目录同语义（Tauri 设置页存储卡同款位置同款文案）
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(Label::new("缓存目录"))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .child(div().flex_1().child(Input::new(&self.cache_dir_input)))
+                            .child(
+                                Button::new("settings-pick-cache-dir")
+                                    .icon(gpui_kit::assets::IconName::FolderOpen)
+                                    .label("选择目录")
+                                    .outline()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.pick_cache_dir(window, cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("转码与封面缓存的存放位置，留空跟随数据目录。保存后新缓存写入新目录；已生成的旧缓存不迁移，可在原目录手动清理。"),
+                    ),
+            )
             .child(div().text_sm().child(SharedString::from(usage_line)))
             .child(
                 h_flex()
@@ -1142,6 +1239,9 @@ impl SettingsView {
         let dir = settings.download_dir.clone();
         self.dir_input
             .update(cx, |input, cx| input.set_value(dir, window, cx));
+        let cache_dir = settings.cache_dir.clone();
+        self.cache_dir_input
+            .update(cx, |input, cx| input.set_value(cache_dir, window, cx));
         let url = settings.proxy.url.clone();
         self.proxy_input
             .update(cx, |input, cx| input.set_value(url, window, cx));
@@ -1210,11 +1310,13 @@ impl gpui_kit::Render for SettingsView {
             // 捕获态键盘归属：焦点锚在根元素上，捕获中接管按键
             .track_focus(&self.keys_focus)
             .key_context("SettingsKeys")
-            .on_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
-                if this.capturing.is_some() {
-                    this.on_capture_key(ev, window, cx);
-                }
-            }))
+            .on_key_down(
+                cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                    if this.capturing.is_some() {
+                        this.on_capture_key(ev, window, cx);
+                    }
+                }),
+            )
             .child(body)
     }
 }

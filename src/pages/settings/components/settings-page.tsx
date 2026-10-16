@@ -27,11 +27,13 @@ import {
 import { app as appApi } from '@/service/commands';
 import { formatBytes } from '@/utils/format';
 import { isMac } from '@/utils/platform';
+import { useShortcutsStore } from '@/stores/shortcuts';
 import { t, tf } from '@/locales';
 import type { DecodeCapability, Settings } from '@/service/schema';
 import { UpdateCard } from '@/features/update/update-card';
 import { AccountCard } from './account-card';
 import { ShortcutCard } from './shortcut-card';
+import { BossKeyCard, resolveBossKeyConflicts } from './boss-key-card';
 import { ToggleRow } from './toggle-row';
 
 /** ffmpeg 安装路径随平台：Windows 走 winget + gyan 构建，macOS 走
@@ -50,6 +52,8 @@ export function SettingsPage() {
   const { data: cacheUsage } = useCacheUsage();
   const clearCache = useCacheClear();
   const testProxyMutation = useTestProxy();
+  // 播放器快捷键（老板键冲突检测的比对源；与播放器同一份 store）
+  const shortcutKeys = useShortcutsStore((s) => s.keys);
 
   // 草稿为 null 表示「未修改」，直接用服务端值派生，避免 effect 同步引发级联渲染
   const [draft, setDraft] = useState<Partial<Settings> | null>(null);
@@ -62,6 +66,12 @@ export function SettingsPage() {
   // 合并草稿与服务端值
   const current: Settings = { ...loaded, ...(draft ?? {}) };
   const effectiveProxyUrl = proxyUrl ?? current.proxy.url;
+  // 老板键 vs 播放器快捷键冲突（全局组合在应用内按下会同时触发两者）
+  const bossConflicts = resolveBossKeyConflicts(
+    current.bossKey,
+    shortcutKeys,
+    t('settings.keySpace'),
+  );
 
   const patch = (next: Partial<Settings>) => setDraft((prev) => ({ ...(prev ?? {}), ...next }));
   const patchProxy = (next: Partial<Settings['proxy']>) =>
@@ -72,7 +82,18 @@ export function SettingsPage() {
     if (picked) patch({ downloadDir: picked });
   };
 
+  const chooseCacheDir = async () => {
+    const picked = await appApi.selectFolder().catch(() => null);
+    if (picked) patch({ cacheDir: picked });
+  };
+
   const submit = () => {
+    if (bossConflicts.length > 0) {
+      // 冲突不拦截其他设置的保存意图，但老板键这档必须先改：全局组合
+      // 在应用内会同时触发播放器动作，存了就是坏状态
+      toast.error(t('settings.bossKeyConflictBlock'));
+      return;
+    }
     saveMutation.mutate(
       { ...current, proxy: { ...current.proxy, url: effectiveProxyUrl } },
       {
@@ -236,6 +257,28 @@ export function SettingsPage() {
             onChange={(v) => patch({ pauseOnMinimize: v })}
           />
 
+          {/* 连播预取集数（issue #6）：0=关闭；保存即生效于下一次起播 */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="prefetch-episodes">
+              {t('settings.prefetchEpisodes')} —{' '}
+              {current.prefetchEpisodes === 0
+                ? t('settings.prefetchOff')
+                : current.prefetchEpisodes}
+            </Label>
+            <Input
+              id="prefetch-episodes"
+              type="range"
+              min={0}
+              max={3}
+              step={1}
+              value={current.prefetchEpisodes}
+              onChange={(e) => patch({ prefetchEpisodes: Number(e.target.value) })}
+            />
+            <p className="text-muted-foreground text-xs">{t('settings.prefetchEpisodesDesc')}</p>
+          </div>
+
+          {/* 老板键已独立成卡（全局快捷键 ≠ 播放器快捷键），见 BossKeyCard */}
+
           <div className="bg-muted/50 flex flex-wrap items-center gap-2 rounded-md p-3 text-sm">
             <Cpu className="text-muted-foreground size-4" />
             <span>{t('settings.transcodeBackend')}</span>
@@ -314,12 +357,39 @@ export function SettingsPage() {
       {/* 快捷键（前端偏好，立即生效不走保存按钮） */}
       <ShortcutCard />
 
+      {/* 老板键（全局快捷键，issue #4）：与播放器快捷键分卡展示并做冲突
+          检测——全局组合在应用内按下会同时触发播放器动作 */}
+      <BossKeyCard
+        bossKey={current.bossKey}
+        conflicts={resolveBossKeyConflicts(current.bossKey, shortcutKeys, t('settings.keySpace'))}
+        onChange={(v) => patch({ bossKey: v })}
+      />
+
       {/* 存储 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t('settings.storage')}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
+          {/* 缓存目录：空 = 跟随数据目录。保存即时生效于新写入，旧目录残留
+              不迁移——与下载目录同语义，文案里说清免得用户以为搬走了。 */}
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="cache-dir">{t('settings.cacheDir')}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="cache-dir"
+                value={current.cacheDir}
+                placeholder={t('settings.cacheDirPlaceholder')}
+                onChange={(e) => patch({ cacheDir: e.target.value })}
+                className="font-mono text-xs"
+              />
+              <Button variant="outline" onClick={() => void chooseCacheDir()}>
+                <FolderOpen className="size-4" />
+                {t('settings.choose')}
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">{t('settings.cacheDirDesc')}</p>
+          </div>
           <p className="text-sm tabular-nums">
             {usage
               ? tf('settings.storageUsage', { size: formatBytes(usage.bytes), files: usage.files })

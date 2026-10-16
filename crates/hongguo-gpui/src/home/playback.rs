@@ -1,9 +1,8 @@
 //! 播放编排：起播链（档案 → 起点决策 → prepare → 引擎 open）、滚轮/连播
 //! 切换、切清晰度、自动连播、进度落盘与流/档案预取。
 
-#[cfg(target_os = "windows")]
-use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
@@ -63,12 +62,85 @@ impl super::HomeView {
         }
     }
 
-    /// 手动重试（起播失败卡的「重试」按钮）：重走当前游标位的起播链
-    ///（集号/起点重新走起点决策）。
+    /// 手动重试（失败卡的「重试」按钮）：起播失败重走当前游标位的起播链
+    ///（集号/起点重新走起点决策）；播放中失败（引擎自停、now 就是失败的
+    /// 那部）则同集重播——play_target 的同剧早退只拦 forced_next_ep=None
+    /// 的路径，带集号才能重进去。
     pub(super) fn retry_play(&mut self, cx: &mut Context<Self>) {
-        if let Some(item) = self.display_items().get(self.cursor()).cloned() {
+        let cursor_item = self.display_items().get(self.cursor()).cloned();
+        if let (Some(now), Some(item)) = (self.now.clone(), cursor_item.as_ref())
+            && now.series_id == item.series_id
+        {
+            self.play_target(item.clone(), Some(now.vid_index), None, cx);
+            return;
+        }
+        if let Some(item) = cursor_item {
             self.play_target(item, None, None, cx);
         }
+    }
+
+    /// 离开首页的卸载清理（Tauri 路由切换 = 组件卸载的同语义）：强落进度、
+    /// 释放引擎、收起浮层。HomeView 实体常驻带来「信息流/游标/封面缓存不
+    /// 丢」，但 Tauri 卸载免费提供的停播面必须在这里补齐——不然解码、
+    /// 声音、自动连播、5 秒落盘在切走后照常跑（切菜单还在播的根源）。
+    /// 回流态不动：回首页由 [`Self::resume_if_idle`] 从落盘进度接上。
+    pub(crate) fn release_for_leave(&mut self, cx: &mut Context<Self>) {
+        if self.player.is_none() {
+            return;
+        }
+        // 先落进度再放引擎：读数来自句柄，Drop 之后就是 0 了
+        self.save_progress_now();
+        // 陈旧事件与在途起播任务按纪元弃置；句柄 Drop = 任务 abort、音频
+        // 设备释放、事件通道关闭（循环自灭）
+        self.epoch.fetch_add(1, Ordering::Relaxed);
+        self.player = None;
+        self.frame = None;
+        #[cfg(target_os = "windows")]
+        self.clear_frame_image();
+        self.switching = false;
+        self.buffering = false;
+        self.scrubbing = None;
+        self.silent_until_input = false;
+        self.controls_until = None;
+        self.pending_title = None;
+        self.close_overlays();
+        log::info!("[Home] 离开首页：引擎已释放，进度已落盘");
+        cx.notify();
+    }
+
+    /// 回到首页的续播（Tauri 重挂载「挂载默认开闸」同语义）：引擎不在
+    /// （被 [`Self::release_for_leave`] 释放 / 冷启动还没起）就按当前游标
+    /// 重走起点决策——`resolve_entry` 从落盘进度接上，同一部剧同一位置。
+    /// 信息流还没就位时不动，首批落定的冷启动钩子（after_feed_loaded）
+    /// 会接管。
+    pub(crate) fn resume_if_idle(&mut self, cx: &mut Context<Self>) {
+        if self.engine_ready() || self.switching {
+            return;
+        }
+        let Some(item) = self.display_items().get(self.cursor()).cloned() else {
+            return;
+        };
+        // 控制条亮一拍（Tauri 重挂载 chrome 初始可见同款）
+        self.controls_until = Some(Instant::now() + Self::CONTROLS_VISIBLE);
+        self.play_target(item, None, None, cx);
+    }
+
+    /// 收起全部浮层/弹层（卸载语义：Tauri 重挂载后一切面板都是关着的）。
+    fn close_overlays(&mut self) {
+        self.picker_open = false;
+        self.comments_panel_open = false;
+        self.downloads_open = false;
+        self.dm_panel_open = false;
+        self.danmaku_emoji_open = false;
+        self.emoji_picker_open = false;
+        self.volume_popup_open = false;
+        self.volume_hovered = false;
+        self.volume_popup_hovered = false;
+        self.rate_menu_open = false;
+        self.definition_menu_open = false;
+        self.controls_hovered = false;
+        self.pointer_on_stage = false;
+        self.reply_to = None;
     }
 
     /// 滚轮冷却裁决 + 记账：到点可切返回 true 并落章。只由滚轮路径调用    /// （键盘 ↑↓ 不吃这把锁）；换剧与连播切集共用——冷却原写在换剧分支
@@ -125,11 +197,15 @@ impl super::HomeView {
         start_override: Option<f64>,
         cx: &mut Context<Self>,
     ) {
+        // 「在播不动」闸：目标就是在播的那部才拦。引擎不在（被
+        // `release_for_leave` 释放）时不算在播——回首页续播同部剧必须
+        // 放行重走起点决策，否则从落盘进度接上的通道永远打不开。
         if self
             .now
             .as_ref()
             .is_some_and(|n| n.series_id == item.series_id)
             && forced_next_ep.is_none()
+            && (self.engine_ready() || self.switching)
         {
             return;
         }
@@ -142,7 +218,7 @@ impl super::HomeView {
                 Some(ep) => format!("连播第 {ep} 集"),
                 None => "起点决策".to_string(),
             },
-            self.epoch + 1,
+            self.epoch.load(Ordering::Relaxed) + 1,
             if item.title.is_empty() {
                 "<无标题>"
             } else {
@@ -203,21 +279,22 @@ impl super::HomeView {
         } else {
             item.title.clone()
         });
-        self.epoch += 1;
+        self.epoch.fetch_add(1, Ordering::Relaxed);
         self.load_cover_of(&item, cx);
         cx.notify();
 
         let state = Arc::clone(&self.state);
         let history = self.history.clone().unwrap_or_default();
         let (events, rx) = mpsc::channel::<PlayerEvent>(64);
-        let epoch = self.epoch;
+        let epoch = self.epoch.load(Ordering::Relaxed);
+        let epoch_shared = Arc::clone(&self.epoch);
         // 事件循环先于引擎起：Channel 关闭（引擎丢弃 → 发送端清零）即自然退出
         #[cfg(target_os = "windows")]
-        let video_target = Rc::clone(&self.video_target);
+        let video_target = Arc::clone(&self.video_target);
         #[cfg(target_os = "windows")]
-        self.spawn_event_loop(epoch, rx, video_target, cx);
+        self.spawn_event_loop(epoch, epoch_shared, rx, video_target, cx);
         #[cfg(not(target_os = "windows"))]
-        self.spawn_event_loop(epoch, rx, cx);
+        self.spawn_event_loop(epoch, epoch_shared, rx, cx);
         let done = bridge::spawn(Self::play_task(
             state,
             history,
@@ -234,7 +311,7 @@ impl super::HomeView {
             let result = done.await.expect("tokio 桥不会丢弃发送端");
             let _ = this.update(cx, |view, cx| {
                 // 陈旧任务（期间用户又切了剧）：不接管，引擎随 result 丢弃自停
-                if view.epoch != epoch {
+                if view.epoch.load(Ordering::Relaxed) != epoch {
                     return;
                 }
                 match result {
@@ -258,11 +335,15 @@ impl super::HomeView {
                             view.binge = None;
                         }
                         view.load_intro(now.series_id.clone(), cx);
-                        // 弹幕按集重拉（vid 变了才拉；社交态不缓存复用）
-                        view.load_danmaku(now.vid.clone(), cx);
                         // 互动数据：集级公开计数（档案）+ mget 最近互动
                         view.load_episode_counts(&now, cx);
                         view.load_interact_state(cx);
+                        // 弹幕按集重拉（社交态不缓存，每次进集都拉）。必须在
+                        // now 就位之后、且 series_id 显式传参：以前先于 now 赋值
+                        // 调用、内部又依赖 self.now——首播时 now 还是 None 直接
+                        // 返回（第一部剧永远没弹幕），换剧时错拿上一部剧的
+                        // series_id 当 book_id（服务端参数错配，热剧也拉空）
+                        view.load_danmaku(now.vid.clone(), now.series_id.clone(), cx);
                         view.now = Some(now);
                         view.switching = false;
                         view.buffering = false;
@@ -278,9 +359,7 @@ impl super::HomeView {
                         if !view.play_retried {
                             view.play_retried = true;
                             log::info!("[Home] 起播失败，自动重试一次");
-                            if let Some(item) =
-                                view.display_items().get(view.cursor()).cloned()
-                            {
+                            if let Some(item) = view.display_items().get(view.cursor()).cloned() {
                                 view.play_target(item, None, None, cx);
                                 cx.notify();
                                 return;
@@ -288,7 +367,7 @@ impl super::HomeView {
                         }
                         // 失败必须可见：此前只写 pending_title，而那行小徽标
                         // 随 switching 消失——用户看到的就是「点了没反应」
-                        view.play_error = Some(format!("{e}"));
+                        view.play_error = Some(format!("起播失败：{e}"));
                     }
                 }
                 cx.notify();
@@ -549,8 +628,20 @@ impl super::HomeView {
             return;
         }
         // 自动连播静默起步（Tauri quietStart 同款）：新集首帧或用户真实输入
-        // 之前，悬浮层一律不亮（on_player_event 首帧/wake_controls 解除）
+        // 之前，悬浮层一律不亮（首帧/on_player_event、wake_on_input 解除）。
+        // 8s 硬上限（Tauri QUIET_WINDOW_MS 同款）：起播失败/首帧迟迟不来时，
+        // 静默不能把悬浮层永久困死
         self.silent_until_input = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(8)).await;
+            let _ = this.update(cx, |view, cx| {
+                if view.silent_until_input {
+                    view.silent_until_input = false;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
         if let Some(now) = self.now.clone()
             && (now.vid_index as usize) < now.episode_count
         {

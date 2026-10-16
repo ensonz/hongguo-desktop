@@ -5,7 +5,9 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use gpui_kit::component::Disableable;
 use gpui_kit::component::IconName;
+use gpui_kit::component::Selectable;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants;
@@ -86,7 +88,10 @@ impl super::HomeView {
             }
             PlayerEvent::Failed(msg) => {
                 self.buffering = false;
-                self.pending_title = Some(format!("播放失败：{msg}"));
+                // 引擎致命失败即自停（shutdown），封面背后不会再有画面——
+                // 失败必须落可见错误态：只写 pending_title 的话，那行小徽标
+                // 随 switching 消失，用户看到的就是「无声无息卡在封面」
+                self.play_error = Some(format!("播放失败：{msg}"));
             }
         }
         cx.notify();
@@ -95,7 +100,7 @@ impl super::HomeView {
     /// 倍速档位（与 Tauri 版 `player-controls.tsx` 的 RATES 完全一致）。
     const RATES: [f64; 6] = [0.75, 1.0, 1.25, 1.5, 2.0, 3.0];
     /// 控制条可见时长：鼠标静止/无操作后自动隐藏。
-    const CONTROLS_VISIBLE: Duration = Duration::from_secs(3);
+    pub(super) const CONTROLS_VISIBLE: Duration = Duration::from_secs(3);
     /// 拖动中实时 seek 的最小间隔：引擎一次 seek = 冲流 + 解码器重建，
     /// 250ms 限频跟手又不拖垮供给（Tauri 侧浏览器自行合并，这里显式限）。
     const SCRUB_SEEK_MIN_INTERVAL: Duration = Duration::from_millis(250);
@@ -268,7 +273,12 @@ impl super::HomeView {
     /// 静止到期后靠它（或播放中的帧事件流）触发重算隐藏。真实输入同时
     /// 解除连播静默（Tauri wakeOnInput 同款）。
     pub(super) fn wake_controls(&mut self, cx: &mut Context<Self>) {
-        self.silent_until_input = false;
+        // 静默期闸门（Tauri wakeOnMove 同款）：连播静默起步后，「用户在场」
+        // 只认真实输入（点击/按键/滚轮——它们显式走这里之外的解除路径）与
+        // 首帧；指针移动不算，不然静默刚起就被一次晃动解除，悬浮层全亮
+        if self.silent_until_input {
+            return;
+        }
         let was_hidden = !self.controls_visible();
         self.controls_until = Some(Instant::now() + Self::CONTROLS_VISIBLE);
         if was_hidden {
@@ -279,6 +289,14 @@ impl super::HomeView {
             .detach();
             cx.notify();
         }
+    }
+
+    /// 真实输入的「用户在场」：解除连播静默并亮悬浮层（Tauri
+    /// pointerdown/按键 wakeChrome 同款——与 [`Self::wake_controls`] 的差
+    /// 别就在静默期是否放行）。点击画面、键盘、滚轮切剧走这里。
+    pub(super) fn wake_on_input(&mut self, cx: &mut Context<Self>) {
+        self.silent_until_input = false;
+        self.wake_controls(cx);
     }
 
     /// 任一面板打开即常显（Tauri panelOpen 同一集合：选集/评论/弹幕设置/
@@ -295,16 +313,6 @@ impl super::HomeView {
             || self.rate_menu_open
             || self.definition_menu_open
             || self.danmaku_emoji_open
-    }
-
-    /// 弹幕设置面板开合裁决：按钮 hover ∥ 面板 hover 取并集（音量弹层
-    /// update_volume_popup 同款）。
-    fn update_dm_panel(&mut self, cx: &mut Context<Self>) {
-        let open = self.dm_hovered || self.dm_panel_hovered;
-        if self.dm_panel_open != open {
-            self.dm_panel_open = open;
-            cx.notify();
-        }
     }
 
     /// 悬浮层总闸（Tauri chromeShown 同款裁决）：连播静默期一票否决（面板
@@ -471,6 +479,13 @@ impl super::HomeView {
             // 滚轮同拦（Tauri 控制条 data-wheel-block 同款）：悬在控制栏上
             // 滚不该把剧切了
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            // 容器内边距（Tauri PlayerControls 同款）：px-4 左右 16、pt-10
+            // 上方 40 悬停缓冲（热区高过进度条，好上手）、pb-3 底 12；行间
+            // gap-2 = 8
+            .px_4()
+            .pt_10()
+            .pb_3()
+            .gap_2()
             // 进度条横贯控制栏顶边（Tauri PlayerControls 同款：细条独立一条
             // 在按钮行之上，不夹在按钮中间）
             .child(self.render_progress_track(cx))
@@ -478,10 +493,9 @@ impl super::HomeView {
                 h_flex()
                     .id("stage-controls-row")
                     .items_center()
-                    .gap_3()
-                    .px_4()
-                    .pt_0p5()
-                    .pb_1p5()
+                    // 组内间距 4px（Tauri gap-1 同款；时间读数/发送框另有 ml
+                    // 微调，见各自 child）
+                    .gap_1()
                     .child(
                         Button::new("stage-toggle-play")
                             .icon(play_icon)
@@ -506,7 +520,9 @@ impl super::HomeView {
                             .on_click(cx.listener(|this, _, _, cx| this.step_episode(1, cx))),
                     )
                     .child(
+                        // 时间读数（Tauri ml-1 微调；mm:ss 分钟补零）
                         div()
+                            .ml_1()
                             .text_xs()
                             .font_family("monospace")
                             .text_color(gpui_kit::rgba(0xffffffcc))
@@ -519,9 +535,11 @@ impl super::HomeView {
                     .child(
                         // 弹幕发送 pill（Tauri 同款）：无框输入 + 内嵌表情 +
                         // 发送；表情弹层从 pill 上方拉起（与评论面板同源
-                        // 表情表，光标处插入 [名字]，上屏由弹幕渲染分段画）
+                        // 表情表，光标处插入 [名字]，上屏由弹幕渲染分段画）。
+                        // ml-2 与时间读数的间距（Tauri 同款微调）
                         div()
                             .id("danmaku-box")
+                            .ml_2()
                             .relative()
                             .child(
                                 h_flex()
@@ -529,14 +547,16 @@ impl super::HomeView {
                                     .gap_1()
                                     .pl_3()
                                     .pr_1()
-                                    .h(gpui_kit::px(30.0))
+                                    .h(gpui_kit::px(32.0))
                                     .rounded_full()
-                                    .bg(gpui_kit::rgba(0xffffff1a))
+                                    // 15% 白（Tauri bg-white/15 同值）
+                                    .bg(gpui_kit::rgba(0xffffff26))
                                     .children(self.danmaku_input.as_ref().map(|input| {
                                         Input::new(input)
                                             .bordered(false)
-                                            .h(gpui_kit::px(26.0))
-                                            .w(gpui_kit::px(150.0))
+                                            .h(gpui_kit::px(28.0))
+                                            // Tauri w-44 = 176px
+                                            .w(gpui_kit::px(176.0))
                                             .text_xs()
                                     }))
                                     .child(
@@ -550,14 +570,25 @@ impl super::HomeView {
                                                 cx.notify();
                                             })),
                                     )
-                                    .child(
+                                    .child({
+                                        // 发送钮（Tauri ghost 圆角同款）：空文本/
+                                        // 发送中置灰——点了没反应的观感就是它
+                                        let empty = self
+                                            .danmaku_input
+                                            .as_ref()
+                                            .is_none_or(|i| i.read(cx).value().trim().is_empty());
                                         Button::new("stage-danmaku-send")
                                             .label("发送")
+                                            .ghost()
                                             .small()
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.submit_danmaku(cx)
-                                            })),
-                                    ),
+                                            .rounded_full()
+                                            .disabled(empty || self.danmaku_sending)
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| {
+                                                    this.submit_danmaku(cx)
+                                                }),
+                                            )
+                                    }),
                             )
                             .children(self.danmaku_emoji_open.then(|| {
                                 // 表情网格（评论面板同款：连选不关面板、光标处
@@ -643,8 +674,12 @@ impl super::HomeView {
                                     .into_any_element()
                             })),
                     )
+                    // 左右分组撑杆（Tauri 右组 ml-auto 同款）：倍速起到全屏
+                    // 止的右组贴控制栏右缘，不与左组顺排
+                    .child(div().flex_1())
                     .child(
                         Button::new("stage-rate")
+                            .icon(gpui_kit::assets::IconName::Gauge)
                             .label(Self::fmt_rate(self.rate))
                             .ghost()
                             .small()
@@ -676,18 +711,22 @@ impl super::HomeView {
                             _ => "自动".to_string(),
                         };
                         if defs.is_empty() {
-                            // 无档位表（本地集）：置灰保持可见——直接不渲染会让用户
-                            // 以为「这个功能本来就没有」，在线流那集它又出现了
-                            div()
-                                .px_2()
-                                .text_xs()
-                                .text_color(gpui_kit::rgba(0xffffff66))
-                                .child(label)
+                            // 无档位表（本地集）：禁用钮保留 + 悬停说明（Tauri
+                            // title 同语义）——直接不渲染会让用户以为「这个功能
+                            // 本来就没有」，在线流那集它又出现了
+                            Button::new("stage-definition")
+                                .icon(gpui_kit::assets::IconName::MonitorPlay)
+                                .label(label)
+                                .ghost()
+                                .small()
+                                .disabled(true)
+                                .tooltip("本地只有一版清晰度")
                                 .into_any_element()
                         } else {
                             let view = cx.entity();
                             let view_open = view.clone();
                             Button::new("stage-definition")
+                                .icon(gpui_kit::assets::IconName::MonitorPlay)
                                 .label(label)
                                 .ghost()
                                 .small()
@@ -742,9 +781,10 @@ impl super::HomeView {
                         }
                     })
                     .child(
-                        // 选集浮层入口（Tauri immersive 同款：带总集数；浮层贴按钮
-                        // 向上弹，见 render_picker）
+                        // 选集浮层入口（Tauri immersive 同款：ListVideo 图标 +
+                        // 总集数；浮层贴按钮向上弹，见 render_picker）
                         Button::new("stage-picker")
+                            .icon(gpui_kit::assets::IconName::ListVideo)
                             .label(match self.now.as_ref() {
                                 Some(now) if now.episode_count > 0 => {
                                     format!("选集 · 全{}集", now.episode_count)
@@ -758,6 +798,7 @@ impl super::HomeView {
                     .child(
                         // 下载入口（Tauri download-sheet 同款位置：右段）
                         Button::new("stage-downloads")
+                            .icon(gpui_kit::assets::IconName::Download)
                             .label("下载")
                             .ghost()
                             .small()
@@ -776,29 +817,38 @@ impl super::HomeView {
                     )
                     .child({
                         // 弹幕设置：齿轮 + 上方面板（透明度/字号/密度/显示区域）。
-                        // 开合 = 按钮 hover ∥ 面板 hover 并集（音量弹层同款）：
-                        // gpui 的 hover 按命中盒判定，面板悬在按钮盒外，只认
-                        // wrapper hover 的话指针一移进面板就收——面板根本够不着
+                        // 开合 = 点齿轮（Tauri 同款点击语义），点外部由舞台捕获
+                        // 层收（picker 同款，见 stage 层）——原先的 hover 并集
+                        // 开合指针一晃就收，滑杆根本没法拖
                         div()
                             .id("dm-settings")
                             .relative()
-                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                this.dm_hovered = *hovered;
-                                this.update_dm_panel(cx);
-                            }))
-                            .child(
+                            .child({
+                                // 开=白（面板开着期间恒亮）：状态色走组件的
+                                // `open` 语义态（下拉触发钮的正规通道）——它
+                                // 渲染时跳过 hover 层，实例色不会被悬停色盖掉
+                                //（实例 text_color 直接写 hover 精修会 panic：
+                                // div 只许设一次 hover，组件内部已设）
                                 Button::new("stage-dm-settings")
                                     .icon(IconName::Settings2)
                                     .ghost()
-                                    .small(),
-                            )
+                                    .small()
+                                    .open(self.dm_panel_open)
+                                    .when(self.dm_panel_open, |b| {
+                                        b.text_color(gpui_kit::rgba(0xffffffff))
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dm_panel_open = !this.dm_panel_open;
+                                        cx.notify();
+                                    }))
+                            })
                             .children(self.dm_panel_open.then(|| {
                                 v_flex()
                                     .id("dm-settings-panel")
                                     .absolute()
                                     .right_0()
-                                    // 贴着按钮上沿（bottom-full），指针从按钮移进
-                                    // 面板不离开并集；视觉留白进自己的 padding
+                                    // 贴着按钮上沿（bottom-full）；视觉留白进
+                                    // 自己的 padding
                                     .bottom(gpui_kit::relative(1.0))
                                     .w(gpui_kit::px(240.0))
                                     .gap_3()
@@ -807,38 +857,54 @@ impl super::HomeView {
                                     .px_4()
                                     .rounded(gpui_kit::px(12.0))
                                     .bg(gpui_kit::rgba(0x171717f2))
-                                    .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                                        this.dm_panel_hovered = *hovered;
-                                        this.update_dm_panel(cx);
-                                    }))
                                     .on_mouse_down(
                                         gpui_kit::MouseButton::Left,
                                         cx.listener(|_, _, _, cx| cx.stop_propagation()),
                                     )
                                     .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                                    .child(self.dm_setting_row("不透明度", &self.dm_opacity_slider))
-                                    .child(self.dm_setting_row("字号", &self.dm_font_slider))
-                                    .child(self.dm_setting_row("密度", &self.dm_density_slider))
-                                    .child(self.dm_setting_row("显示区域", &self.dm_area_slider))
+                                    .child(self.dm_setting_row(
+                                        "不透明度",
+                                        &self.dm_opacity_slider,
+                                        self.dm_opacity,
+                                    ))
+                                    .child(self.dm_setting_row(
+                                        "字号",
+                                        &self.dm_font_slider,
+                                        self.dm_font_scale,
+                                    ))
+                                    .child(self.dm_setting_row(
+                                        "密度",
+                                        &self.dm_density_slider,
+                                        self.dm_density,
+                                    ))
+                                    .child(self.dm_setting_row(
+                                        "显示区域",
+                                        &self.dm_area_slider,
+                                        self.dm_area,
+                                    ))
                                     .into_any_element()
                             }))
                             .into_any_element()
                     })
                     .child({
-                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）
+                        // 弹幕开关（Tauri 同款：MessageSquare 图标，开=亮/关=暗）。
+                        // 状态色走组件的 `selected` 语义态（开关钮的正规通道）：
+                        // 渲染时跳过 hover 层，实例 text_color 不会被悬停色盖掉
+                        //——直接写 hover 精修会 panic（div 只许设一次 hover，
+                        // 组件内部已设），不写则指针停在按钮上时状态变化不可见
+                        //（用户实测「移走鼠标才变化」的根因）
                         Button::new("stage-danmaku")
                             .icon(gpui_kit::assets::IconName::MessageSquareText)
                             .ghost()
                             .small()
+                            .selected(self.danmaku_on)
                             .tooltip(if self.danmaku_on {
                                 "关闭弹幕"
                             } else {
                                 "开启弹幕"
                             })
-                            // 开=纯白 / 关=40% 白（Tauri 同款亮暗态；按钮必须
-                            // 随状态变，不然「点了没反应」）
                             .text_color(if self.danmaku_on {
-                                gpui_kit::rgb(0xffffff)
+                                gpui_kit::rgba(0xffffffff)
                             } else {
                                 gpui_kit::rgba(0xffffff66)
                             })
@@ -933,19 +999,20 @@ impl super::HomeView {
                     })
                     .child(
                         // 隐身模式（Tauri incognito 同款）：开着时光标脱离窗口 →
-                        // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播
+                        // 暂停 + 整窗藏起，回到窗口矩形 → 原地重现 + 续播。
+                        // 亮暗态走 `selected` 语义态（弹幕开关同款，悬停免疫）
                         Button::new("stage-incognito")
                             .icon(gpui_kit::assets::IconName::Eye)
                             .ghost()
                             .small()
+                            .selected(self.incognito)
                             .tooltip(if self.incognito {
                                 "退出隐身"
                             } else {
                                 "隐身模式"
                             })
-                            // 单图标亮暗态（Tauri 同款：白 / 55% 白）
                             .text_color(if self.incognito {
-                                gpui_kit::rgb(0xffffff)
+                                gpui_kit::rgba(0xffffffff)
                             } else {
                                 gpui_kit::rgba(0xffffff8c)
                             })

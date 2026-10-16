@@ -1,8 +1,16 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InfiniteData } from '@tanstack/react-query';
 import { danmaku as danmakuCmd, interact as interactCmd } from '../commands';
-import type { CommentPage, Danmaku, ReplyPage, SeriesReviewPage } from '../schema';
+import type {
+  CommentPage,
+  CreatorProfile,
+  CreatorWorksPage,
+  Danmaku,
+  ReplyPage,
+  SeriesReviewPage,
+} from '../schema';
 import { keys } from './common';
+import { useAccount } from './interact';
 
 // ---------------------------------------------------------------- 弹幕与评论
 // 社交态数据一律不缓存（staleTime 0，每次挂载重拉——2026-10-10 定规：
@@ -75,8 +83,10 @@ export function useSendDanmaku() {
 }
 
 /**
- * 一集的评论区（无限翻页：第一页秒回，面板底部「加载更多」续拉；
- * total 取自第一页的 need_count 回传，失败时报错由面板显示不打断播放）。
+ * 播放页评论区（单集维度流：group=vid/group_type=30/channel=18/
+ * sort=video_innerflow，2026-10-16 官方实包——面板整页与互动栏角标
+ * 同源；剧集维度 channel=27 是沉浸流信息流面板的另一条流，只有流内
+ * 评论）。无限翻页，面板底部「加载更多」续拉。
  */
 export function useComments(vid: string) {
   const { groupId, bookId } = parseVid(vid);
@@ -97,9 +107,17 @@ export function useComments(vid: string) {
 export function useSendComment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { vid: string; text: string }) => {
+    mutationFn: (input: {
+      vid: string;
+      text: string;
+      mentionUserId?: string;
+      contextCommentIds?: string[];
+    }) => {
       const { groupId, bookId } = parseVid(input.vid);
-      return interactCmd.sendComment(groupId, bookId, input.text);
+      return interactCmd.sendComment(groupId, bookId, input.text, {
+        userId: input.mentionUserId ?? '',
+        contextCommentIds: input.contextCommentIds ?? [],
+      });
     },
     onSuccess: (comment, input) => {
       queryClient.setQueryData<InfiniteData<CommentPage, string>>(
@@ -152,8 +170,8 @@ export function useSendReply() {
 }
 
 /**
- * 一条单集评论的回复列表（按需拉取：`enabled` 传「是否展开」）。
- * 一页 10 条，面板内「展开更多回复」续拉（cursor 数字串原样回传）。
+ * 一条评论的回复列表（回复流同单集维度：group=vid/group_type=30；
+ * 按需拉取：`enabled` 传「是否展开」）。面板内「展开更多回复」续拉。
  */
 export function useCommentReplies(vid: string, commentId: string, enabled: boolean) {
   const { groupId, bookId } = parseVid(vid);
@@ -364,5 +382,50 @@ export function useSendReviewReply(seriesId: string) {
         input.replyToReplyId ?? null,
         input.text,
       ),
+  });
+}
+
+/**
+ * 评论 @ 提及候选（relation/list，登录态）。列表含官方 AI bot「小果」
+ * （isAiBot=true）——@小果AI 快捷图标的数据源；社交态数据每次重拉。
+ */
+export function useMentionList(seriesId: string) {
+  const { data: account } = useAccount();
+  return useQuery({
+    queryKey: keys.mentionList(seriesId),
+    queryFn: () => interactCmd.mentionList(seriesId),
+    enabled: !!account && !!seriesId,
+    staleTime: 0,
+  });
+}
+
+// ---------------------------------------------------------------- 创作者主页
+
+/**
+ * 创作者主页资料头（详情页点创作者 → 主页，2026-10-15 官方实包对齐）。
+ * 失败交页面降级（头部行不渲染，作品列表照常）。
+ */
+export function useCreatorProfile(userId: string) {
+  return useQuery({
+    queryKey: keys.creatorProfile(userId),
+    queryFn: (): Promise<CreatorProfile> => danmakuCmd.creatorProfile(userId),
+    enabled: !!userId,
+    staleTime: 0,
+  });
+}
+
+/**
+ * 创作者主页作品列表（无限翻页；一页 18 条，cursor 原样回传续拉）。
+ * 作品的 seriesId 即播放目标（与追更列表同构，实测可直连 resolve）。
+ */
+export function useCreatorWorks(userId: string) {
+  return useInfiniteQuery({
+    queryKey: keys.creatorWorks(userId),
+    queryFn: ({ pageParam }): Promise<CreatorWorksPage> =>
+      danmakuCmd.creatorWorks(userId, pageParam),
+    initialPageParam: '',
+    getNextPageParam: (last) => (last.hasMore && last.cursor ? last.cursor : undefined),
+    enabled: !!userId,
+    staleTime: 0,
   });
 }

@@ -1,5 +1,6 @@
-//! 互动操作：点赞 / 收藏 / 发弹幕 / 发评论 / 互动状态（2026-10-05 抓
-//! hgplayer 1.1.3 实操全量锁定，口径详见 docs/hongguo-api-endpoints.md 第 9 节）。
+//! 互动操作：点赞 / 收藏 / 追更 / 发弹幕 / 发评论 / 互动状态（2026-10-05 抓
+//! hgplayer 1.1.3 实操全量锁定，口径详见 docs/hongguo-api-endpoints.md 第 9 节；
+//! 追更 2026-10-15 抓 hongguo-player v1.2.1 实包，见 captures/capture-requests-20261015.md）。
 //!
 //! 实测口径：
 //! - **body 一律 gzip JSON**（`api_call_reading` 已统一），reading 轻签名头，
@@ -8,6 +9,9 @@
 //! - 点赞分两族：视频走 `articleapi/do_action`（object_type=6，action_type
 //!   3/4），评论走 `commentapi/comment/do_action`（object_type=8，8/9）——
 //!   **路径不同**，别合并；
+//! - **追更也走 `articleapi/do_action`**（与点赞同端点）：object_type=10
+//!   （短剧）、object_id=series_id、action_type 34 追 / 35 取消——同端点
+//!   不同动作码，与点赞共用路径但 business_param 不带 video_id；
 //! - 弹幕与评论发送同端点 `commentapi/comment/add`，只差 data_type
 //!   （20 弹幕 / 4 评论）、commit_source（1500 / 3）与 offset（播放 ms / 0）；
 //! - 收藏（追剧）走 `bookshelf/video/update`，对象是 **series_id**
@@ -17,7 +21,10 @@
 
 mod model;
 
-pub use model::{BookshelfEntry, InteractionItem, InteractionState};
+pub use model::{
+    BookshelfEntry, FollowUpdateItem, FollowUpdatePage, InteractionItem, InteractionState,
+    MentionUser,
+};
 
 pub use super::danmaku::{CommentItem, ReplyItem};
 
@@ -26,10 +33,11 @@ use serde_json::Value;
 use super::client::ApiEnv;
 use super::danmaku::LQ_API_ORIGIN;
 use crate::params::interaction::{
-    COMMENT_TYPE_COMMENT, COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT, COMMIT_SOURCE_COMMENT_REPLY,
-    COMMIT_SOURCE_DANMAKU, COMMIT_SOURCE_REVIEW_REPLY, DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU,
-    DATA_TYPE_DELETE, DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT,
-    OBJECT_TYPE_REVIEW, OBJECT_TYPE_VIDEO,
+    ACTION_CHANNEL_FOLLOW, ACTION_TYPE_FOLLOW, ACTION_TYPE_UNFOLLOW, COMMENT_TYPE_COMMENT,
+    COMMENT_TYPE_REVIEW, COMMIT_SOURCE_COMMENT, COMMIT_SOURCE_COMMENT_REPLY, COMMIT_SOURCE_DANMAKU,
+    COMMIT_SOURCE_REVIEW_REPLY, DATA_TYPE_COMMENT, DATA_TYPE_DANMAKU, DATA_TYPE_DELETE,
+    DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, OBJECT_TYPE_COMMENT,
+    OBJECT_TYPE_REVIEW, OBJECT_TYPE_SERIES, OBJECT_TYPE_VIDEO,
 };
 use hongguo_common::{AppError, AppResult};
 
@@ -40,6 +48,7 @@ const REPLY_ADD_PATH: &str = "/novel/commentapi/reply/add/v1/";
 const BOOKSHELF_UPDATE_PATH: &str = "/reading/bookapi/bookshelf/video/update/v";
 const BOOKSHELF_LIST_PATH: &str = "/reading/bookapi/bookshelf/video/list/v";
 const UGC_MGET_PATH: &str = "/reading/ugc/action/mget/v";
+const FOLLOW_LIST_PATH: &str = "/novel/articleapi/relation/get_user_action/v1/";
 
 /// hgplayer 埋点上下文（抓包原样；服务端不校验，但对齐着带）。
 /// 剧评发送（danmaku.rs send_series_review）复用同一素形态。
@@ -74,20 +83,22 @@ pub async fn send_danmaku(
     env: &ApiEnv,
 ) -> AppResult<String> {
     Ok(comment_add(
-        group_id,
-        book_id,
-        text,
-        DATA_TYPE_DANMAKU,
-        COMMIT_SOURCE_DANMAKU,
-        offset_ms,
+        CommentAddArgs {
+            group_id,
+            book_id,
+            text,
+            data_type: DATA_TYPE_DANMAKU,
+            commit_source: COMMIT_SOURCE_DANMAKU,
+            offset_ms,
+        },
         env,
     )
     .await?
     .comment_id)
 }
 
-/// 发评论（`data_type=4`，offset 恒 0）。返回**服务端回显的完整评论对象**
-/// （comment/add 响应的 comment_info 与列表条目同构，2026-10-10 抓包
+/// 发一条评论（`data_type=4`，offset 恒 0）。返回**服务端回显的完整评论
+/// 对象**（comment/add 响应的 comment_info 与列表条目同构，2026-10-10 抓包
 /// 实锤：头像/昵称/uid/时间全带）——前端直接插入列表，别手拼条目
 /// （手拼缺 userId 删除按钮出不来，缺头像昵称样式和服务端条目两样）。
 pub async fn send_comment(
@@ -97,15 +108,99 @@ pub async fn send_comment(
     env: &ApiEnv,
 ) -> AppResult<CommentItem> {
     comment_add(
-        group_id,
-        book_id,
-        text,
-        DATA_TYPE_COMMENT,
-        COMMIT_SOURCE_COMMENT,
-        0,
+        CommentAddArgs {
+            group_id,
+            book_id,
+            text,
+            data_type: DATA_TYPE_COMMENT,
+            commit_source: COMMIT_SOURCE_COMMENT,
+            offset_ms: 0,
+        },
         env,
     )
     .await
+}
+
+/// 发一条 **@小果AI** 的提及评论（2026-10-15/16 官方实包锁定）。
+///
+/// 形态与普通评论同流（播放页面板 = 单集流：`group_id=vid`、
+/// `group_type=30`；官方单集流里的提及评论活体见
+/// flows-official-follow.jsonl:3314——comment 7681486101919679268
+/// `group_id=vid`、带 tp=15 text_exts、AI 回复 reply_count=3）。
+/// `text` 为用户正文（可空），最终请求 text 前置 `@小果\u{FFFC}`，
+/// rich_text 段 tp=15/uri=小果 uid（有正文时段文本含尾随空格、e=5，
+/// 实包 1616 原样），business_param 另带 aibot_mention_context
+/// （**最近评论 id** 的嵌套数组 JSON 串——实包里是评论 id 不是 vid）。
+/// 返回完整评论回显。
+pub async fn send_comment_mention(
+    group_id: &str,
+    book_id: &str,
+    mention: &CommentMention,
+    text: &str,
+    env: &ApiEnv,
+) -> AppResult<CommentItem> {
+    let body = text.trim();
+    let (final_text, segment_text, segment_end) = if body.is_empty() {
+        (
+            MENTION_TEXT.to_string(),
+            MENTION_TEXT.to_string(),
+            MENTION_TEXT_UNITS,
+        )
+    } else {
+        (
+            format!("{MENTION_TEXT} {body}"),
+            format!("{MENTION_TEXT} "),
+            MENTION_TEXT_UNITS + 1,
+        )
+    };
+    let ctx = serde_json::to_string(
+        &mention
+            .comment_ids
+            .iter()
+            .map(|id| serde_json::json!([id]))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_default();
+    let payload = serde_json::json!({
+        "aid": 8662,
+        "commit_source": COMMIT_SOURCE_COMMENT,
+        "data_type": DATA_TYPE_COMMENT,
+        // 与面板同流：group_id 是分集 vid，group_type=30
+        "group_id": group_id,
+        "group_type": GROUP_TYPE_COMMENT,
+        "text": final_text,
+        "rich_text": [{
+            "s": 0,
+            "e": segment_end,
+            "tp": 15,
+            "uri": mention.user_id,
+            "text": segment_text,
+        }],
+        "business_param": {
+            "ignore_urge_rule": false,
+            "text_feature": {},
+            "book_id": book_id,
+            "shark_param": shark_param(),
+            "has_aigc_content": false,
+            "offset": 0,
+            "preset_text_id": "",
+            "aibot_mention_context": ctx,
+            "log_extra": {},
+        },
+    });
+    let raw = serde_json::to_vec(&payload)
+        .map_err(|e| AppError::Media(format!("构造提及评论请求失败: {e}")))?;
+    let bytes =
+        super::client::api_call_reading(LQ_API_ORIGIN, COMMENT_ADD_PATH, Some(raw), &[], env)
+            .await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析提及评论响应失败: {e}")))?;
+    check_interact_code(&value)?;
+    let raw = value
+        .pointer("/data/comment_info")
+        .ok_or_else(|| AppError::Media("提及评论响应缺少 comment_info".into()))?;
+    super::danmaku::parse_comment_item(raw)
+        .ok_or_else(|| AppError::Media("提及评论响应对象字段不全".into()))
 }
 
 /// reply/add 响应 → [`ReplyItem`]（`data.reply` 与 reply/list 条目同构；
@@ -192,15 +287,27 @@ fn check_interact_code(value: &Value) -> AppResult<()> {
 /// - 评论 `data_type=4`：business_param 另有 has_aigc_content/log_extra/
 ///   preset_text_id/text_feature，shark 是素形态——2026-10-06 实测评论
 ///   形态服务端有独立校验，缺新字段或混入弹幕字段有 103001 风险。
-async fn comment_add(
-    group_id: &str,
-    book_id: &str,
-    text: &str,
+///
+/// 单集/弹幕维度的发送收口（@小果AI 提及是**剧级**形态，独立在
+/// [`send_comment_mention`]，不走这里）。
+struct CommentAddArgs<'a> {
+    group_id: &'a str,
+    book_id: &'a str,
+    text: &'a str,
     data_type: i64,
     commit_source: i64,
     offset_ms: u64,
-    env: &ApiEnv,
-) -> AppResult<CommentItem> {
+}
+
+async fn comment_add(args: CommentAddArgs<'_>, env: &ApiEnv) -> AppResult<CommentItem> {
+    let CommentAddArgs {
+        group_id,
+        book_id,
+        text,
+        data_type,
+        commit_source,
+        offset_ms,
+    } = args;
     let business_param = if data_type == DATA_TYPE_DANMAKU {
         serde_json::json!({
             "book_id": book_id,
@@ -476,6 +583,210 @@ pub async fn collect_series_batch(entries: &[(String, bool)], env: &ApiEnv) -> A
     check_interact_code(&value)
 }
 
+/// 追更 / 取消追更一部剧（2026-10-15 抓 player v1.2.1 实包锁定）。
+///
+/// 与点赞同端点（articleapi/do_action）但形态不同，照抓包别合并：
+/// `action_type` 34 追 / 35 取消、`object_type=10`（短剧）、
+/// `object_id`=series_id，business_param **不带 video_id**（点赞带）。
+pub async fn follow_update(series_id: &str, follow: bool, env: &ApiEnv) -> AppResult<()> {
+    let payload = serde_json::json!({
+        "action_type": follow_action_type(follow),
+        "business_param": {
+            "book_id": 0,
+            "has_aigc_content": false,
+            "modify_count": 0,
+            "shark_param": shark_param(),
+        },
+        "object_id": series_id,
+        "object_type": OBJECT_TYPE_SERIES,
+    });
+    let raw = serde_json::to_vec(&payload)
+        .map_err(|e| AppError::Media(format!("构造追更请求失败: {e}")))?;
+    let bytes =
+        super::client::api_call_reading(LQ_API_ORIGIN, ARTICLE_DO_ACTION_PATH, Some(raw), &[], env)
+            .await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析追更响应失败: {e}")))?;
+    check_interact_code(&value)
+}
+
+/// 追更动作码：34 追 / 35 取消（抓包往返三次锁定）。
+fn follow_action_type(follow: bool) -> i64 {
+    if follow {
+        ACTION_TYPE_FOLLOW
+    } else {
+        ACTION_TYPE_UNFOLLOW
+    }
+}
+
+/// 评论 @ 提及列表的场景枚举值（2026-10-15 抓 player 登录态实包）。
+const COMMENT_SOURCE_AT_MENTION: i64 = 1511;
+
+/// 拉评论 @ 提及候选（relation/list，2026-10-15 抓 player 登录态实包）。
+/// 官方列表含官方 AI bot「小果」（is_ai_bot=true）。`series_id` 同时进
+/// 路径与 body（target_user_id / relation_list_business_param.book_id）。
+pub async fn fetch_mention_list(series_id: &str, env: &ApiEnv) -> AppResult<Vec<MentionUser>> {
+    let book_id: i64 = series_id
+        .parse()
+        .map_err(|_| AppError::InvalidArgs(format!("剧 id 不是数字: {series_id}")))?;
+    let payload = serde_json::json!({
+        "comment_source": COMMENT_SOURCE_AT_MENTION,
+        "target_user_id": series_id,
+        "aid": 8662,
+        "count": 20,
+        "relation_list_business_param": { "book_id": book_id },
+    });
+    let raw = serde_json::to_vec(&payload)
+        .map_err(|e| AppError::Media(format!("构造提及列表请求失败: {e}")))?;
+    let path = format!("/novel/commentapi/relation/list/{series_id}/v1/");
+    let bytes = super::client::api_call_reading(LQ_API_ORIGIN, &path, Some(raw), &[], env).await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析提及列表失败: {e}")))?;
+    check_interact_code(&value)?;
+    let mut items = Vec::new();
+    for raw in value
+        .pointer("/data/ugc_user_list")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let user_id = raw
+            .pointer("/base_info/user_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if user_id.is_empty() {
+            continue;
+        }
+        items.push(MentionUser {
+            user_id,
+            user_name: raw
+                .pointer("/base_info/user_name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            avatar: raw
+                .pointer("/base_info/user_avatar")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            is_ai_bot: raw
+                .pointer("/base_info/is_ai_bot")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        });
+    }
+    Ok(items)
+}
+
+/// AI 提及的草稿：@ 小果AI 的 uid 与 AI 上下文评论（官方
+/// aibot_mention_context = 最近评论 id 的嵌套数组，实包 1539/1616）。
+pub struct CommentMention {
+    /// AI bot uid（relation/list 的 is_ai_bot 条目）
+    pub user_id: String,
+    /// AI 上下文评论 id（面板最近评论优先）
+    pub comment_ids: Vec<String>,
+}
+
+/// 提及评论的文本常量：官方形态 text/段文本均为 `@小果\u{FFFC}`
+/// （U+FFFC 占位符；s:e=0..4，2026-10-15 实包）。
+const MENTION_TEXT: &str = "@小果\u{FFFC}";
+const MENTION_TEXT_UNITS: i64 = 4;
+
+/// 拉追更列表一页（get_user_action `action_channel=9`，2026-10-15 抓包
+/// 实锤）。`cursor` 传上页响应的 `cursor` 原文（JSON 串）；首页传空串。
+/// 详情页的「是否已追」没有独立接口——拉第一页本地判成员（player 同款）。
+pub async fn fetch_follow_updates(cursor: &str, env: &ApiEnv) -> AppResult<FollowUpdatePage> {
+    let biz_query: Vec<(String, String)> = vec![
+        ("action_channel".into(), ACTION_CHANNEL_FOLLOW.to_string()),
+        ("count".into(), "20".into()),
+        ("cursor_str".into(), cursor.to_string()),
+    ];
+    let bytes =
+        super::client::api_call_reading(LQ_API_ORIGIN, FOLLOW_LIST_PATH, None, &biz_query, env)
+            .await?;
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析追更列表失败: {e}")))?;
+    if value.get("code").and_then(Value::as_i64) != Some(0) {
+        let msg = value.get("message").and_then(Value::as_str).unwrap_or("?");
+        return Err(AppError::Media(format!("追更列表接口返回: {msg}")));
+    }
+    Ok(parse_follow_updates(&value))
+}
+
+/// 解析追更列表（条目缺失容错：mix_data[].video 任一层缺字段按空处理，
+/// video_id 为空的条目跳过）。
+fn parse_follow_updates(value: &Value) -> FollowUpdatePage {
+    let cursor = value
+        .pointer("/data/comment_list_info/cursor")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let has_more = value
+        .pointer("/data/comment_list_info/has_more")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut items = Vec::new();
+    for entry in value
+        .pointer("/data/mix_data")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let Some(video) = entry.get("video") else {
+            continue;
+        };
+        let series_id = video
+            .get("video_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if series_id.is_empty() {
+            continue;
+        }
+        let expand = video.get("expand");
+        items.push(FollowUpdateItem {
+            series_id,
+            title: video
+                .pointer("/common/title")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            cover: video
+                .pointer("/common/cover")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            episode_cnt: expand
+                .and_then(|e| e.get("episode_cnt"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            latest_watched_vid_index: expand
+                .and_then(|e| e.get("latest_watched_vid_index"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            finished: expand
+                .and_then(|e| e.get("series_status"))
+                .and_then(Value::as_i64)
+                == Some(1),
+            has_watched_latest_episode: expand
+                .and_then(|e| e.get("has_watched_latest_episode"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            follow_update_at: expand
+                .and_then(|e| e.pointer("/extra/follow_update_time_stamp"))
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0),
+        });
+    }
+    FollowUpdatePage {
+        items,
+        cursor,
+        has_more,
+    }
+}
+
 /// 拉账号的书架（收藏）列表。「我的收藏」页数据源；`target_user_id` 是
 /// 登录用户 uid（AccountState.user_id，2026-10-06 抓包同款 query）。
 ///
@@ -643,6 +954,83 @@ mod tests {
     }
 
     #[test]
+    fn follow_action_types_match_capture() {
+        // do_action: 34 追更 / 35 取消（2026-10-15 抓 player v1.2.1 实包往返锁定）
+        assert_eq!(follow_action_type(true), 34);
+        assert_eq!(follow_action_type(false), 35);
+    }
+
+    #[test]
+    fn follow_updates_parse_matches_capture() {
+        // 形状锚点：get_user_action action_channel=9 实包
+        // （captures/flows-player-follow.jsonl，2026-10-15 追「摆摊大王」）
+        let sample = serde_json::json!({
+            "code": 0,
+            "data": {
+                "comment_list_info": {
+                    "cursor": "{\"session_id\":\"20261015132033C96A23C06C91444C4511\",\"offset\":20}",
+                    "has_more": false
+                },
+                "mix_data": [{
+                    "data_type": 1,
+                    "video": {
+                        "common": {
+                            "cover": "https://p3-reading-sign.fqnovelpic.com/novel-pic/x.heic",
+                            "title": "摆摊大王",
+                            "vertical": false,
+                            "video_content_type": 1004,
+                            "video_type": 2
+                        },
+                        "expand": {
+                            "episode_cnt": 214,
+                            "extra": {
+                                "follow_update_time_stamp": "1792041548",
+                                "lasted_read_time_stamp": "1792041412",
+                                "max_chapter_first_pass_time": "1787631872"
+                            },
+                            "has_watched_latest_episode": false,
+                            "latest_watched_vid_index": 16,
+                            "series_status": 1
+                        },
+                        "video_id": "7677818497497320472"
+                    }
+                }]
+            }
+        });
+        let page = parse_follow_updates(&sample);
+        assert_eq!(page.items.len(), 1);
+        let item = &page.items[0];
+        assert_eq!(item.series_id, "7677818497497320472");
+        assert_eq!(item.title, "摆摊大王");
+        assert_eq!(item.episode_cnt, 214);
+        assert_eq!(item.latest_watched_vid_index, 16);
+        assert!(item.finished, "series_status=1 = 已完结");
+        assert!(!item.has_watched_latest_episode);
+        assert_eq!(item.follow_update_at, 1_792_041_548);
+        // cursor 原样保留（翻页续传），has_more 透传
+        assert!(page.cursor.contains("session_id"));
+        assert!(!page.has_more);
+    }
+
+    #[test]
+    fn follow_updates_parse_tolerates_empty_and_junk() {
+        // 空列表（追更前实包形态）与缺 video 层的脏条目都不炸
+        let empty = serde_json::json!({
+            "code": 0,
+            "data": {"comment_list_info": {"cursor": "", "has_more": false}, "mix_data": []}
+        });
+        let page = parse_follow_updates(&empty);
+        assert!(page.items.is_empty());
+        assert!(page.cursor.is_empty());
+
+        let junk = serde_json::json!({
+            "code": 0,
+            "data": {"mix_data": [{"data_type": 1}, {"video": {"common": {"title": "无id"}}}]}
+        });
+        assert!(parse_follow_updates(&junk).items.is_empty());
+    }
+
+    #[test]
     fn state_parsing_tolerates_missing_fields() {
         let empty = serde_json::json!({"code": 0, "data": null});
         assert_eq!(
@@ -760,7 +1148,7 @@ mod probe {
 
         let ccid = send_comment(vid, series, "probe 评论", &env)
             .await
-            .expect("发评论（1.1.5 新形态）");
+            .expect("发评论（播放页单集流形态）");
         println!("[interact] comment comment_id={}", ccid.comment_id);
 
         let reply = send_reply(vid, series, &ccid.comment_id, None, "probe 回复", &env)

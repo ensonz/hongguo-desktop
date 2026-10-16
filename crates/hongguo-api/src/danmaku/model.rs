@@ -143,3 +143,57 @@ pub struct ReplyPage {
     #[serde(default)]
     pub next_cursor: String,
 }
+
+/// 创作者主页资料头（`reading/user/profile/get` 的 ugc_user.base_info 摘要；
+/// 2026-10-15 官方实包：详情页点创作者 → 主页，头部数据源）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatorProfile {
+    pub user_id: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub avatar: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// 创作者主页的一部作品（`commentapi/user/profile` data_list 条目摘要）。
+/// 条目里的 `video_id` 语义 = **series_id**（与追更列表同构：一部剧一条，
+/// episode_cnt 是全剧集数），可直接当播放目标。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatorWork {
+    pub series_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub cover: String,
+    #[serde(default)]
+    pub intro: String,
+    /// 全剧集数（expand.episode_cnt）
+    #[serde(default)]
+    pub episode_cnt: i64,
+    #[serde(default)]
+    pub play_cnt: i64,
+    /// 红果热度值（stat.hot）
+    #[serde(default)]
+    pub hot: i64,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// 创作者主页作品列表一页（`data.data_list` + `common_list_info` 游标）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatorWorksPage {
+    pub works: Vec<CreatorWork>,
+    /// 翻页游标（原样回传；首页空串）
+    #[serde(default)]
+    pub cursor: String,
+    #[serde(default)]
+    pub has_more: bool,
+    /// 作品总数（hightlight.total；官方拼写就是没有 g 的 hightlight）
+    #[serde(default)]
+    pub total: i64,
+}

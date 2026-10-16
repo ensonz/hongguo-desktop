@@ -50,6 +50,9 @@ impl super::HomeView {
             log::warn!("[Login] 退出失败: {e}");
             return;
         }
+        // 登出即离开播放面（Tauri 登出入口在设置页、播放器早已卸载；本壳
+        // 侧栏直接登出，按卸载语义先停播落进度）
+        self.release_for_leave(cx);
         self.mfa_retry = None;
         self.login_message = Some("已退出登录".to_string());
         log::info!("[Login] 已退出登录");

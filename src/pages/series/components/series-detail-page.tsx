@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate, useRouter } from '@tanstack/react-router';
-import { ArrowLeft, Flame, Heart, Hourglass, Play, Star } from 'lucide-react';
+import { ArrowLeft, Flame, Heart, Hourglass, Play, Star, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import { SeriesCover } from '@/components/common/series-cover';
 import { GuessYouLike } from './guess-you-like';
 import { RelatedWorks } from './related-works';
 import { ReserveButton } from './reserve-button';
+import { FollowButton } from '@/components/common/follow-button';
 import { ResolveButton } from './resolve-button';
 import { ReviewList } from './review-list';
 import { formatCountPrecise, formatDuration } from '@/utils/format';
@@ -29,7 +30,7 @@ import {
   useVideoDigg,
   useWatchHistory,
 } from '@/service/queries';
-import { usePlayerStore } from '@/stores/player';
+import { usePlaySeries } from '@/hooks/use-play-series';
 import { t, tf } from '@/locales';
 import { cn } from '@/lib/utils';
 import type { Series } from '@/service/schema';
@@ -54,7 +55,7 @@ export function SeriesDetailPage({
   const navigate = useNavigate();
   // routeTree.gen 的 as any 污染 useRouter 返回值；这里只用 history.back
   const router = useRouter() as { history: { back: () => void } };
-  const setTarget = usePlayerStore((s) => s.setTarget);
+  const playSeries = usePlaySeries();
 
   const { data: series, isPending, isError, error } = useSeriesEpisodes(seriesId || null);
   const { data: localProgress } = useSeriesProgress(seriesId ?? '');
@@ -106,8 +107,7 @@ export function SeriesDetailPage({
 
   const playEpisode = (idx: number) => {
     if (!seriesId) return;
-    setTarget(seriesId, idx);
-    void navigate({ to: '/player' });
+    playSeries(seriesId, idx);
   };
 
   // ---- 互动（收藏/点赞）：登录后才可用，与播放器互动栏同一套 mutation ----
@@ -253,6 +253,12 @@ export function SeriesDetailPage({
                 )}
               </div>
 
+              {/* 更新频率（连载剧独有，「每周六更新5集」，官方在统计行下单独
+                  一行；完结剧无 update_info 不渲染） */}
+              {meta?.updateFrequency && (
+                <div className="text-muted-foreground mt-1 text-sm">{meta.updateFrequency}</div>
+              )}
+
               {/* 季徽（高亮）+「全 N 集」+ 题材标签——行构成与第三方一致；
                   题材来自 video_detail secondary_infos，档案自带 tags 是解析兜底。
                   未上线剧红底「全 0 集」（hgplayer 同款，0 集也要亮出来） */}
@@ -270,7 +276,10 @@ export function SeriesDetailPage({
                       variant={upcoming ? 'default' : 'secondary'}
                       className={upcoming ? 'bg-hot text-primary-foreground' : ''}
                     >
-                      {tf('detail.allEpisodesBadge', { count: activeSeries.episodes.length })}
+                      {/* 官方统计行原文优先（完结「全139集」/ 连载「更新至83集」，
+                          2026-10-15 实包）；旧后端窗口期回落本地集数拼「全 N 集」 */}
+                      {meta?.updateTag ||
+                        tf('detail.allEpisodesBadge', { count: activeSeries.episodes.length })}
                     </Badge>
                   )}
                   {(meta?.tags ?? activeSeries.tags).map((tag) => (
@@ -284,6 +293,55 @@ export function SeriesDetailPage({
               {/* 简介常驻全文（无收起/展开） */}
               {intro && (
                 <p className="text-muted-foreground mt-4 text-sm leading-relaxed">{intro}</p>
+              )}
+
+              {/* 出品方 / 演职员（main_creator_users，对齐官方详情页 creators
+                  块：头像 + 名字 + 角色行）。点击跳**创作者主页**（2026-10-15
+                  官方实包：commentapi/user/profile，非搜索；userId 是条目
+                  自带的 user_id）。旧条目无 uid 时不可点（仅展示） */}
+              {meta && meta.creators.length > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  {meta.creators.map((c) => (
+                    <button
+                      key={c.userId + c.name}
+                      type="button"
+                      onClick={
+                        c.userId
+                          ? () =>
+                              void navigate({
+                                to: '/creator',
+                                search: { userId: c.userId },
+                              })
+                          : undefined
+                      }
+                      disabled={!c.userId}
+                      className={cn(
+                        'flex items-center gap-2 rounded-full border py-1 pr-3 pl-1 transition-colors',
+                        c.userId && 'hover:bg-sidebar-accent cursor-pointer',
+                      )}
+                      title={tf('detail.creatorHome', { name: c.name })}
+                    >
+                      {c.avatar ? (
+                        <img
+                          src={c.avatar}
+                          alt=""
+                          className="size-7 rounded-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="bg-muted grid size-7 place-items-center rounded-full">
+                          <UserRound className="text-muted-foreground size-4" aria-hidden />
+                        </span>
+                      )}
+                      <span className="text-left leading-tight">
+                        <span className="block text-xs font-medium">{c.name}</span>
+                        {c.role && (
+                          <span className="text-muted-foreground block text-[10px]">{c.role}</span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
 
               <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -326,6 +384,10 @@ export function SeriesDetailPage({
                       <Heart className={cn('size-4', digged && 'fill-hot text-hot')} aria-hidden />
                       {t('player.interact.like')}
                     </Button>
+                    {/* 追更（对齐官方详情页）：仅连载中的剧显示——2026-10-15
+                        官方实包：完结剧 series_status=1 且无追更钮（「全139集」），
+                        连载剧 series_status=0（「更新至83集」+「每周六更新5集」） */}
+                    {meta?.seriesStatus === 0 && <FollowButton seriesId={seriesId} />}
                   </>
                 )}
               </div>

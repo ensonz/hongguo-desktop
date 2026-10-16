@@ -12,12 +12,13 @@ import { Route as rootRouteImport } from './__root'
 import { Route as IndexRouteImport } from './index'
 import { Route as BrowseRouteImport } from './browse'
 import { Route as CollectionsRouteImport } from './collections'
+import { Route as CreatorRouteImport } from './creator'
 import { Route as DetailRouteImport } from './detail'
+import { Route as FollowsRouteImport } from './follows'
 import { Route as HistoryRouteImport } from './history'
 import { Route as LikedRouteImport } from './liked'
 import { Route as MergeRouteImport } from './merge'
 import { Route as NewRouteImport } from './new'
-import { Route as PlayerRouteImport } from './player'
 import { Route as RankRouteImport } from './rank'
 import { Route as ReservationsRouteImport } from './reservations'
 import { Route as SettingsRouteImport } from './settings'
@@ -39,9 +40,19 @@ const CollectionsRoute = CollectionsRouteImport.update({
   path: '/collections',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CreatorRoute = CreatorRouteImport.update({
+  id: '/creator',
+  path: '/creator',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DetailRoute = DetailRouteImport.update({
   id: '/detail',
   path: '/detail',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FollowsRoute = FollowsRouteImport.update({
+  id: '/follows',
+  path: '/follows',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoryRoute = HistoryRouteImport.update({
@@ -62,11 +73,6 @@ const MergeRoute = MergeRouteImport.update({
 const NewRoute = NewRouteImport.update({
   id: '/new',
   path: '/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlayerRoute = PlayerRouteImport.update({
-  id: '/player',
-  path: '/player',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RankRoute = RankRouteImport.update({
@@ -99,12 +105,13 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
+  '/creator': typeof CreatorRoute
   '/detail': typeof DetailRoute
+  '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
   '/new': typeof NewRoute
-  '/player': typeof PlayerRoute
   '/rank': typeof RankRoute
   '/reservations': typeof ReservationsRoute
   '/settings': typeof SettingsRoute
@@ -115,12 +122,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
+  '/creator': typeof CreatorRoute
   '/detail': typeof DetailRoute
+  '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
   '/new': typeof NewRoute
-  '/player': typeof PlayerRoute
   '/rank': typeof RankRoute
   '/reservations': typeof ReservationsRoute
   '/settings': typeof SettingsRoute
@@ -132,12 +140,13 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/browse': typeof BrowseRoute
   '/collections': typeof CollectionsRoute
+  '/creator': typeof CreatorRoute
   '/detail': typeof DetailRoute
+  '/follows': typeof FollowsRoute
   '/history': typeof HistoryRoute
   '/liked': typeof LikedRoute
   '/merge': typeof MergeRoute
   '/new': typeof NewRoute
-  '/player': typeof PlayerRoute
   '/rank': typeof RankRoute
   '/reservations': typeof ReservationsRoute
   '/settings': typeof SettingsRoute
@@ -150,12 +159,13 @@ export interface FileRouteTypes {
     | '/'
     | '/browse'
     | '/collections'
+    | '/creator'
     | '/detail'
+    | '/follows'
     | '/history'
     | '/liked'
     | '/merge'
     | '/new'
-    | '/player'
     | '/rank'
     | '/reservations'
     | '/settings'
@@ -166,12 +176,13 @@ export interface FileRouteTypes {
     | '/'
     | '/browse'
     | '/collections'
+    | '/creator'
     | '/detail'
+    | '/follows'
     | '/history'
     | '/liked'
     | '/merge'
     | '/new'
-    | '/player'
     | '/rank'
     | '/reservations'
     | '/settings'
@@ -182,12 +193,13 @@ export interface FileRouteTypes {
     | '/'
     | '/browse'
     | '/collections'
+    | '/creator'
     | '/detail'
+    | '/follows'
     | '/history'
     | '/liked'
     | '/merge'
     | '/new'
-    | '/player'
     | '/rank'
     | '/reservations'
     | '/settings'
@@ -199,12 +211,13 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BrowseRoute: typeof BrowseRoute
   CollectionsRoute: typeof CollectionsRoute
+  CreatorRoute: typeof CreatorRoute
   DetailRoute: typeof DetailRoute
+  FollowsRoute: typeof FollowsRoute
   HistoryRoute: typeof HistoryRoute
   LikedRoute: typeof LikedRoute
   MergeRoute: typeof MergeRoute
   NewRoute: typeof NewRoute
-  PlayerRoute: typeof PlayerRoute
   RankRoute: typeof RankRoute
   ReservationsRoute: typeof ReservationsRoute
   SettingsRoute: typeof SettingsRoute
@@ -235,11 +248,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CollectionsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/creator': {
+      id: '/creator'
+      path: '/creator'
+      fullPath: '/creator'
+      preLoaderRoute: typeof CreatorRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/detail': {
       id: '/detail'
       path: '/detail'
       fullPath: '/detail'
       preLoaderRoute: typeof DetailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/follows': {
+      id: '/follows'
+      path: '/follows'
+      fullPath: '/follows'
+      preLoaderRoute: typeof FollowsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/history': {
@@ -268,13 +295,6 @@ declare module '@tanstack/react-router' {
       path: '/new'
       fullPath: '/new'
       preLoaderRoute: typeof NewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/player': {
-      id: '/player'
-      path: '/player'
-      fullPath: '/player'
-      preLoaderRoute: typeof PlayerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rank': {
@@ -319,12 +339,13 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BrowseRoute: BrowseRoute,
   CollectionsRoute: CollectionsRoute,
+  CreatorRoute: CreatorRoute,
   DetailRoute: DetailRoute,
+  FollowsRoute: FollowsRoute,
   HistoryRoute: HistoryRoute,
   LikedRoute: LikedRoute,
   MergeRoute: MergeRoute,
   NewRoute: NewRoute,
-  PlayerRoute: PlayerRoute,
   RankRoute: RankRoute,
   ReservationsRoute: ReservationsRoute,
   SettingsRoute: SettingsRoute,

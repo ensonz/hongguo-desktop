@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useRelatedSeries } from '@/service/queries';
 import { usePlayerStore } from '@/stores/player';
@@ -13,7 +12,7 @@ import { pickNextSeason } from '../season';
  * 本季最后一集播完（或连播中滚/点过末集）：优先自动接**下一季**第 1 集
  * ——「相关作品·系列」（官方 plan 接口）里当前剧的下一条，即 hgplayer
  * NextSeason 的数据面；没有下一季时：信息流上下文跟随宿主刷下一条推荐
- * （hgplayer K() 的 X(1) 同款），纯播放页回落「猜你喜欢」第一条。
+ * （hgplayer K() 的 X(1) 同款），无宿主上下文则回落「猜你喜欢」第一条。
  * 都落空才提示已是最后一集。起播时就拉好相关列表，剧终时通常已就绪。
  *
  * 连播锁定（bingeSeriesId）：信息流里主动选了某集 = 要追这部，锁定后
@@ -35,10 +34,11 @@ export function useBingeRelay(params: {
 }) {
   const { seriesId, vidIndex, setTarget, setSlideDir, downloading, onWheelStep, currentSeries } =
     params;
-  const navigate = useNavigate();
   // 选中剧连播：锁定后滚轮/↑↓ 切集而不是跟随宿主页换剧
   const bingeSeriesId = usePlayerStore((s) => s.bingeSeriesId);
   const setBinge = usePlayerStore((s) => s.setBinge);
+  // 外部点名（剧终接下一季）：首页消费信号对齐游标，不再逃去独立播放页
+  const requestGoto = usePlayerStore((s) => s.requestGoto);
   const inBinge = bingeSeriesId != null && bingeSeriesId === seriesId;
 
   const { data: related } = useRelatedSeries(seriesId ?? '');
@@ -64,13 +64,12 @@ export function useBingeRelay(params: {
       pickNextSeason(works, seriesId, currentSeries?.title ?? '') ??
       (legacyNext && legacyNext.episodeCnt > 0 ? legacyNext : undefined);
     if (nextSeason) {
-      // hgplayer 同款：toast「即将播放下一季」+ 直接开播第 1 集。信息流
-      // 上下文顺势进纯播放页（第三方 push play 路由同款）——信息流宿主的
-      // 游标/角标/滚轮语义都是按流条目算的，带进下一季只会错位
+      // hgplayer 同款：toast「即将播放下一季」+ 直接开播第 1 集。点名跳转
+      // 让首页把游标对到下一季（流里没有就钉最前），锁连播延续切集语义
       toast.success(tf('player.playNextSeason', { title: nextSeason.title }));
       setSlideDir(1);
-      setTarget(nextSeason.seriesId, 1);
-      if (onWheelStep) void navigate({ to: '/player' });
+      requestGoto(nextSeason.seriesId, 1);
+      setBinge(nextSeason.seriesId);
       return;
     }
     if (onWheelStep) {
@@ -90,7 +89,17 @@ export function useBingeRelay(params: {
     }
     seriesEndBusy.current = false;
     toast.info(tf('player.lastEpisode', { index: currentSeries?.episodes.length ?? vidIndex }));
-  }, [seriesId, vidIndex, related, setTarget, onWheelStep, navigate, currentSeries, setSlideDir]);
+  }, [
+    seriesId,
+    vidIndex,
+    related,
+    setTarget,
+    requestGoto,
+    setBinge,
+    onWheelStep,
+    currentSeries,
+    setSlideDir,
+  ]);
 
   const stepEpisode = useCallback(
     (delta: number) => {

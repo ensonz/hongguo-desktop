@@ -111,16 +111,13 @@ impl DetailView {
                                 self.reviews_score.parse::<f64>().unwrap_or(0.0)
                             )),
                     )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child(if self.reviews_score_cnt > 0 {
-                                format!("{}人评分", DetailView::fmt_count(self.reviews_score_cnt))
-                            } else {
-                                "剧均评分".to_string()
-                            }),
-                    )
+                    .child(div().text_sm().text_color(theme.muted_foreground).child(
+                        if self.reviews_score_cnt > 0 {
+                            format!("{}人评分", DetailView::fmt_count(self.reviews_score_cnt))
+                        } else {
+                            "剧均评分".to_string()
+                        },
+                    ))
             }))
             // 剧评列表（头像 + 昵称 + 评分行 + 时间 + 正文 + 点赞数；
             // 评分行只有剧评有——单集评论 score 恒空）
@@ -167,12 +164,11 @@ impl DetailView {
                                             .child(SharedString::from(format!("{}分", c.score)))
                                     }))
                                     .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .child(SharedString::from(
-                                                crate::home::fmt::relative_time(c.create_time),
+                                        div().text_xs().text_color(theme.muted_foreground).child(
+                                            SharedString::from(crate::home::fmt::relative_time(
+                                                c.create_time,
                                             )),
+                                        ),
                                     ),
                             )
                             .child(
@@ -202,19 +198,21 @@ impl DetailView {
             }))
             // 加载更多（Tauri 是滚动懒加载；GPUI 详情页滚动容器裁判复杂，
             // 按钮等价且省一档哨兵）
-            .children((self.reviews_has_more && !self.reviews.is_empty()).then(|| {
-                Button::new("detail-reviews-more")
-                    .label(if self.reviews_loading {
-                        "加载中…"
-                    } else {
-                        "加载更多剧评"
-                    })
-                    .secondary()
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.load_reviews_next(cx);
-                    }))
-            }))
+            .children(
+                (self.reviews_has_more && !self.reviews.is_empty()).then(|| {
+                    Button::new("detail-reviews-more")
+                        .label(if self.reviews_loading {
+                            "加载中…"
+                        } else {
+                            "加载更多剧评"
+                        })
+                        .secondary()
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.load_reviews_next(cx);
+                        }))
+                }),
+            )
             .into_any_element()
     }
 }

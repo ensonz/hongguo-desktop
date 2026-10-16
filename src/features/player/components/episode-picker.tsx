@@ -10,7 +10,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { BellRing, ChevronDown, Play } from 'lucide-react';
-import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -31,8 +30,6 @@ import type { RelatedItem } from '@/service/schema';
 interface Props {
   seriesId: string;
   currentIndex: number;
-  /** 底部提示文案（信息流里教「选一集 = 进入本剧连播」）；不传即无 */
-  hint?: string;
   onSelect: (vidIndex: number) => void;
   onClose: () => void;
 }
@@ -40,7 +37,7 @@ interface Props {
 /** 每个范围段的集数（hgplayer 同款 30 个一段）。 */
 const GROUP_SIZE = 30;
 
-export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose }: Props) {
+export function EpisodePicker({ seriesId, currentIndex, onSelect, onClose }: Props) {
   const [tab, setTab] = useState<'grid' | 'series'>('grid');
   const { data: series } = useSeriesEpisodes(seriesId);
   const { data: tasks } = useDownloadTasks();
@@ -71,8 +68,8 @@ export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose 
 
   // ---- 系列剧 tab（hgplayer 1.1.8 同款）：各季卡片，未上线季可预约 ----
   const { data: related } = useRelatedSeries(seriesId);
-  const navigate = useNavigate();
-  const setTarget = usePlayerStore((s) => s.setTarget);
+  const requestGoto = usePlayerStore((s) => s.requestGoto);
+  const setBinge = usePlayerStore((s) => s.setBinge);
   const { data: offlineReservations } = useReservations(false);
   const { mutate: reserve, isPending: reserving } = useReserveSeries();
   const seasons = useMemo(() => {
@@ -100,9 +97,10 @@ export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose 
     [offlineReservations],
   );
   const switchSeason = (item: RelatedItem) => {
-    // 与推荐列表同一套换剧机制：登记目标 → 播放页按需解析详情与分集
-    setTarget(item.seriesId, 1);
-    void navigate({ to: '/player' });
+    // 统一首页播放：点名跳新季（信息流游标对到它，流里没有就钉最前），
+    // 并锁连播——选了某一季 = 追这一季（滚轮/↑↓ 切集，Esc 退出）
+    requestGoto(item.seriesId, 1);
+    setBinge(item.seriesId);
     onClose();
   };
 
@@ -320,10 +318,6 @@ export function EpisodePicker({ seriesId, currentIndex, hint, onSelect, onClose 
             );
           })}
         </div>
-      )}
-
-      {hint && (
-        <p className="mt-3 border-t border-neutral-800 pt-2.5 text-xs text-neutral-500">{hint}</p>
       )}
     </div>
   );

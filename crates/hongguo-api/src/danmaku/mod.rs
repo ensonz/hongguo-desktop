@@ -18,12 +18,13 @@ mod comments;
 mod model;
 
 pub use comments::{
-    fetch_comment_replies, fetch_comments_page, fetch_review_replies, fetch_series_comments_page,
-    send_series_review,
+    fetch_comment_replies, fetch_comments_page, fetch_creator_profile, fetch_creator_works,
+    fetch_review_replies, fetch_series_comments_page, send_series_review,
 };
 pub(crate) use comments::{parse_comment_item, parse_reply_item};
 pub use model::{
-    CommentItem, CommentPage, CommentTagStat, Danmaku, ReplyItem, ReplyPage, SeriesReviewPage,
+    CommentItem, CommentPage, CommentTagStat, CreatorProfile, CreatorWork, CreatorWorksPage,
+    Danmaku, ReplyItem, ReplyPage, SeriesReviewPage,
 };
 
 #[cfg(test)]
@@ -214,9 +215,11 @@ mod tests {
     }
 
     #[test]
-    fn comments_payload_matches_capture_20261006() {
-        // 2026-10-06 抓 hgplayer 1.1.5：评论形态与弹幕形态分叉，
-        // 沿用弹幕形 business_param / server_channel=1000 会被 103001 拒
+    fn comments_payload_matches_capture_20261016() {
+        // 2026-10-16 抓官方 App 播放页面板（flows-official-follow.jsonl:3308）：
+        // 单集维度 group=vid / group_type=30 / channel=18，count=10，
+        // business_param.sort="video_innerflow"，need_count 仅首屏 true；
+        // 弹幕形 business_param / channel=1000 会被 103001 拒
         let p = comments_payload("g", "b", "");
         assert_eq!(p["comment_type"], COMMENT_TYPE_COMMENT);
         assert_eq!(p["comment_source"], 4);
@@ -224,12 +227,21 @@ mod tests {
             p["server_channel"], SERVER_CHANNEL_COMMENT,
             "评论走 18，弹幕才是 1000"
         );
+        assert_eq!(p["group_type"], GROUP_TYPE_COMMENT);
         assert_eq!(p["business_param"]["need_count"], true);
         assert_eq!(p["business_param"]["req_type"], 0);
-        assert_eq!(p["count"], 20);
-        assert!(
-            p["business_param"].get("playlet_item_duration").is_none(),
-            "弹幕形字段混进评论体会 103001"
+        assert_eq!(p["business_param"]["sort"], "video_innerflow");
+        assert_eq!(p["business_param"]["start_offset_time"], 0);
+        assert_eq!(p["count"], 10);
+        assert!(p.get("cursor").is_none(), "首屏不带 cursor 键，翻页才回传");
+        let p2 = comments_payload("g", "b", r#"{"session_id":"s","offset":10}"#);
+        assert_eq!(
+            p2["business_param"]["need_count"], false,
+            "翻页 need_count=false"
+        );
+        assert_eq!(
+            p2["cursor"], r#"{"session_id":"s","offset":10}"#,
+            "翻页回传会话游标原样串"
         );
     }
 

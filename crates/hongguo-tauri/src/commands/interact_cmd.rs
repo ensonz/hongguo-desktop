@@ -6,10 +6,12 @@
 use serde::Deserialize;
 use tauri::State;
 
+use hongguo_api::interact::CommentMention;
 use hongguo_api::interact::{
-    BookshelfEntry, CommentItem, InteractionState, ReplyItem, collect_series, collect_series_batch,
-    delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
-    fetch_interaction_state, send_comment, send_danmaku, send_reply, send_review_reply,
+    BookshelfEntry, CommentItem, InteractionState, MentionUser, ReplyItem, collect_series,
+    collect_series_batch, delete_comment, digg_comment, digg_review, digg_video, fetch_bookshelf,
+    fetch_interaction_state, fetch_mention_list, send_comment, send_comment_mention, send_danmaku,
+    send_reply, send_review_reply,
 };
 use hongguo_common::{AppError, AppResult};
 use hongguo_service::app_state::AppState;
@@ -42,26 +44,57 @@ pub async fn danmaku_send(
     Ok(cid)
 }
 
-/// 发一条评论（offset 恒 0）。返回**服务端回显的完整评论对象**
-/// （头像/昵称/uid/时间齐全）——前端直接插列表顶部。
+/// 发一条播放页评论（与面板同流：单集维度 group=vid / group_type=30）。
+/// 返回**服务端回显的完整评论对象**（头像/昵称/uid/时间齐全）——
+/// 前端直接插列表顶部。
+///
+/// `mention_user_id` + `context_comment_ids` 同时在场 = **@小果AI 提及
+/// 评论**（2026-10-15/16 官方实包：rich_text tp=15/uri=uid +
+/// business_param.aibot_mention_context=最近评论 id 嵌套数组；官方单集
+/// 流里的提及评论带 AI 回复，见 flows-official-follow.jsonl:3314）。
 #[tauri::command]
 pub async fn comment_send(
     state: State<'_, AppState>,
     group_id: String,
     book_id: String,
     text: String,
+    mention_user_id: Option<String>,
+    context_comment_ids: Option<Vec<String>>,
 ) -> AppResult<CommentItem> {
     let env = state.api_env();
     let text = text.trim().to_string();
-    if text.is_empty() {
+    let mention = match (mention_user_id, context_comment_ids) {
+        // 上下文 id 允许为空（面板无评论时也能 @；官方上下文是软信息，
+        // 实包为最近评论 id，缺失不影响提及生效）
+        (Some(uid), Some(ids)) if !uid.trim().is_empty() => Some(CommentMention {
+            user_id: uid.trim().to_string(),
+            comment_ids: ids,
+        }),
+        _ => None,
+    };
+    if text.is_empty() && mention.is_none() {
         return Err(hongguo_common::AppError::Media("评论内容为空".into()));
     }
-    send_comment(&group_id, &book_id, &text, &env).await
+    match &mention {
+        Some(m) => send_comment_mention(&group_id, &book_id, m, &text, &env).await,
+        None => send_comment(&group_id, &book_id, &text, &env).await,
+    }
 }
 
-/// 回复一条评论（或一条回复）。`reply_to_reply_id` 回复「回复」时传
-/// 被回复的那条回复 id（多级），纯评论回复传空。返回**服务端回显的
-/// 完整回复对象**——前端直接插回复区（hgplayer 同款）。
+/// 评论 @ 提及候选列表（含官方 AI bot「小果」，is_ai_bot=true）。
+#[tauri::command]
+pub async fn mention_list(
+    state: State<'_, AppState>,
+    series_id: String,
+) -> AppResult<Vec<MentionUser>> {
+    let env = state.api_env();
+    fetch_mention_list(&series_id, &env).await
+}
+
+/// 回复一条评论（或一条回复）。回复流与面板同单集维度（group=vid /
+/// group_type=30）。`reply_to_reply_id` 回复「回复」时传被回复的那条
+/// 回复 id（多级），纯评论回复传空。返回**服务端回显的完整回复对象**——
+/// 前端直接插回复区（hgplayer 同款）。
 #[tauri::command]
 pub async fn comment_reply(
     state: State<'_, AppState>,

@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import {
   Eye,
+  Maximize,
   Maximize2,
+  Minimize,
   Pause,
   Pin,
   Play,
+  RectangleHorizontal,
   SkipBack,
   SkipForward,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import { formatDuration } from '@/utils/format';
 import { readPlaybackRate, writeMuted, writePlaybackRate } from '@/utils/playback-prefs';
@@ -22,14 +24,23 @@ import { ChromeSurface } from './chrome-surface';
 const MINI_RATES = [1, 1.5, 2, 3];
 
 /**
- * 小屏播放的紧凑控制条（对齐 hgplayer 小屏形态：480×270 窗口里只留
- * 最必要的一行控件）。挂在播放器舞台底部，与大屏控制栏共用同一个
- * `<video>`——切换大小屏时视频元素不卸载，播放零中断。
+ * 紧凑控制条，两种形态共用一行按钮集（hgplayer 小屏同款）：
+ * - `mini`（默认）：480×270 小窗。顶栏已被摘掉，所以剧名/简介、置顶
+ *   都长在条上；⤢ = 退出小屏回大窗。
+ * - `portrait`：竖屏窄条。顶栏还在（置顶钮在顶栏，条上不重复），
+ *   剧名/简介由 ImmersiveInfoOverlay 承担（条上不重复）；⤢ = 退出竖屏
+ *   回横屏，那个位置给**铺满**切换（竖屏专属档位，Esc 退铺满回竖条）。
  *
- * 进度/暂停/静音/倍速都直接从 video 元素的事件里读（元素归播放页所有，
- * 这里不复制状态源），写操作直接改元素并落偏好。
+ * 曾有的 ✕「结束播放」已删（用户口径）：它与 ⤢ 都是回大窗，只差退出时
+ * 暂停一拍，视觉重复；想暂停直接按 ▶。
+ *
+ * 挂在播放器舞台底部，与全量控制栏共用同一个 `<video>`——切换形态时
+ * 视频元素不卸载，播放零中断。进度/暂停/静音/倍速都直接从 video 元素
+ * 的事件里读（元素归播放页所有，这里不复制状态源），写操作直接改元素
+ * 并落偏好。
  */
 export function MiniScreenControls({
+  variant = 'mini',
   videoRef,
   title,
   intro,
@@ -38,15 +49,18 @@ export function MiniScreenControls({
   hasNext,
   onStepEpisode,
   onExpand,
-  onClose,
   incognitoOn,
   onToggleIncognito,
   pinned,
   onTogglePinned,
+  portraitFull,
+  onTogglePortraitFull,
   visible,
   onControlsEnter,
   onControlsLeave,
 }: {
+  /** 控件形态：mini = 小窗（默认）；portrait = 竖屏窄条 */
+  variant?: 'mini' | 'portrait';
   videoRef: React.RefObject<HTMLVideoElement | null>;
   title?: string;
   intro?: string;
@@ -54,17 +68,21 @@ export function MiniScreenControls({
   total: number;
   hasNext: boolean;
   onStepEpisode: (delta: 1 | -1) => void;
+  /** 退出当前紧凑形态回大窗（mini = 退出小屏；portrait = 退出竖屏），图标文案随形态 */
   onExpand: () => void;
-  onClose: () => void;
   incognitoOn: boolean;
   onToggleIncognito: () => void;
-  pinned: boolean;
-  onTogglePinned: () => void;
+  pinned?: boolean;
+  onTogglePinned?: () => void;
+  /** portrait 形态专用：铺满档切换 */
+  portraitFull?: boolean;
+  onTogglePortraitFull?: () => void;
   visible: boolean;
   /** 指针悬在控制条本体上：上报外层停掉隐藏倒计时（B站同款，悬在控件上不许收） */
   onControlsEnter: () => void;
   onControlsLeave: () => void;
 }) {
+  const portrait = variant === 'portrait';
   const [paused, setPaused] = useState(true);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -138,17 +156,20 @@ export function MiniScreenControls({
       className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-1 bg-gradient-to-t from-black/75 to-transparent px-2 pt-6 pb-1.5 text-white"
     >
       {/* 剧名/集数/简介贴着进度条上方（第三方小屏同款三行形态），宽度
-          收敛 + 截断（小屏 480 宽，长剧名长简介都不挡画面） */}
-      <div className="pointer-events-none max-w-[62%]">
-        <p className="truncate text-xs font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-          @{title || t('player.miniTitle')}
-        </p>
-        <p className="mt-0.5 truncate text-[10px] text-white/80">
-          {vidIndex ? tf('player.episodeNo', { index: vidIndex }) : ''}
-          {total > 0 ? ` · ${tf('player.totalEpisodes', { count: total })}` : ''}
-          {intro ? ` ${intro}` : ''}
-        </p>
-      </div>
+          收敛 + 截断（小屏 480 宽，长剧名长简介都不挡画面）。portrait
+          形态不渲染——竖屏的剧名/简介由 ImmersiveInfoOverlay 承担 */}
+      {!portrait && (
+        <div className="pointer-events-none max-w-[62%]">
+          <p className="truncate text-xs font-semibold drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+            @{title || t('player.miniTitle')}
+          </p>
+          <p className="mt-0.5 truncate text-[10px] text-white/80">
+            {vidIndex ? tf('player.episodeNo', { index: vidIndex }) : ''}
+            {total > 0 ? ` · ${tf('player.totalEpisodes', { count: total })}` : ''}
+            {intro ? ` ${intro}` : ''}
+          </p>
+        </div>
+      )}
       {/* 进度条与大屏共用 ScrubBar：此前用原生 <input type=range> +
           accent-red-500，在 WebView2 上是粗红条大红钮，和细化后的大屏
           进度条完全两个观感（2026-10-09 真机实测） */}
@@ -165,8 +186,7 @@ export function MiniScreenControls({
         onScrubStart={() => undefined}
         onScrubEnd={() => undefined}
       />
-      {/* 倍速紧贴时长（用户口径）：一行固定内容更短，窗口才压得进 360 的
-          下限；时长 nowrap——极窄下宁可溢出 1px 也不折行把控制条顶高 */}
+      {/* 时长 nowrap——极窄下宁可溢出 1px 也不折行把控制条顶高 */}
       <div className="flex items-center gap-0.5">
         <MiniButton label={paused ? t('player.play') : t('player.pause')} onClick={togglePlay}>
           {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
@@ -181,13 +201,14 @@ export function MiniScreenControls({
         >
           <SkipForward className="size-4" />
         </MiniButton>
-        <span className="whitespace-nowrap font-mono text-[10px] text-white/85 tabular-nums">
+        <span className="font-mono text-[10px] whitespace-nowrap text-white/85 tabular-nums">
           {formatDuration(current)} / {formatDuration(duration)}
         </span>
-        <MiniButton label={t('player.playbackRate')} onClick={cycleRate}>
-          <span className="font-mono text-[10px]">{rate}x</span>
-        </MiniButton>
         <div className="ml-auto flex items-center gap-0.5">
+          {/* 倍速在右组首位（用户口径）：贴着时长会连成一排数字，容易误读 */}
+          <MiniButton label={t('player.playbackRate')} onClick={cycleRate}>
+            <span className="font-mono text-[10px]">{rate}x</span>
+          </MiniButton>
           <MiniButton
             label={t('player.mute')}
             onClick={() => {
@@ -203,14 +224,31 @@ export function MiniScreenControls({
           <MiniButton label={t('player.incognito')} onClick={onToggleIncognito}>
             <Eye className={cn('size-4', incognitoOn ? 'text-white' : 'text-white/55')} />
           </MiniButton>
-          <MiniButton label={t('player.pin')} onClick={onTogglePinned}>
-            <Pin className={cn('size-4', pinned ? 'fill-current' : 'text-white/55')} />
-          </MiniButton>
-          <MiniButton label={t('player.exitMiniScreen')} onClick={onExpand}>
-            <Maximize2 className="size-4" />
-          </MiniButton>
-          <MiniButton label={t('player.stopMiniScreen')} onClick={onClose}>
-            <X className="size-4" />
+          {/* 置顶只有 mini 形态要：portrait 的顶栏常驻，同款置顶钮已在顶栏 */}
+          {!portrait && (
+            <MiniButton label={t('player.pin')} onClick={() => onTogglePinned?.()}>
+              <Pin className={cn('size-4', pinned ? 'fill-current' : 'text-white/55')} />
+            </MiniButton>
+          )}
+          {/* 铺满切换只有 portrait 形态要：小窗尺寸固定无档位可言。
+              hgplayer wu：竖屏里铺满/收回是核心档位，Esc 退铺满回竖条 */}
+          {portrait && (
+            <MiniButton
+              label={portraitFull ? t('player.exitPortraitFill') : t('player.portraitFill')}
+              onClick={() => onTogglePortraitFull?.()}
+            >
+              {portraitFull ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+            </MiniButton>
+          )}
+          <MiniButton
+            label={portrait ? t('player.exitPortrait') : t('player.exitMiniScreen')}
+            onClick={onExpand}
+          >
+            {portrait ? (
+              <RectangleHorizontal className="size-4" />
+            ) : (
+              <Maximize2 className="size-4" />
+            )}
           </MiniButton>
         </div>
       </div>

@@ -564,7 +564,9 @@ impl super::HomeView {
                                                 div()
                                                     .text_size(gpui_kit::px(10.0))
                                                     .text_color(gpui_kit::rgba(0xffffff73))
-                                                    .child(crate::home::fmt::relative_time(r.create_time)),
+                                                    .child(crate::home::fmt::relative_time(
+                                                        r.create_time,
+                                                    )),
                                             )
                                             .child(
                                                 div()

@@ -303,7 +303,7 @@ struct SymphoniaDecoder {
 impl SymphoniaDecoder {
     fn open(asc: &[u8], channels: u16, sample_rate: u32) -> AppResult<Self> {
         use symphonia_core::audio::Channels;
-        use symphonia_core::codecs::{CodecParameters, CodecRegistry, CODEC_TYPE_AAC};
+        use symphonia_core::codecs::{CODEC_TYPE_AAC, CodecParameters, CodecRegistry};
 
         // ASC 里的声道数 → symphonia 声道位标志（现行流恒单/双声道）。
         let channels_flag = match channels {
@@ -312,7 +312,7 @@ impl SymphoniaDecoder {
             _ => {
                 return Err(AppError::Media(format!(
                     "symphonia 兜底不支持 {channels} 声道"
-                )))
+                )));
             }
         };
         let asc_owned: Box<[u8]> = asc.into();
@@ -342,12 +342,7 @@ impl SymphoniaDecoder {
         use symphonia_core::audio::SampleBuffer;
         use symphonia_core::formats::Packet;
 
-        let pkt = Packet::new_from_slice(
-            self.track_id,
-            self.pts,
-            self.frames_per_packet,
-            packet,
-        );
+        let pkt = Packet::new_from_slice(self.track_id, self.pts, self.frames_per_packet, packet);
         self.pts += self.frames_per_packet;
         let buf_ref = self
             .decoder
@@ -356,8 +351,9 @@ impl SymphoniaDecoder {
         // symphonia 产出 planar/原生格式，统一转交错 f32
         let spec = *buf_ref.spec();
         let cap = buf_ref.capacity() as u64;
-        let sample_buf =
-            self.sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(cap, spec));
+        let sample_buf = self
+            .sample_buf
+            .get_or_insert_with(|| SampleBuffer::<f32>::new(cap, spec));
         sample_buf.copy_interleaved_ref(buf_ref);
         Ok(sample_buf.samples().to_vec())
     }
@@ -494,8 +490,7 @@ mod tests {
             assert_eq!(data[i + 1] & 0xF0, 0xF0);
             profile = u32::from((data[i + 2] >> 6) & 0x3);
             sfidx = u32::from((data[i + 2] >> 2) & 0xF);
-            config =
-                (u32::from(data[i + 2] & 0x1) << 2) | u32::from((data[i + 3] >> 6) & 0x3);
+            config = (u32::from(data[i + 2] & 0x1) << 2) | u32::from((data[i + 3] >> 6) & 0x3);
             let length = ((u32::from(data[i + 3]) & 0x3) << 11)
                 | (u32::from(data[i + 4]) << 3)
                 | (u32::from(data[i + 5]) >> 5);
@@ -513,7 +508,10 @@ mod tests {
     fn assert_audible(samples: &[f32], label: &str) {
         let energy: f64 = samples.iter().map(|s| f64::from(*s) * f64::from(*s)).sum();
         let rms = (energy / samples.len().max(1) as f64).sqrt();
-        assert!(rms > 0.01, "{label}: PCM 近乎静音（rms={rms}）——解码路径坏了");
+        assert!(
+            rms > 0.01,
+            "{label}: PCM 近乎静音（rms={rms}）——解码路径坏了"
+        );
     }
 
     /// 端到端：fixture（afconvert 真实编码的正弦音）逐包喂进主路解码器，
@@ -522,21 +520,23 @@ mod tests {
     /// 不出」的主路等于没有主路。
     #[test]
     fn audio_toolbox_decodes_real_packets() {
-        let (asc, packets) = adts_packets(include_bytes!(
-            "../tests/fixtures/aac-lc-44100-mono.adts"
-        ));
+        let (asc, packets) =
+            adts_packets(include_bytes!("../tests/fixtures/aac-lc-44100-mono.adts"));
         assert_eq!(asc, vec![0x12, 0x08], "fixture 参数变了要同步测试");
         let mut dec = AacDecoder::open(&asc, 1, 44_100).expect("open 单声道");
         let mut pcm: Vec<f32> = Vec::new();
         for pkt in packets.iter() {
             pcm.extend(dec.decode(&pkt[7..]).expect("包解码不应失败"));
         }
-        assert!(pcm.len() >= 44_100 * 3 / 10, "单声道产出过少：{} 样本", pcm.len());
+        assert!(
+            pcm.len() >= 44_100 * 3 / 10,
+            "单声道产出过少：{} 样本",
+            pcm.len()
+        );
         assert_audible(&pcm, "单声道全流");
 
-        let (asc, packets) = adts_packets(include_bytes!(
-            "../tests/fixtures/aac-lc-44100-stereo.adts"
-        ));
+        let (asc, packets) =
+            adts_packets(include_bytes!("../tests/fixtures/aac-lc-44100-stereo.adts"));
         assert_eq!(asc, vec![0x12, 0x10]);
         let mut dec = AacDecoder::open(&asc, 2, 44_100).expect("open 立体声");
         let mut pcm: Vec<f32> = Vec::new();

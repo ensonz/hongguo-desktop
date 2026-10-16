@@ -4,13 +4,15 @@
 
 use std::sync::Arc;
 
+use gpui_kit::component::Disableable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::h_flex;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::Disableable;
 use gpui_kit::component::{ActiveTheme, Sizable};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ClickEvent, ElementId, Entity, RenderImage, RenderOnce, SharedString, Window, div};
+use gpui_kit::{
+    App, ClickEvent, ElementId, Entity, RenderImage, RenderOnce, SharedString, Window, div,
+};
 use hongguo_service::app_state::AppStateInner;
 use tokio::sync::oneshot;
 
@@ -66,9 +68,8 @@ pub(crate) fn pick_dot(
             on_toggle(ev, window, cx);
         })
         .children(
-            picked.then(|| {
-                gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Check).small()
-            }),
+            picked
+                .then(|| gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Check).small()),
         )
 }
 
@@ -226,7 +227,9 @@ pub(crate) fn fetch_series_visual(
 /// 封面字节 → RenderImage（解码失败只记日志，卡片走占位底）。
 pub(crate) fn decode_cover(bytes: &[u8]) -> Option<Arc<RenderImage>> {
     match image::load_from_memory(bytes) {
-        Ok(decoded) => Some(Arc::new(crate::image_upload::render_image(decoded.to_rgba8()))),
+        Ok(decoded) => Some(Arc::new(crate::image_upload::render_image(
+            decoded.to_rgba8(),
+        ))),
         Err(e) => {
             log::warn!("[Cover] 解码失败: {e}");
             None

@@ -2,6 +2,7 @@
  * 与 Rust serde 模型对应的 zod schema（互动域：点赞 / 收藏 / 书架）。
  */
 import { z } from 'zod';
+import { normalizeAvatarUrl } from '@/utils/image-url';
 
 /** 书架（收藏）列表里的一条（Rust `interact::BookshelfEntry`）。 */
 export const bookshelfEntrySchema = z.object({
@@ -29,3 +30,14 @@ export const interactionStateSchema = z.object({
   items: z.array(interactionItemSchema),
 });
 export type InteractionState = z.infer<typeof interactionStateSchema>;
+
+/** 评论 @ 提及候选里的一条（Rust `interact::MentionUser`；列表含官方
+ *  AI bot「小果」，isAiBot=true）。候选头像多为 fqnovelpic 的 heic 签名
+ *  URL，与其他头像同走 CDN 规整（heic→jpeg/未知格式走本地代理）。 */
+export const mentionUserSchema = z.object({
+  userId: z.string(),
+  userName: z.string(),
+  avatar: z.string().transform(normalizeAvatarUrl),
+  isAiBot: z.boolean(),
+});
+export type MentionUser = z.infer<typeof mentionUserSchema>;

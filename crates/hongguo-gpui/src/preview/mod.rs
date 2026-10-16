@@ -198,9 +198,7 @@ fn interaction_probe(
         )
     })?;
     cx.update_window(handle, |_, window, cx| -> anyhow::Result<()> {
-        shell.update(cx, |shell, cx| {
-            shell.debug_preview_seed("feed", window, cx)
-        })?;
+        shell.update(cx, |shell, cx| shell.debug_preview_seed("feed", window, cx))?;
         let _ = window.draw(cx);
         Ok(())
     })??;
@@ -212,33 +210,35 @@ fn interaction_probe(
         for y in [54.0, 60.0, 66.0, 72.0, 78.0] {
             for x in (240..1010).step_by(8) {
                 let pos = Point::new(px(x as f32), px(y));
-            for input in [
-                PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
-                    position: pos,
-                    pressed_button: None,
-                    modifiers: Default::default(),
-                }),
-                PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
-                    button: MouseButton::Left,
-                    position: pos,
-                    modifiers: Default::default(),
-                    click_count: 1,
-                    first_mouse: false,
-                }),
-                PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
-                    button: MouseButton::Left,
-                    position: pos,
-                    modifiers: Default::default(),
-                    click_count: 1,
-                }),
-            ] {
-                window.dispatch_event(input, cx);
+                for input in [
+                    PlatformInput::MouseMove(gpui_kit::MouseMoveEvent {
+                        position: pos,
+                        pressed_button: None,
+                        modifiers: Default::default(),
+                    }),
+                    PlatformInput::MouseDown(gpui_kit::MouseDownEvent {
+                        button: MouseButton::Left,
+                        position: pos,
+                        modifiers: Default::default(),
+                        click_count: 1,
+                        first_mouse: false,
+                    }),
+                    PlatformInput::MouseUp(gpui_kit::MouseUpEvent {
+                        button: MouseButton::Left,
+                        position: pos,
+                        modifiers: Default::default(),
+                        click_count: 1,
+                    }),
+                ] {
+                    window.dispatch_event(input, cx);
+                }
+                let _ = window.draw(cx);
+                if shell.update(cx, |shell, cx| shell.active_source(cx))
+                    != crate::home::Source::recommend()
+                {
+                    return Some((x as f32, y));
+                }
             }
-            let _ = window.draw(cx);
-            if shell.update(cx, |shell, cx| shell.active_source(cx)) != crate::home::Source::recommend() {
-                return Some((x as f32, y));
-            }
-        }
         }
         None
     })?;
@@ -246,7 +246,9 @@ fn interaction_probe(
         switched_at.is_some(),
         "交互探针：沿 tab 条横扫未触发任何切源——舞台 tab 点击失效"
     );
-    let active = cx.update_window(handle, |_, _, cx| shell.update(cx, |s, cx| s.active_source(cx)))?;
+    let active = cx.update_window(handle, |_, _, cx| {
+        shell.update(cx, |s, cx| s.active_source(cx))
+    })?;
     anyhow::ensure!(
         active == crate::home::Source::new("36"),
         "交互探针：首个翻源的 tab 应是「漫剧」（实际 {active:?}）"
@@ -257,4 +259,3 @@ fn interaction_probe(
     );
     Ok(())
 }
-

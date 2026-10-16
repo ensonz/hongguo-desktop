@@ -17,7 +17,9 @@ use gpui_kit::component::tag::Tag;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Disableable, Sizable};
 use gpui_kit::prelude::*;
-use gpui_kit::{App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img};
+use gpui_kit::{
+    App, ElementId, Entity, ImageSource, ObjectFit, RenderImage, SharedString, Window, div, img,
+};
 use hongguo_api::discover::{BrowseFilters, FeedItem, SelectorRow};
 use hongguo_api::search::{SearchResult, SuggestItem};
 use hongguo_service::app_state::AppStateInner;
@@ -246,7 +248,14 @@ impl BrowseView {
                         view.feed_next_offset = page.next_offset;
                         view.feed_session_id = page.session_id.clone();
                         view.feed_has_more = page.has_more;
-                        view.load_covers(&page.items.iter().map(|i| i.cover.clone()).collect::<Vec<_>>(), cx);
+                        view.load_covers(
+                            &page
+                                .items
+                                .iter()
+                                .map(|i| i.cover.clone())
+                                .collect::<Vec<_>>(),
+                            cx,
+                        );
                     }
                     Err(e) => {
                         log::warn!("[Browse] 浏览流失败: {e}");
@@ -292,7 +301,11 @@ impl BrowseView {
         cx.notify();
         let state = Arc::clone(&self.state);
         let query = self.submitted.clone();
-        let offset = if first_page { 0 } else { self.search_next_offset };
+        let offset = if first_page {
+            0
+        } else {
+            self.search_next_offset
+        };
         let search_id = if first_page {
             String::new()
         } else {
@@ -317,7 +330,11 @@ impl BrowseView {
                         view.search_id = page.search_id.clone();
                         view.search_has_more = page.has_more;
                         view.load_covers(
-                            &page.items.iter().map(|i| i.cover.clone()).collect::<Vec<_>>(),
+                            &page
+                                .items
+                                .iter()
+                                .map(|i| i.cover.clone())
+                                .collect::<Vec<_>>(),
                             cx,
                         );
                         // 首页精选不足 18 条且还有下一页：自动续拉（Tauri 同款）
@@ -386,8 +403,9 @@ impl BrowseView {
             self.play_series(item.series_id.clone(), cx);
             return;
         }
-        self.keyword
-            .update(cx, |input, cx| input.set_value(item.word.clone(), window, cx));
+        self.keyword.update(cx, |input, cx| {
+            input.set_value(item.word.clone(), window, cx)
+        });
         self.submitted = item.word;
         self.load_search_page(true, cx);
         cx.notify();
@@ -500,7 +518,7 @@ impl BrowseView {
                             .text_sm()
                             .text_color(theme.muted_foreground)
                             .child(SharedString::from(format!("共 {total} 部")))
-                    }))
+                    })),
             )
             // 联想（简化形态：行式列表，点击即选）
             .children((!self.suggest_items.is_empty()).then(|| {
@@ -530,11 +548,9 @@ impl BrowseView {
                                 this.pick_suggest(click_item.clone(), window, cx);
                             }))
                             .child(
-                                gpui_kit::component::Icon::new(
-                                    gpui_kit::assets::IconName::Search,
-                                )
-                                .small()
-                                .text_color(theme.muted_foreground),
+                                gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Search)
+                                    .small()
+                                    .text_color(theme.muted_foreground),
                             )
                             .child(SharedString::from(item.word.clone()))
                             .children((!item.abstract_text.is_empty()).then(|| {
@@ -661,7 +677,13 @@ impl BrowseView {
                     .into_any_element(),
             );
         }
-        Some(v_flex().w_full().gap_1p5().children(elements).into_any_element())
+        Some(
+            v_flex()
+                .w_full()
+                .gap_1p5()
+                .children(elements)
+                .into_any_element(),
+        )
     }
 
     /// 一张结果卡（浏览/搜索共用；字段差异在调用方已归一）。
@@ -715,9 +737,11 @@ impl BrowseView {
                         None => div().size_full().into_any_element(),
                     })
                     .children((downloaded > 0).then(|| {
-                        div().absolute().top_2().right_2().child(
-                            Tag::success().child(SharedString::from(downloaded.to_string())),
-                        )
+                        div()
+                            .absolute()
+                            .top_2()
+                            .right_2()
+                            .child(Tag::success().child(SharedString::from(downloaded.to_string())))
                     }))
                     .children((episode_count > 0).then(|| {
                         div()
@@ -752,19 +776,14 @@ impl BrowseView {
                             .text_xs()
                             .text_color(theme.muted_foreground)
                             .child(
-                                gpui_kit::component::Icon::new(
-                                    gpui_kit::assets::IconName::Flame,
-                                )
-                                .small(),
+                                gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Flame)
+                                    .small(),
                             )
                             .child(SharedString::from(heat.to_string()))
                     }))
                     .children((!tags.is_empty()).then(|| {
-                        h_flex()
-                            .flex_nowrap()
-                            .gap_1()
-                            .overflow_hidden()
-                            .children(tags.into_iter().map(|tag| {
+                        h_flex().flex_nowrap().gap_1().overflow_hidden().children(
+                            tags.into_iter().map(|tag| {
                                 div()
                                     .flex_shrink_0()
                                     .rounded(gpui_kit::px(4.0))
@@ -773,7 +792,8 @@ impl BrowseView {
                                     .py_0p5()
                                     .text_size(gpui_kit::px(10.0))
                                     .child(SharedString::from(tag))
-                            }))
+                            }),
+                        )
                     })),
             )
             .into_any_element()
@@ -794,16 +814,12 @@ impl BrowseView {
         }
         self.downloaded = HashMap::from([("7100001".to_string(), 3u32)]);
         for (i, item) in self.feed_items.iter().enumerate() {
-            self.covers.insert(
-                item.cover.clone(),
-                crate::preview::fixtures::cover(i),
-            );
+            self.covers
+                .insert(item.cover.clone(), crate::preview::fixtures::cover(i));
         }
         for (i, item) in self.search_items.iter().enumerate() {
-            self.covers.insert(
-                item.cover.clone(),
-                crate::preview::fixtures::cover(6 + i),
-            );
+            self.covers
+                .insert(item.cover.clone(), crate::preview::fixtures::cover(6 + i));
         }
         cx.notify();
     }
@@ -846,9 +862,8 @@ impl gpui_kit::Render for BrowseView {
                             )
                             .child("筛选")
                             .children((active_filters > 0).then(|| {
-                                Tag::secondary().child(SharedString::from(
-                                    active_filters.to_string(),
-                                ))
+                                Tag::secondary()
+                                    .child(SharedString::from(active_filters.to_string()))
                             }))
                             .child(
                                 gpui_kit::component::Icon::new(if filters_collapsed {
@@ -977,9 +992,7 @@ impl gpui_kit::Render for BrowseView {
                     .p_6()
                     .gap_4()
                     .child(search_row)
-                    .children(
-                        filter_section,
-                    )
+                    .children(filter_section)
                     .children(failed.then(|| {
                         div()
                             .text_sm()
@@ -1002,16 +1015,13 @@ impl gpui_kit::Render for BrowseView {
                             .w_full()
                             .items_center()
                             .py_16()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(if searching {
-                                        "换个关键词试试"
-                                    } else {
-                                        "这个分类下暂时没有内容"
-                                    }),
-                            )
+                            .child(div().text_sm().text_color(theme.muted_foreground).child(
+                                if searching {
+                                    "换个关键词试试"
+                                } else {
+                                    "这个分类下暂时没有内容"
+                                },
+                            ))
                             .into_any_element()
                     } else {
                         h_flex()
@@ -1024,16 +1034,12 @@ impl gpui_kit::Render for BrowseView {
                     })
                     .children(more_button)
                     .children((!has_more && count > 0).then(|| {
-                        h_flex()
-                            .w_full()
-                            .justify_center()
-                            .py_2()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child("没有更多了"),
-                            )
+                        h_flex().w_full().justify_center().py_2().child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("没有更多了"),
+                        )
                     })),
             )
     }

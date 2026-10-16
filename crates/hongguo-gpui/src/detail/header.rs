@@ -4,15 +4,15 @@
 
 use std::sync::Arc;
 
+use gpui_kit::component::WindowExt;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::h_flex;
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::v_flex;
 use gpui_kit::component::{ActiveTheme, Sizable};
 use gpui_kit::prelude::*;
 use gpui_kit::{ImageSource, ObjectFit, SharedString, div, img};
 use hongguo_api::interact::{collect_series, digg_video};
-use gpui_kit::component::notification::Notification;
-use gpui_kit::component::WindowExt;
 
 use super::DetailView;
 use crate::bridge;
@@ -56,7 +56,10 @@ impl DetailView {
         if !self.reviews_score.is_empty() {
             let mut seg = format!("{:.1}分", self.reviews_score.parse::<f64>().unwrap_or(0.0));
             if self.reviews_score_cnt > 0 {
-                seg.push_str(&format!(" {}人评分", Self::fmt_count(self.reviews_score_cnt)));
+                seg.push_str(&format!(
+                    " {}人评分",
+                    Self::fmt_count(self.reviews_score_cnt)
+                ));
             }
             stats.push(seg);
         }
@@ -130,9 +133,10 @@ impl DetailView {
                             .mt_3()
                             .flex_wrap()
                             .gap_1p5()
-                            .children(meta.filter(|m| !m.season.is_empty()).map(|m| {
-                                Self::tag_pill(m.season.clone(), true, theme)
-                            }))
+                            .children(
+                                meta.filter(|m| !m.season.is_empty())
+                                    .map(|m| Self::tag_pill(m.season.clone(), true, theme)),
+                            )
                             .when(!series.episodes.is_empty(), |row| {
                                 row.child(Self::tag_pill(
                                     format!("全{}集", series.episodes.len()),
@@ -273,7 +277,11 @@ impl DetailView {
     }
 
     /// 标签 pill（季徽红底高亮 / 其余 secondary 底——Tauri Badge 同位）。
-    fn tag_pill(text: String, hot: bool, theme: &gpui_kit::component::Theme) -> gpui_kit::AnyElement {
+    fn tag_pill(
+        text: String,
+        hot: bool,
+        theme: &gpui_kit::component::Theme,
+    ) -> gpui_kit::AnyElement {
         div()
             .px_2()
             .py_0p5()
@@ -409,16 +417,17 @@ impl DetailView {
                     Ok(()) => {
                         view.reserved = next;
                         window.push_notification(
-                            Notification::success(if next { "预约成功" } else { "已取消预约" }),
+                            Notification::success(if next {
+                                "预约成功"
+                            } else {
+                                "已取消预约"
+                            }),
                             cx,
                         );
                     }
                     Err(e) => {
                         log::warn!("[Detail] 预约操作失败: {e}");
-                        window.push_notification(
-                            Notification::error(format!("操作失败：{e}")),
-                            cx,
-                        );
+                        window.push_notification(Notification::error(format!("操作失败：{e}")), cx);
                     }
                 }
                 cx.notify();

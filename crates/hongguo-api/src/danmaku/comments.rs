@@ -4,45 +4,60 @@
 use serde_json::Value;
 
 use super::{
-    CommentItem, CommentPage, CommentTagStat, LQ_API_ORIGIN, ReplyItem, ReplyPage, SeriesReviewPage,
+    CommentItem, CommentPage, CommentTagStat, CreatorProfile, CreatorWork, CreatorWorksPage,
+    LQ_API_ORIGIN, ReplyItem, ReplyPage, SeriesReviewPage,
 };
 use crate::client::ApiEnv;
 use crate::params::interaction::{
     COMMENT_TYPE_COMMENT, COMMENT_TYPE_REVIEW, COMMENT_TYPE_REVIEW_SEND, COMMIT_SOURCE_REVIEW,
     DATA_TYPE_REVIEW, GROUP_TYPE_COMMENT, GROUP_TYPE_REVIEW, LIST_SOURCE_COMMENT,
-    LIST_SOURCE_COMMENT_REPLIES, LIST_SOURCE_REVIEW, LIST_SOURCE_REVIEW_REPLIES,
-    SERVER_CHANNEL_COMMENT, SERVER_CHANNEL_REVIEW,
+    LIST_SOURCE_COMMENT_REPLIES, LIST_SOURCE_PROFILE_WORKS, LIST_SOURCE_REVIEW,
+    LIST_SOURCE_REVIEW_REPLIES, PROFILE_SUB_TAB_WORKS, PROFILE_TAB_WORKS, SERVER_CHANNEL_COMMENT,
+    SERVER_CHANNEL_REVIEW,
 };
 use hongguo_common::{AppError, AppResult};
 
-/// 评论区请求体（与弹幕同端点不同形态）。
+/// 播放页评论面板请求体。
 ///
-/// 2026-10-06 抓 hgplayer 1.1.5 重锁：评论区形态与弹幕形态在服务端是
-/// **两套校验**——沿用 1.1.3 的弹幕形 business_param + server_channel=1000
-/// 会被拒（实测 103001 参数错误）；评论必须用 `need_count/req_type` +
-/// `server_channel=18`，且 `need_count: true` 让响应带上评论总数
-/// （`common_list_info.total`，互动栏评论计数的数据源）。
+/// 2026-10-16 官方实包重锁（flows-official-follow.jsonl:3308，播放页
+/// ShortSeriesActivity 面板实测）：面板是**单集维度**——`group_id=vid`、
+/// `group_type=30`、`server_channel=18`、`comment_source=4`、`count=10`、
+/// `business_param.sort="video_innerflow"`；`need_count` 仅首屏 true
+/// （total 回传本集评论总数，互动栏角标同源），翻页置 false 并回传
+/// 响应下发的会话游标。剧集维度（group=series / channel=27）是沉浸流
+/// 信息流面板的另一条流，只有流内评论（本集评论不在其中），勿混用。
 pub(super) fn comments_payload(group_id: &str, book_id: &str, cursor: &str) -> Value {
-    serde_json::json!({
+    let mut payload = serde_json::json!({
         "aid": 8662,
         "business_param": {
             "book_id": book_id,
-            "need_count": true,
+            "need_count": cursor.is_empty(),
             "req_type": 0,
+            "sort": "video_innerflow",
+            "start_offset_time": 0,
+            "playlet_consume_duration_ms": 0,
+            "playlet_item_consume_duration_ms": 0,
+            "outflow_comment_count": 0,
+            "is_last_episode": false,
         },
         "comment_source": LIST_SOURCE_COMMENT,
         "comment_type": COMMENT_TYPE_COMMENT,
         "compliance_status": 0,
-        "count": 20,
-        "cursor": cursor,
+        "count": 10,
         "group_id": group_id,
         "group_type": GROUP_TYPE_COMMENT,
         "server_channel": SERVER_CHANNEL_COMMENT,
         "sort": 1,
-    })
+    });
+    // 首屏不带 cursor 键（官方同款），翻页才回传响应下发的游标原样串
+    if !cursor.is_empty() {
+        payload["cursor"] = Value::String(cursor.to_string());
+    }
+    payload
 }
 
-/// 拉评论区的一页（cursor 传上一页返回的 next_cursor，首页传空）。
+/// 拉播放页评论区的一页（`group_id`=vid、`book_id`=series_id；cursor 传
+/// 上一页返回的游标，首页传空）。
 pub async fn fetch_comments_page(
     group_id: &str,
     book_id: &str,
@@ -403,8 +418,8 @@ pub(super) fn review_replies_payload(series_id: &str, comment_id: &str, cursor: 
     payload
 }
 
-/// 拉一条**单集评论**的回复列表一页（`cursor` 传上一页返回的
-/// `next_cursor`，首页传空）。
+/// 拉一条**单集评论**的回复列表一页（`group_id`=vid、`book_id`=series_id；
+/// `cursor` 传上一页返回的 `next_cursor`，首页传空）。
 pub async fn fetch_comment_replies(
     group_id: &str,
     book_id: &str,
@@ -543,4 +558,201 @@ pub(super) fn parse_reply_page(v: &Value) -> AppResult<ReplyPage> {
         }
     }
     Ok(page)
+}
+
+// ---------------------------------------------------------------- 创作者主页
+
+/// 创作者主页资料头：`GET /reading/user/profile/get/v:version/?user_id=`，
+/// 取 `data.ugc_user.base_info`（2026-10-15 官方实包：详情页点创作者 →
+/// 主页，头部昵称/头像/简介）。
+pub async fn fetch_creator_profile(user_id: &str, env: &ApiEnv) -> AppResult<CreatorProfile> {
+    let q = [("user_id".to_string(), user_id.to_string())];
+    let bytes = crate::client::api_call_reading(
+        LQ_API_ORIGIN,
+        "/reading/user/profile/get/v:version/",
+        None,
+        &q,
+        env,
+    )
+    .await?;
+    let v: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析主页资料失败: {e}")))?;
+    // reading 域错误可能走 BaseResp.StatusCode（无 code 键），两种都容
+    if let Some(status) = v.pointer("/BaseResp/StatusCode").and_then(Value::as_i64)
+        && status != 0
+    {
+        return Err(AppError::Media(format!("主页资料接口返回 {status}")));
+    }
+    check_comment_code(&v)?;
+    let base = v
+        .pointer("/data/ugc_user/base_info")
+        .ok_or_else(|| AppError::Media("主页资料缺少 ugc_user.base_info".into()))?;
+    Ok(CreatorProfile {
+        user_id: base
+            .get("user_id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        user_name: base
+            .get("user_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        avatar: base
+            .get("user_avatar")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        description: base
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
+
+/// 创作者主页作品列表一页：`POST /novel/commentapi/user/profile/{uid}/v1/`。
+/// 请求体照抄 2026-10-15 官方实包（作品 tab 形态 tab_type=23）；cursor 传
+/// 上一页 `common_list_info.cursor` 原样串，首页空串。
+pub async fn fetch_creator_works(
+    user_id: &str,
+    cursor: &str,
+    env: &ApiEnv,
+) -> AppResult<CreatorWorksPage> {
+    let payload = serde_json::json!({
+        "aid": 8662,
+        "comment_source": LIST_SOURCE_PROFILE_WORKS,
+        "count": 18,
+        "cursor": cursor,
+        "extra_param": { "is_video_tab_comment": "1" },
+        "locate_post_id": "",
+        "profile_user_type": 0,
+        "sort": "time_desc",
+        "sub_tab_type": PROFILE_SUB_TAB_WORKS,
+        "tab_type": PROFILE_TAB_WORKS,
+        "target_user_id": user_id,
+    });
+    let path = format!("/novel/commentapi/user/profile/{user_id}/v1/");
+    let raw = serde_json::to_vec(&payload)
+        .map_err(|e| AppError::Media(format!("构造主页作品请求失败: {e}")))?;
+    let bytes = crate::client::api_call_reading(LQ_API_ORIGIN, &path, Some(raw), &[], env).await?;
+    let v: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| AppError::Media(format!("解析主页作品失败: {e}")))?;
+    check_comment_code(&v)?;
+    Ok(CreatorWorksPage {
+        works: v
+            .pointer("/data/data_list")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(parse_creator_work)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        has_more: v
+            .pointer("/data/common_list_info/has_more")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        cursor: v
+            .pointer("/data/common_list_info/cursor")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        total: v
+            .pointer("/data/hightlight/total")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+    })
+}
+
+fn parse_creator_work(raw: &Value) -> Option<CreatorWork> {
+    // series_id（video_id）是播放目标的唯一钥匙，缺了这条就没法跳
+    let series_id = raw
+        .pointer("/video/video_id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())?;
+    Some(CreatorWork {
+        series_id: series_id.to_string(),
+        title: raw
+            .pointer("/video/common/title")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        cover: raw
+            .pointer("/video/common/cover")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        intro: raw
+            .pointer("/video/common/intro")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        episode_cnt: raw
+            .pointer("/video/expand/episode_cnt")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        play_cnt: raw
+            .pointer("/video/stat/play_cnt")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        hot: raw
+            .pointer("/video/stat/hot")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        tags: raw
+            .pointer("/video/expand/sub_title_list")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| t.get("text").and_then(Value::as_str))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+#[cfg(test)]
+mod profile_probe {
+    use super::*;
+    use crate::client::ApiEnv;
+    use hongguo_common::model::ProxyConfig;
+
+    /// 活体探测：主页资料 + 作品列表全链。uid 463328455691016 = 墨子动漫
+    /// （官方抓包里点过出品方 chip 实锤 7 部作品）。
+    /// 用法：`cargo test -p hongguo-api fetch_creator -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "直连真实接口的探测用例"]
+    async fn probe_creator_homepage_chain() {
+        let env = ApiEnv::anonymous(ProxyConfig::default());
+        let uid = std::env::var("PROBE_UID").unwrap_or_else(|_| "463328455691016".into());
+
+        let profile = fetch_creator_profile(&uid, &env).await.expect("profile");
+        println!(
+            "[profile] {} avatar={}",
+            profile.user_name,
+            !profile.avatar.is_empty()
+        );
+
+        let page = fetch_creator_works(&uid, "", &env).await.expect("works");
+        println!(
+            "[works] total={} has_more={} cursor_len={}",
+            page.total,
+            page.has_more,
+            page.cursor.len()
+        );
+        for w in &page.works {
+            println!(
+                "  《{}》{}集 播放{} tags={:?} sid={}",
+                w.title, w.episode_cnt, w.play_cnt, w.tags, w.series_id
+            );
+        }
+        if page.has_more && !page.cursor.is_empty() {
+            let next = fetch_creator_works(&uid, &page.cursor, &env)
+                .await
+                .expect("works#2");
+            println!("[works#2] {} 条", next.works.len());
+        }
+    }
 }

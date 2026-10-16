@@ -24,12 +24,12 @@ use hongguo_service::app_state::AppStateInner;
 use crate::detail::{DetailEvent, DetailView};
 use crate::home::HomeEvent;
 use crate::home::HomeView;
+use crate::pages::browse::{BrowseEvent, BrowseView};
+use crate::pages::collections::{CollectionEvent, CollectionView};
+use crate::pages::history::{HistoryEvent, HistoryView};
+use crate::pages::liked::{LikedEvent, LikedView};
 use crate::pages::merge::MergeView;
 use crate::pages::new_drama::{NewDramaEvent, NewDramaView};
-use crate::pages::liked::{LikedEvent, LikedView};
-use crate::pages::collections::{CollectionEvent, CollectionView};
-use crate::pages::browse::{BrowseEvent, BrowseView};
-use crate::pages::history::{HistoryEvent, HistoryView};
 use crate::pages::rank::{RankEvent, RankView};
 use crate::pages::reservations::{ReservationEvent, ReservationView};
 use crate::pages::settings::{SettingsEvent, SettingsView};
@@ -226,25 +226,30 @@ impl Shell {
             this.start_play(series_id, vid_index, start_secs, cx);
         })
         .detach();
-        cx.subscribe(&new_drama, |this, _, event: &NewDramaEvent, cx| match event.clone() {
-            NewDramaEvent::Play {
-                series_id,
-                vid_index,
-                start_secs,
-            } => this.start_play(series_id, vid_index, start_secs, cx),
-            NewDramaEvent::OpenDetail { series_id, prefill } => {
-                this.open_detail_with_prefill(series_id, Some(prefill), cx);
-            }
-        })
+        cx.subscribe(
+            &new_drama,
+            |this, _, event: &NewDramaEvent, cx| match event.clone() {
+                NewDramaEvent::Play {
+                    series_id,
+                    vid_index,
+                    start_secs,
+                } => this.start_play(series_id, vid_index, start_secs, cx),
+                NewDramaEvent::OpenDetail { series_id, prefill } => {
+                    this.open_detail_with_prefill(series_id, Some(prefill), cx);
+                }
+            },
+        )
         .detach();
-        cx.subscribe(&rank, |this, _, event: &RankEvent, cx| match event.clone() {
-            RankEvent::Play {
-                series_id,
-                vid_index,
-                start_secs,
-            } => this.start_play(series_id, vid_index, start_secs, cx),
-            RankEvent::OpenDetail { series_id, prefill } => {
-                this.open_detail_with_prefill(series_id, Some(prefill), cx);
+        cx.subscribe(&rank, |this, _, event: &RankEvent, cx| {
+            match event.clone() {
+                RankEvent::Play {
+                    series_id,
+                    vid_index,
+                    start_secs,
+                } => this.start_play(series_id, vid_index, start_secs, cx),
+                RankEvent::OpenDetail { series_id, prefill } => {
+                    this.open_detail_with_prefill(series_id, Some(prefill), cx);
+                }
             }
         })
         .detach();
@@ -266,37 +271,48 @@ impl Shell {
             this.start_play(series_id, vid_index, start_secs, cx);
         })
         .detach();
-        cx.subscribe(&reservations, |this, _, event: &ReservationEvent, cx| match event.clone() {
-            ReservationEvent::Play {
-                series_id,
-                vid_index,
-                start_secs,
-            } => this.start_play(series_id, vid_index, start_secs, cx),
-            ReservationEvent::OpenDetail { series_id, prefill } => {
-                this.open_detail_with_prefill(series_id, Some(prefill), cx);
-            }
-            ReservationEvent::Login => {
-                // 切回首页开登录面板（Tauri 弹 LoginDialog 的同位入口）
-                this.dest = Dest::Home;
-                this.feed
-                    .update(cx, |home, cx| home.toggle_login_panel(cx));
-                cx.notify();
-            }
-        })
+        cx.subscribe(
+            &reservations,
+            |this, _, event: &ReservationEvent, cx| match event.clone() {
+                ReservationEvent::Play {
+                    series_id,
+                    vid_index,
+                    start_secs,
+                } => this.start_play(series_id, vid_index, start_secs, cx),
+                ReservationEvent::OpenDetail { series_id, prefill } => {
+                    this.open_detail_with_prefill(series_id, Some(prefill), cx);
+                }
+                ReservationEvent::Login => {
+                    // 切回首页开登录面板（Tauri 弹 LoginDialog 的同位入口）；
+                    // 回首页即重挂载语义，续播跟着走
+                    this.dest = Dest::Home;
+                    this.feed.update(cx, |home, cx| {
+                        home.resume_if_idle(cx);
+                        home.toggle_login_panel(cx);
+                    });
+                    cx.notify();
+                }
+            },
+        )
         .detach();
-        cx.subscribe(&settings_page, |this, _, event: &SettingsEvent, cx| match event {
-            SettingsEvent::Login => {
-                this.dest = Dest::Home;
-                this.feed
-                    .update(cx, |home, cx| home.toggle_login_panel(cx));
-                cx.notify();
-            }
-            SettingsEvent::ShortcutKeys(keys) => {
-                let keys = keys.clone();
-                this.feed
-                    .update(cx, |home, cx| home.reload_shortcut_keys(keys, cx));
-            }
-        })
+        cx.subscribe(
+            &settings_page,
+            |this, _, event: &SettingsEvent, cx| match event {
+                SettingsEvent::Login => {
+                    this.dest = Dest::Home;
+                    this.feed.update(cx, |home, cx| {
+                        home.resume_if_idle(cx);
+                        home.toggle_login_panel(cx);
+                    });
+                    cx.notify();
+                }
+                SettingsEvent::ShortcutKeys(keys) => {
+                    let keys = keys.clone();
+                    this.feed
+                        .update(cx, |home, cx| home.reload_shortcut_keys(keys, cx));
+                }
+            },
+        )
         .detach();
         // 取证开关：HONGGUO_RANK=1 直接开在排行榜页（无头验证封面用）；
         // HONGGUO_TAB=36/39 直接开在漫剧/真人源（tab 数据链取证用）；
@@ -350,7 +366,14 @@ impl Shell {
     }
 
     /// 切换目的地并触发进入钩子（侧栏点击与 `HONGGUO_PAGE` 取证开关共用）。
+    /// 首页播放器的生命周期跟着走（Tauri 路由卸载/重挂载的同语义）：离开
+    /// 首页停播落进度，回首页从落盘进度接上。
     fn enter_dest(&mut self, dest: Dest, cx: &mut Context<Self>) {
+        if dest == Dest::Home {
+            self.feed.update(cx, |home, cx| home.resume_if_idle(cx));
+        } else {
+            self.feed.update(cx, |home, cx| home.release_for_leave(cx));
+        }
         self.dest = dest;
         match dest {
             Dest::Rank => self.rank.update(cx, RankView::load),
@@ -400,6 +423,10 @@ impl Shell {
         if self.dest == Dest::Detail && self.detail_series.as_deref() == Some(&series_id) {
             return;
         }
+        // 进详情页 = 离开首页沉浸流（Tauri /detail 是独立路由，进入即卸载
+        // 首页）：停播落进度。从别的页进来时引擎多半已被 enter_dest 释放，
+        // 这里的无条件调用只是兜「首页还没切走」的路径。
+        self.feed.update(cx, |home, cx| home.release_for_leave(cx));
         let view = match &self.detail {
             Some(v) => v.clone(),
             None => {
@@ -432,6 +459,8 @@ impl Shell {
         match event {
             DetailEvent::Back => {
                 self.dest = Dest::Home;
+                // 回首页续播（Tauri 返回重挂载「挂载默认开闸」同语义）
+                self.feed.update(cx, |home, cx| home.resume_if_idle(cx));
                 cx.notify();
             }
             DetailEvent::Play {
@@ -498,9 +527,8 @@ impl Shell {
     ) -> anyhow::Result<()> {
         if scene.starts_with("rank") {
             self.dest = Dest::Rank;
-            self.rank.update(cx, |rank, cx| {
-                rank.debug_preview_seed(scene, cx)
-            });
+            self.rank
+                .update(cx, |rank, cx| rank.debug_preview_seed(scene, cx));
         } else if scene.starts_with("storage") {
             self.dest = Dest::Storage;
             self.storage
@@ -616,7 +644,7 @@ impl Shell {
                     if this.dest == dest {
                         return;
                     }
-                            this.enter_dest(dest, cx);
+                    this.enter_dest(dest, cx);
                 }))
                 .child(
                     gpui_kit::component::Icon::new(dest.icon())

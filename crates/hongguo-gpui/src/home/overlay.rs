@@ -21,9 +21,15 @@ impl super::HomeView {
         let heat = (!now.heat_text.is_empty()).then(|| now.heat_text.clone());
         let intro = self.intros.get(&now.series_id).cloned();
         let intro_expandable = intro.as_ref().is_some_and(|i| i.chars().count() > 40);
+        // 「控制栏出现时抬起」（Tauri immersive-info-overlay 同款双向位
+        // 移）：控制栏可见 → 112px（抬到控制栏上沿）；隐藏 → 56px。此前
+        // 恒 48px，抬起语义丢失。绝对 px 与表情/音量弹层同口径（刻度
+        // 助手没有这一档）
+        let lifted = self.controls_visible();
         v_flex()
             .absolute()
-            .bottom_12()
+            .when(lifted, |s| s.bottom(gpui_kit::px(112.0)))
+            .when(!lifted, |s| s.bottom(gpui_kit::px(56.0)))
             .left_3()
             .max_w(gpui_kit::relative(0.62))
             .gap_1()

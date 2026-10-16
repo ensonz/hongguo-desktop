@@ -11,6 +11,7 @@ import {
   Pause,
   PictureInPicture2,
   Play,
+  RectangleVertical,
   Settings2,
   SkipBack,
   SkipForward,
@@ -24,6 +25,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useWindowFullscreen } from '@/hooks/use-window-fullscreen';
 import { usePlayerStore } from '@/stores/player';
 import { formatDuration } from '@/utils/format';
 import { cn } from '@/lib/utils';
@@ -60,8 +62,6 @@ interface Props {
   /** 弹幕显示设置与修改回调（透明度/字号/密度/显示区域） */
   danmakuDisplay: DanmakuDisplaySettings;
   onDanmakuDisplayChange: (patch: Partial<DanmakuDisplaySettings>) => void;
-  /** 放大镜用的容器：全屏时进的是它，不是整个窗口 */
-  stageRef: React.RefObject<HTMLDivElement | null>;
   seriesId: string;
   episodes: Episode[];
   currentIndex: number;
@@ -94,6 +94,12 @@ interface Props {
    * 状态与取流编排都在播放页，这里只挂按钮。
    */
   onOpenMini: () => void;
+  /**
+   * 进入竖屏播放（几何与 IME 组合都收在 use-portrait-window，宿主持有）。
+   * 竖屏形态的控件由 MiniScreenControls 承担，本组件只在横屏出现，
+   * 所以这里只有「进入」方向，没有退出键。
+   */
+  onEnterPortrait: () => void;
   /** 隐身模式开关（鼠标离开窗口自动隐藏 + 暂停）。状态在播放页。 */
   incognito: boolean;
   onToggleIncognito: () => void;
@@ -104,11 +110,6 @@ interface Props {
   immersive?: boolean;
   /** 选集浮层里点选某一集（跳集，由播放器接 store） */
   onPickEpisode?: (vidIndex: number) => void;
-  /**
-   * 选集浮层底部的提示文案（信息流里教「选一集 = 进入本剧连播」）。
-   * 播放页本来就在连播状态，不用教，不传即无。
-   */
-  pickerHint?: string;
   /**
    * 悬浮层可见性（受控）。
    *
@@ -139,7 +140,6 @@ export function PlayerControls({
   onToggleDanmaku,
   danmakuDisplay,
   onDanmakuDisplayChange,
-  stageRef,
   seriesId,
   episodes,
   currentIndex,
@@ -151,11 +151,11 @@ export function PlayerControls({
   src,
   onStepEpisode,
   onOpenMini,
+  onEnterPortrait,
   incognito,
   onToggleIncognito,
   immersive,
   onPickEpisode,
-  pickerHint,
   visible,
   onControlsEnter,
   onControlsLeave,
@@ -166,7 +166,8 @@ export function PlayerControls({
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [rate, setRate] = useState(1);
-  const [fullscreen, setFullscreen] = useState(false);
+  // 全屏：窗口级真值（Esc/绿按钮变化经 useWindowFullscreenSync 回流）
+  const { fullscreen, toggleFullscreen } = useWindowFullscreen();
   // 面板/浮层开合在全局播放 store：切集/切剧重挂载不丢
   const danmakuPanelOpen = usePlayerStore((s) => s.danmakuPanelOpen);
   const setDanmakuPanelOpen = usePlayerStore((s) => s.setDanmakuPanelOpen);
@@ -197,7 +198,6 @@ export function PlayerControls({
       setMuted(video.muted);
     };
     const onRate = () => setRate(video.playbackRate);
-    const onFull = () => setFullscreen(document.fullscreenElement !== null);
 
     video.addEventListener('timeupdate', onTime);
     video.addEventListener('loadedmetadata', onMeta);
@@ -207,7 +207,6 @@ export function PlayerControls({
     video.addEventListener('pause', onPauseEvt);
     video.addEventListener('volumechange', onVolume);
     video.addEventListener('ratechange', onRate);
-    document.addEventListener('fullscreenchange', onFull);
 
     // 元素可能在挂载后才拿到 src 变化，进来先同步一次。小屏切回大屏时
     // 控件是对**正在播的流**挂载的（video 不随大小屏切换卸载），当前
@@ -231,7 +230,6 @@ export function PlayerControls({
       video.removeEventListener('pause', onPauseEvt);
       video.removeEventListener('volumechange', onVolume);
       video.removeEventListener('ratechange', onRate);
-      document.removeEventListener('fullscreenchange', onFull);
     };
     // `src` 进依赖：换清晰度时 `<video>` 以它为 key 被重建，
     // 监听器不跟着重建就会一直绑在已卸载的旧元素上。
@@ -265,17 +263,6 @@ export function PlayerControls({
     if (!video) return;
     video.muted = !video.muted;
   }, [videoRef]);
-
-  const toggleFullscreen = useCallback(() => {
-    // 全屏进的是**稳定存活的祖先**（应用壳的 main#content），不是舞台本身：
-    // 舞台随切集带 key 整体重挂载，全屏元素一被移出文档浏览器就退出全屏——
-    // 自动下一集播着播着自己跳回窗口模式，就是这儿来的。main 不随路由/
-    // 切集卸载，全屏状态自然跨集保留；视觉不变（播放页舞台本来就铺满 main）。
-    const target = (stageRef.current?.closest('main') as HTMLElement | null) ?? stageRef.current;
-    if (!target) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void target.requestFullscreen().catch(() => undefined);
-  }, [stageRef]);
 
   const applyRate = useCallback(
     (next: number) => {
@@ -472,7 +459,6 @@ export function PlayerControls({
                   <EpisodePicker
                     seriesId={seriesId}
                     currentIndex={currentIndex}
-                    hint={pickerHint}
                     onSelect={(idx) => onPickEpisode?.(idx)}
                     onClose={() => {
                       // 打点给舞台点击冷却用（浮层一关，跟手点击别变暂停）
@@ -569,6 +555,14 @@ export function PlayerControls({
               鼠标回来即恢复显示。看不该看的东西时的「闪避键」 */}
           <IconButton label={t('player.incognito')} onClick={onToggleIncognito}>
             <Eye className={cn('size-4', incognito ? 'text-white' : 'text-white/55')} aria-hidden />
+          </IconButton>
+
+          {/* 竖屏播放（hgplayer 同款）：窗口收窄成按视频宽高比算宽的竖条，
+              竖屏视频刚好包住画面不留两侧黑边。小屏里不出现（本组件不渲染
+              在小屏）；竖屏中的控件是 MiniScreenControls 竖屏形态，所以
+              这里只做「进入」入口 */}
+          <IconButton label={t('player.portrait')} onClick={onEnterPortrait}>
+            <RectangleVertical className="size-4" />
           </IconButton>
 
           <IconButton label={t('player.fullscreen')} onClick={toggleFullscreen}>

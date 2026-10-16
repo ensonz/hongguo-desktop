@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::model::{EpisodeList, RelatedItem, RelatedSeries, SeriesMeta};
+use super::model::{EpisodeList, RelatedItem, RelatedSeries, SeriesCreator, SeriesMeta};
 use hongguo_common::model::Episode;
 use hongguo_common::utils::json::{check_code_in, int_field, str_field, str_field_any};
 use hongguo_common::{AppError, AppResult};
@@ -230,10 +230,59 @@ pub fn parse_series_meta(response: &Value, series_id: &str) -> AppResult<SeriesM
         pay_info: vd.get("pay_info").cloned().unwrap_or(Value::Null),
         // 官方下发为 unix 秒；对外契约统一 UTC 毫秒
         online_time: num_field(vd, "online_time") * 1000,
-        update_tag: str_field_any(vd, &["update_tag"]),
+        update_tag: str_field_any(vd, &["episode_right_text", "update_tag"]),
+        // 追更按钮显隐判定：0=连载中 1=已完结（2026-10-15 官方实包：完结剧
+        // series_status=1 且无 update_info；缺席按连载中处理）
+        series_status: num_field(vd, "series_status"),
+        update_frequency: vd
+            .pointer("/update_info/show_update_frequency")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         episode_total_cnt: num_field(vd, "episode_total_cnt"),
         latest_consumed_vid: str_field_any(vd, &["latest_consumed_item_id"]),
+        creators: parse_creators(vd),
     })
+}
+
+/// 解析出品方 / 演职员（main_creator_users，2026-10-15 抓 player v1.2.1
+/// 详情页实包）：base_info 出名字头像，user_tag.sub_title_list 首项出角色
+/// 文案（出品方/主演/配角）。名字为空的条目跳过。
+fn parse_creators(vd: &Value) -> Vec<SeriesCreator> {
+    let mut out = Vec::new();
+    for raw in vd
+        .get("main_creator_users")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        let name = raw
+            .pointer("/base_info/user_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        out.push(SeriesCreator {
+            user_id: raw
+                .pointer("/base_info/user_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: name.to_string(),
+            avatar: raw
+                .pointer("/base_info/user_avatar")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            role: raw
+                .pointer("/user_tag/sub_title_list/0/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+    out
 }
 
 /// 计数字段：JSON 数字直取，字符串形态回退解析（与 followed_cnt 同款容错）。
@@ -347,9 +396,30 @@ mod tests {
                     ],
                     "pay_info": { "need_pay": true, "price": "18.0" },
                     "online_time": 1790000000,
-                    "update_tag": "更新至第45集",
+                    // 2026-10-15 官方实包形态：连载剧 series_status=0 +
+                    // update_info + episode_right_text「更新至N集」
+                    "series_status": 0,
+                    "episode_right_text": "更新至45集",
                     "episode_total_cnt": 80,
-                    "latest_consumed_item_id": "7690802329313872921"
+                    "update_info": {
+                        "show_update_frequency": "每周六更新5集",
+                        "update_tag_text": "连载"
+                    },
+                    "latest_consumed_item_id": "7690802329313872921",
+                    "main_creator_users": [
+                        {
+                            "base_info": {
+                                "user_id": "2007062623837002",
+                                "user_name": "林间剧场",
+                                "user_avatar": "http://example/av.jpg"
+                            },
+                            "user_tag": {
+                                "creator_type": 2,
+                                "sub_title_list": [{ "text": "出品方", "text_ext": 0 }]
+                            }
+                        },
+                        { "base_info": { "user_name": "" } }
+                    ]
                 }
             }
         });
@@ -362,7 +432,12 @@ mod tests {
         assert_eq!(m.tags, vec!["玄幻", "逆袭"], "data_type=3 才是题材标签");
         assert_eq!(m.record_number, "（番茄）网微剧备字（2026）第847205号");
         assert_eq!(m.intro, "穿越者落地成盒，重启人生第二回合。");
-        assert_eq!(m.update_tag, "更新至第45集");
+        assert_eq!(
+            m.update_tag, "更新至45集",
+            "统计行原文取 episode_right_text"
+        );
+        assert_eq!(m.series_status, 0, "连载剧");
+        assert_eq!(m.update_frequency, "每周六更新5集");
         assert_eq!(m.episode_total_cnt, 80);
         assert_eq!(m.online_time, 1_790_000_000_000);
         assert_eq!(m.latest_consumed_vid, "7690802329313872921");
@@ -373,6 +448,13 @@ mod tests {
                 .unwrap_or(false),
             "pay_info 原样透传"
         );
+        // 出品方（2026-10-15 抓 player 实包形态）：取 base_info 三件 +
+        // sub_title_list 首项做角色；空名条目跳过
+        assert_eq!(m.creators.len(), 1);
+        assert_eq!(m.creators[0].name, "林间剧场");
+        assert_eq!(m.creators[0].role, "出品方");
+        assert_eq!(m.creators[0].user_id, "2007062623837002");
+        assert_eq!(m.creators[0].avatar, "http://example/av.jpg");
     }
 
     /// 官方模型对照字段缺席时走默认值（防御性读取语义）。
@@ -384,10 +466,34 @@ mod tests {
         });
         let m = parse_series_meta(&v, "1").unwrap();
         assert!(m.update_tag.is_empty());
+        assert_eq!(m.series_status, 0, "缺席按连载中处理");
+        assert!(m.update_frequency.is_empty(), "无 update_info 对象即空");
         assert_eq!(m.episode_total_cnt, 0);
         assert_eq!(m.online_time, 0);
         assert!(m.latest_consumed_vid.is_empty());
         assert!(m.pay_info.is_null());
+    }
+
+    /// 完结剧形态（2026-10-15 官方实包「神豪：大风刮来的全能系统」）：
+    /// series_status=1、无 update_info、统计行是「全139集」。
+    #[test]
+    fn finished_series_has_no_update_info() {
+        let v: Value = serde_json::json!({
+            "code": 0,
+            "data": {
+                "7679720313600347198": {
+                    "series_id_str": "7679720313600347198",
+                    "series_title": "神豪：大风刮来的全能系统",
+                    "series_status": 1,
+                    "episode_right_text": "全139集",
+                    "episode_cnt": 139
+                }
+            }
+        });
+        let m = parse_series_meta(&v, "7679720313600347198").unwrap();
+        assert_eq!(m.series_status, 1, "完结剧");
+        assert_eq!(m.update_tag, "全139集");
+        assert!(m.update_frequency.is_empty(), "完结剧无更新频率");
     }
 
     #[test]

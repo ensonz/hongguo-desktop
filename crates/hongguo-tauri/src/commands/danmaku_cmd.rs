@@ -3,8 +3,9 @@
 use tauri::State;
 
 use hongguo_api::danmaku::{
-    CommentItem, CommentPage, Danmaku, ReplyPage, SeriesReviewPage, fetch_comment_replies,
-    fetch_comments_page, fetch_danmaku_all, fetch_review_replies, fetch_series_comments_page,
+    CommentItem, CommentPage, CreatorProfile, CreatorWorksPage, Danmaku, ReplyPage,
+    SeriesReviewPage, fetch_comment_replies, fetch_comments_page, fetch_creator_profile,
+    fetch_creator_works, fetch_danmaku_all, fetch_review_replies, fetch_series_comments_page,
     send_series_review,
 };
 use hongguo_common::{AppError, AppResult};
@@ -45,9 +46,9 @@ pub async fn danmaku_list(
     }
 }
 
-/// 拉一集的**评论区一页**（ct=4/src=4，一窗 20 条；cursor 翻页）。
-/// 返回列表 + 评论总数（`total` 是互动栏评论计数的数据源）+ 翻页游标——
-/// 第一页秒回，不再像旧版那样拉完整集才返回（热门集转圈 30s）。
+/// 拉播放页**评论区一页**（单集维度流，2026-10-16 官方实包形态：
+/// group=vid / group_type=30 / channel=18 / sort=video_innerflow——
+/// 面板整页与互动栏角标同源）。cursor 翻页（响应会话游标原样回传）。
 #[tauri::command]
 pub async fn comment_list(
     state: State<'_, AppState>,
@@ -122,8 +123,8 @@ pub async fn series_review_send(
     send_series_review(&series_id, &text, score, &env).await
 }
 
-/// 拉一条**单集评论**的回复列表一页（2026-10-10 抓 hgplayer 1.1.8 锁定：
-/// reply/list 独立端点，评论维度 source=504/ch=18）。`cursor` 翻页。
+/// 拉一条**单集评论**的回复列表一页（回复流与面板同单集维度：
+/// group=vid / group_type=30 / channel=18 / source=504）。`cursor` 翻页。
 #[tauri::command]
 pub async fn comment_replies(
     state: State<'_, AppState>,
@@ -153,6 +154,27 @@ pub async fn review_replies(
 ) -> AppResult<ReplyPage> {
     let env = state.api_env();
     fetch_review_replies(&series_id, &comment_id, &cursor.unwrap_or_default(), &env).await
+}
+
+/// 创作者主页资料头（详情页点创作者 → 主页；2026-10-15 官方实包）。
+#[tauri::command]
+pub async fn creator_profile(
+    state: State<'_, AppState>,
+    user_id: String,
+) -> AppResult<CreatorProfile> {
+    let env = state.api_env();
+    fetch_creator_profile(&user_id, &env).await
+}
+
+/// 创作者主页作品列表一页（cursor 传上一页返回的原样游标，首页空串）。
+#[tauri::command]
+pub async fn creator_works(
+    state: State<'_, AppState>,
+    user_id: String,
+    cursor: Option<String>,
+) -> AppResult<CreatorWorksPage> {
+    let env = state.api_env();
+    fetch_creator_works(&user_id, &cursor.unwrap_or_default(), &env).await
 }
 
 #[cfg(test)]

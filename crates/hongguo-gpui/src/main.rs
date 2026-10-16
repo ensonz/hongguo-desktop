@@ -24,13 +24,14 @@ mod home;
 mod http_client;
 mod image_upload;
 mod mini;
+mod pages;
 mod play_activity;
 mod playback_prefs;
 mod preview;
-mod pages;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod shell;
+mod toast;
 #[cfg(target_os = "windows")]
 mod win32;
 
@@ -186,11 +187,14 @@ fn build_app_state() -> Arc<AppStateInner> {
                     .map(|a| a.user_id.as_str())
                     .unwrap_or("未登录")
             );
+            hongguo_service::settings_service::apply_cache_root(&settings);
             state.replace_settings(settings);
         }
         Ok(None) => log::info!("[Store] 无存量设置，使用默认值"),
         Err(e) => log::warn!("[Store] 设置装载失败，使用默认值: {e}"),
     }
+    // 追更更新检查定时器（Tauri 壳 lib.rs setup 同款：启动查一轮 + 20 分钟周期）
+    hongguo_service::follow_service::start_notice_loop(state.clone());
     state
 }
 

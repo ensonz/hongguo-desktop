@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pin } from 'lucide-react';
+import { useLocation } from '@tanstack/react-router';
 import { AppSidebar } from './app-sidebar';
 import { ThemeSwitch } from './theme-switch';
 import { WindowButtons } from './window-controls';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
+import { useWindowFullscreenSync } from '@/hooks/use-window-fullscreen';
 import { app as appApi } from '@/service/commands';
 import { useEvent } from '@/service/tauri/events';
 import { EVENTS } from '@/service/tauri/types';
+import { useFollowNoticesInvalidator } from '@/service/queries';
 import { useUiStore } from '@/stores/ui';
 import { usePinWindow } from '@/hooks/use-pin-window';
 import { isMac } from '@/utils/platform';
@@ -38,10 +41,70 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     useCallback(() => setExitOpen(true), []),
   );
 
+  // 追更更新提醒到达（后端定时检查出新集）：弹 **OS 系统通知**（非应用内
+  // toast）+ 刷新角标/列表缓存。弹出开关（aibotPopupOn）控制是否弹。
+  const refreshFollow = useFollowNoticesInvalidator();
+  const aibotPopupOn = useUiStore((s) => s.aibotPopupOn);
+  useEvent(
+    EVENTS.followNotices,
+    useCallback(
+      (payload) => {
+        refreshFollow();
+        if (!aibotPopupOn) return;
+        for (const n of payload.notices) {
+          try {
+            const nn = new Notification(n.title, { body: n.detail });
+            nn.onclick = () => window.focus();
+          } catch {
+            // Notification 构造失败（权限等）静默——列表里仍有记录
+          }
+        }
+      },
+      [refreshFollow, aibotPopupOn],
+    ),
+  );
+
+  // 老板键隐藏/恢复：隐藏即暂停全部视频（声音不漏，老板键的意义所在），
+  // 恢复窗口时续播刚才在播的。video 元素只活在播放器页，全局兜底查询即可。
+  useEvent(
+    EVENTS.bossKeyHidden,
+    useCallback(({ hidden }) => {
+      document.querySelectorAll('video').forEach((v) => {
+        if (hidden) {
+          v.pause();
+        } else if (v.paused) {
+          void v.play().catch(() => undefined);
+        }
+      });
+    }, []),
+  );
+
   // 小屏播放（对齐 hgplayer De.mini 的 bare 布局）：侧栏与顶栏**全部**
   // 藏掉，整个窗口只剩播放器（第三方小屏连标题栏都没有，窗口按钮由
   // 紧凑控制条承担）；拖拽由播放页的顶部拖拽条负责。
   const miniScreen = useUiStore((s) => s.miniScreen);
+  // 竖屏播放：窗口收窄成竖条，侧栏藏掉——窄条里侧栏会占掉近 1/5 宽，
+  // 第三方竖屏（hgplayer）也没有侧栏；顶栏保留（分类 tab 与窗口钮照常）
+  const portrait = useUiStore((s) => s.portrait);
+  // 全屏真值对齐系统侧（Esc/绿按钮经 resize 回流 store）。沉浸流全屏时
+  // 同样藏掉顶栏与侧栏——整窗只剩画面，对齐 hgplayer 与旧元素全屏的视觉；
+  // 其他页面被系统绿按钮全屏时界面照常。
+  useWindowFullscreenSync();
+  const windowFullscreen = useUiStore((s) => s.windowFullscreen);
+  // 播放器只有首页沉浸流一个宿主（独立 /player 页已并回首页）
+  const playerSurface = useLocation({
+    select: (s) => s.pathname === '/',
+  });
+  const playerFullscreen = windowFullscreen && playerSurface;
+  // 竖屏只在沉浸流成立：离开即自动退出，
+  // 窄条窗口配常规页面布局没法用（hgplayer 路由监听同款语义；退出实现
+  // 收在 features/player 的 use-portrait-window，这里只做路由侧触发）
+  useEffect(() => {
+    if (!playerSurface && useUiStore.getState().portrait) {
+      useUiStore.getState().setPortrait(false);
+      void appApi.exitPortraitScreen().catch(() => undefined);
+    }
+  }, [playerSurface]);
   // 置顶开关与播放器（大屏顶栏/小屏紧凑条两个入口）共用同一份实现
   const { pinned, togglePinned } = usePinWindow();
 
@@ -68,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ⚠️ 必须写 `deep`：Tauri 2.x 的 `data-tauri-drag-region` 裸属性**只认
             自己**，点子元素会被判成「不是拖拽区」而直接返回 false（见 tauri 的
             src/window/scripts/drag.js）。所以整棵子树都要能拖，就得显式写 deep。 */}
-      {!miniScreen && (
+      {!miniScreen && !playerFullscreen && (
         <header
           data-tauri-drag-region="deep"
           className={cn(
@@ -105,7 +168,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <div className="flex min-h-0 flex-1">
-        {!miniScreen && <AppSidebar />}
+        {!miniScreen && !playerFullscreen && !portrait && <AppSidebar />}
 
         <main id="content" className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
           {children}

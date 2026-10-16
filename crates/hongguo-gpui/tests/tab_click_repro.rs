@@ -8,13 +8,13 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui_kit::component::Sizable;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::button::ButtonVariants;
 use gpui_kit::component::h_flex;
 use gpui_kit::component::v_flex;
-use gpui_kit::component::Sizable;
 use gpui_kit::prelude::*;
-use gpui_kit::{div, px, MouseButton, PlatformInput, Point, Render};
+use gpui_kit::{MouseButton, PlatformInput, Point, Render, div, px};
 
 struct Host {
     tab_clicks: [Rc<Cell<u32>>; 3],
@@ -37,18 +37,12 @@ impl Render for Host {
             .size_full()
             .overflow_hidden()
             // —— 模拟画面层（先画）——
-            .child(
-                div()
-                    .id("stage-video")
-                    .absolute()
-                    .size_full()
-                    .on_click({
-                        let stage = Rc::clone(&self.stage);
-                        cx.listener(move |_, _, _, _| {
-                            stage.set(stage.get() + 1);
-                        })
-                    }),
-            )
+            .child(div().id("stage-video").absolute().size_full().on_click({
+                let stage = Rc::clone(&self.stage);
+                cx.listener(move |_, _, _, _| {
+                    stage.set(stage.get() + 1);
+                })
+            }))
             // —— tab 条：真实同款（悬浮层总闸门控 + 顶部居中 + 组件 Button）——
             .children((!in_mini && self.controls_visible).then(|| {
                 h_flex()
@@ -59,8 +53,9 @@ impl Render for Host {
                     .justify_center()
                     .gap_2()
                     .children(labels.iter().enumerate().map(|(i, label)| {
-                        let button =
-                            Button::new(format!("stage-tab-{label}")).label(*label).small();
+                        let button = Button::new(format!("stage-tab-{label}"))
+                            .label(*label)
+                            .small();
                         let button = if i == active {
                             button.secondary()
                         } else {

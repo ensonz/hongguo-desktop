@@ -122,7 +122,8 @@ export function DanmakuLayer({ videoRef, items, enabled, display }: Props) {
     /** 组一条弹幕的内容：文本段 + `[名字]` 表情图（hgplayer 排版同款）。 */
     const appendContent = (el: HTMLSpanElement, text: string) => {
       for (const seg of parseEmojiSegments(text)) {
-        if (seg.kind === 'text') {
+        if (seg.kind === 'text' || seg.kind === 'mention') {
+          // 弹幕不渲染提及 chip（提及进不了弹幕流），名字按纯文本走
           el.appendChild(document.createTextNode(seg.value));
         } else {
           const img = document.createElement('img');

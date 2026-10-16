@@ -30,6 +30,9 @@ export {
   useReviewDigg,
   useReviewReplyDigg,
   useSendReviewReply,
+  useMentionList,
+  useCreatorProfile,
+  useCreatorWorks,
 } from './danmaku';
 export {
   useInteractionState,
@@ -40,6 +43,17 @@ export {
   useSeriesCollectBatch,
   useAccount,
 } from './interact';
+export {
+  useFollowUpdates,
+  useIsFollowing,
+  useFollowToggle,
+  useFollowNotices,
+  useFollowNoticesMutations,
+  useFollowCheck,
+  useFollowNoticesInvalidator,
+  unreadNotices,
+} from './follow';
+
 export {
   useRank,
   useNewDrama,

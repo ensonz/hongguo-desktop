@@ -71,7 +71,10 @@ impl HomeView {
                 crate::mini::set_active(true);
             }
             "error" => {
-                let feed = self.feeds.get_mut(&Source::recommend()).expect("源已初始化");
+                let feed = self
+                    .feeds
+                    .get_mut(&Source::recommend())
+                    .expect("源已初始化");
                 feed.failed = Some("推荐流加载失败：网络请求超时（预览示例）".into());
             }
             "empty" => {}

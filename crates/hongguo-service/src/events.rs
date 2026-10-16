@@ -18,6 +18,7 @@ use tokio::sync::broadcast;
 use crate::download_service::events::{
     ProgressEvent, QueueChangedEvent, TaskEvent, TaskFailureEvent,
 };
+use crate::follow_service::events::FollowNoticesEvent;
 use crate::login_service::events::LoginMfaStateEvent;
 use crate::play_service::compat_play::CompatProgressEvent;
 use crate::play_service::online::OnlineProgressEvent;
@@ -55,6 +56,8 @@ pub enum ServiceEvent {
     CompatProgress(CompatProgressEvent),
     /// 登录 MFA 后台状态（`login-mfa-state`）。
     LoginMfa(LoginMfaStateEvent),
+    /// 更新提醒有新条目（`follow-notices`，载荷 = 本次新增的通知）。
+    FollowNotices(FollowNoticesEvent),
 }
 
 /// 事件总线句柄（Clone 共享，AppState 持有）。

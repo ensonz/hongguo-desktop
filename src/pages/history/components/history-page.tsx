@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { History, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -21,7 +20,7 @@ import { BatchBar, ManageToggle, PickDot } from '@/components/common/batch-manag
 import { useBatchSelect } from '@/hooks/use-batch-select';
 import { useScrollRestore, useSessionState } from '@/hooks/use-scroll-restore';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
-import { usePlayerStore } from '@/stores/player';
+import { usePlaySeries } from '@/hooks/use-play-series';
 import { formatDuration } from '@/utils/format';
 import { SENTINEL_ROOT_MARGIN_PX } from '@/utils/infinite-scroll';
 import { t, tf, type MessageKey } from '@/locales';
@@ -52,8 +51,7 @@ const TABS: { key: HistoryTab; labelKey: MessageKey }[] = [
 ];
 
 export function HistoryPage() {
-  const navigate = useNavigate();
-  const setTarget = usePlayerStore((s) => s.setTarget);
+  const playSeries = usePlaySeries();
   const { data, isLoading, error, refetch } = useWatchHistory();
   const { mutate: resolve, isPending: resolving } = useResolveSeries();
 
@@ -111,8 +109,7 @@ export function HistoryPage() {
         // 一一对应，双魂共生 vid_index=18 即第 18/18 集；第三方 hgplayer
         // 写入的是 0 基，历史数据可能混有 0——钳到第 1 集）。播放器
         // store 同为 1 起（0=无目标）
-        setTarget(item.seriesId, Math.max(1, item.vidIndex));
-        void navigate({ to: '/player' });
+        playSeries(item.seriesId, Math.max(1, item.vidIndex));
       },
     });
   };

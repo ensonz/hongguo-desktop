@@ -681,10 +681,7 @@ mod tests {
         assert_eq!(tabs[0].bookstore_id, None, "游客态关注无数据面");
         assert_eq!(tabs[1].bookstore_id, None);
         assert_eq!(tabs[3].title, "推荐");
-        assert_eq!(
-            tabs[3].bookstore_id.as_deref(),
-            Some("7294257258253254693")
-        );
+        assert_eq!(tabs[3].bookstore_id.as_deref(), Some("7294257258253254693"));
     }
 }
 

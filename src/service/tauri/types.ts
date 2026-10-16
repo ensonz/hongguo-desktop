@@ -18,6 +18,10 @@ export const EVENTS = {
   loginMfaState: 'login-mfa-state',
   compatPlayProgress: 'compat-play-progress',
   seriesArchiveUpdated: 'series-archive-updated',
+  // 追更更新提醒（follow_service 检查出新高，载荷 = 新增通知）
+  followNotices: 'follow-notices',
+  // 老板键切了窗口可见性（boss_key_cmd）：true=已隐藏（前端暂停视频）
+  bossKeyHidden: 'boss-key-hidden',
   // 只由 lib.rs 的 CloseRequested 拦截发出（下载事件之外的应用级事件）
   closeRequested: 'close-requested',
   // 隐身轮询器（set_incognito）发给主窗口：visible=false 暂停（只在隐身

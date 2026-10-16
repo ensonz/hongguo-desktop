@@ -21,7 +21,7 @@ use futures_util::future::BoxFuture;
 use crate::db::Db;
 use crate::entity;
 use hongguo_common::model::settings::Settings;
-use hongguo_common::model::{DownloadTask, MergeTask, PlaybackPosition, Series};
+use hongguo_common::model::{DownloadTask, FollowNotice, MergeTask, PlaybackPosition, Series};
 use hongguo_common::{AppError, AppResult};
 
 /// 一次投递到 DB 线程的活：拿一个连接克隆，跑一段异步逻辑。
@@ -119,6 +119,59 @@ impl Store {
     pub fn save_settings(&self, settings: &Settings) -> AppResult<()> {
         let s = settings.clone();
         self.exec(move |db| Box::pin(async move { entity::save_settings(db, &s).await }))
+    }
+
+    // ---------- 追更（基线 + 更新提醒） ----------
+
+    pub fn follow_baseline_get(&self, series_id: &str) -> AppResult<Option<i64>> {
+        let id = series_id.to_string();
+        self.exec(move |db| Box::pin(async move { entity::baseline_get(db, &id).await }))
+    }
+
+    pub fn follow_baseline_set(&self, series_id: &str, episode_cnt: i64) -> AppResult<()> {
+        let id = series_id.to_string();
+        self.exec(move |db| {
+            Box::pin(async move { entity::baseline_set(db, &id, episode_cnt).await })
+        })
+    }
+
+    pub fn follow_baseline_delete(&self, series_id: &str) -> AppResult<()> {
+        let id = series_id.to_string();
+        self.exec(move |db| Box::pin(async move { entity::baseline_delete(db, &id).await }))
+    }
+
+    pub fn follow_notice_insert(
+        &self,
+        kind: &str,
+        series_id: &str,
+        title: &str,
+        detail: &str,
+        at: i64,
+    ) -> AppResult<i64> {
+        let (kind, series_id, title, detail) = (
+            kind.to_string(),
+            series_id.to_string(),
+            title.to_string(),
+            detail.to_string(),
+        );
+        self.exec(move |db| {
+            Box::pin(async move {
+                entity::notice_insert(db, &kind, &series_id, &title, &detail, at).await
+            })
+        })
+    }
+
+    pub fn follow_notices(&self) -> AppResult<Vec<FollowNotice>> {
+        self.exec(|db| Box::pin(entity::notices_list(db)))
+    }
+
+    pub fn follow_notices_mark_read(&self, ids: &[i64]) -> AppResult<u64> {
+        let ids = ids.to_vec();
+        self.exec(move |db| Box::pin(async move { entity::notices_mark_read(db, &ids).await }))
+    }
+
+    pub fn follow_notices_clear(&self) -> AppResult<()> {
+        self.exec(|db| Box::pin(entity::notices_clear(db)))
     }
 
     // ---------- tasks ----------

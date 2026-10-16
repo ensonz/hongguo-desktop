@@ -183,6 +183,10 @@ pub struct AccountState {
 pub struct Settings {
     /// 下载根目录
     pub download_dir: String,
+    /// 缓存根目录（转码缓存与封面缓存落在这里的子目录）；空 = 跟随数据目录。
+    /// 改动即时生效于新写入，旧目录残留不迁移（与 download_dir 同语义）。
+    #[serde(default)]
+    pub cache_dir: String,
     /// 命名模板
     #[serde(default)]
     pub naming: NamingTemplate,
@@ -200,6 +204,14 @@ pub struct Settings {
     /// 最小化自动暂停，恢复窗口后继续播（对齐 hgplayer）
     #[serde(default = "default_true")]
     pub pause_on_minimize: bool,
+    /// 连播预取集数（0=关闭；1=仅下一集）。流预取与 HEVC 预转共用此档，
+    /// 起播后按它向后多铺几集（issue #6：减少切集等待、可关）
+    #[serde(default = "default_prefetch_episodes")]
+    pub prefetch_episodes: u32,
+    /// 老板键全局快捷键（tauri accelerator 形态，如 "CommandOrControl+Alt+H"；
+    /// 空 = 未启用）。注册在壳侧（issue #4：隐藏/显示主窗口）
+    #[serde(default)]
+    pub boss_key: String,
     /// 主题：auto / light / dark（默认 dark——黑色是应用的默认观感）
     #[serde(default = "default_theme")]
     pub theme: String,
@@ -210,6 +222,10 @@ pub struct Settings {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_prefetch_episodes() -> u32 {
+    1
 }
 
 fn default_theme() -> String {
@@ -224,12 +240,15 @@ impl Default for Settings {
             .unwrap_or_else(|| ".".to_string());
         Self {
             download_dir,
+            cache_dir: String::new(),
             naming: NamingTemplate::default(),
             max_concurrency: 3,
             proxy: ProxyConfig::default(),
             auto_delete_after_play: false,
             auto_next_episode: true,
             pause_on_minimize: true,
+            prefetch_episodes: default_prefetch_episodes(),
+            boss_key: String::new(),
             theme: default_theme(),
             account: None,
         }
@@ -240,6 +259,18 @@ impl Settings {
     /// 收敛并发到 1–10，保存前调用。
     pub fn clamp_concurrency(&mut self) {
         self.max_concurrency = self.max_concurrency.clamp(1, 10);
+    }
+
+    /// 收敛预取集数到 0–3（0=关闭；上限对齐 StreamCache 的预取标记位）。
+    pub fn clamp_prefetch_episodes(&mut self) {
+        self.prefetch_episodes = self.prefetch_episodes.min(3);
+    }
+
+    /// 缓存根覆盖值：非空给 `Some`，空表示跟随数据目录（`None`）。
+    /// 启动装载与保存后都要经它应用到 `hongguo_store::paths`，三处调用方共用。
+    pub fn cache_override(&self) -> Option<String> {
+        let trimmed = self.cache_dir.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
     }
 
     /// 某部剧的下载子目录：`<下载根>/红果短剧/<剧名>`。
@@ -298,6 +329,20 @@ mod tests {
         s.max_concurrency = 99;
         s.clamp_concurrency();
         assert_eq!(s.max_concurrency, 10);
+    }
+
+    #[test]
+    fn clamp_prefetch_episodes_bounds() {
+        // 上限 3 对齐 StreamCache 预取标记位；0 = 关闭预取是合法值
+        let mut s = Settings {
+            prefetch_episodes: 9,
+            ..Default::default()
+        };
+        s.clamp_prefetch_episodes();
+        assert_eq!(s.prefetch_episodes, 3);
+        s.prefetch_episodes = 0;
+        s.clamp_prefetch_episodes();
+        assert_eq!(s.prefetch_episodes, 0);
     }
 
     #[test]
@@ -396,6 +441,7 @@ mod tests {
         // 前端 settingsSchema / proxyConfigSchema / namingTemplateSchema
         let s = Settings {
             download_dir: "D:\\dl".into(),
+            cache_dir: "D:\\cache".into(),
             naming: NamingTemplate::TitleIndex,
             max_concurrency: 4,
             proxy: ProxyConfig {
@@ -405,15 +451,20 @@ mod tests {
             auto_delete_after_play: false,
             auto_next_episode: true,
             pause_on_minimize: true,
+            prefetch_episodes: 1,
+            boss_key: "CommandOrControl+Alt+H".into(),
             theme: "auto".into(),
             account: None,
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["downloadDir"], "D:\\dl");
+        assert_eq!(v["cacheDir"], "D:\\cache");
         assert_eq!(v["maxConcurrency"], 4);
         assert_eq!(v["autoDeleteAfterPlay"], false);
         assert_eq!(v["autoNextEpisode"], true);
         assert_eq!(v["pauseOnMinimize"], true);
+        assert_eq!(v["prefetchEpisodes"], 1);
+        assert_eq!(v["bossKey"], "CommandOrControl+Alt+H");
         assert_eq!(v["naming"], "titleIndex");
         assert_eq!(v["proxy"]["mode"], "direct");
         assert!(v.get("download_dir").is_none());
@@ -430,6 +481,16 @@ mod tests {
         let v = serde_json::to_value(&r).unwrap();
         assert_eq!(v["elapsedMs"], 42);
         assert!(v.get("elapsed_ms").is_none());
+    }
+
+    #[test]
+    fn cache_override_trims_and_allows_empty() {
+        let mut s = Settings::default();
+        assert_eq!(s.cache_override(), None, "默认空 = 跟随数据目录");
+        s.cache_dir = "  ".into();
+        assert_eq!(s.cache_override(), None);
+        s.cache_dir = " D:\\cache ".into();
+        assert_eq!(s.cache_override().as_deref(), Some("D:\\cache"));
     }
 
     #[test]

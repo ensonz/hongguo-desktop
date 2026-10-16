@@ -6,7 +6,6 @@
 //! 标题搜索框对齐参考端 v1.1.6（客户端过滤，标题异步到位后登记）。
 
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { Play, Star, StarOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { ErrorState } from '@/components/common/error-state';
@@ -33,7 +32,7 @@ import {
   useSeriesMeta,
 } from '@/service/queries';
 import { enhancedCover, isRenderableCover } from '@/utils/cover';
-import { usePlayerStore } from '@/stores/player';
+import { usePlaySeries } from '@/hooks/use-play-series';
 import { t, tf, type MessageKey } from '@/locales';
 import type { BookshelfEntry } from '@/service/schema';
 
@@ -54,8 +53,7 @@ function matchTypeTab(tab: TypeTab, entry: BookshelfEntry): boolean {
 }
 
 export function CollectionPage() {
-  const navigate = useNavigate();
-  const setTarget = usePlayerStore((s) => s.setTarget);
+  const playSeries = usePlaySeries();
   const refreshAuth = useAuthRefresh();
   const { data: entries, isLoading, error, refetch } = useBookshelf();
   const collect = useSeriesCollect();
@@ -85,8 +83,7 @@ export function CollectionPage() {
   );
 
   const open = (seriesId: string) => {
-    setTarget(seriesId, 1);
-    void navigate({ to: '/player' });
+    playSeries(seriesId);
   };
 
   if (isLoading) {

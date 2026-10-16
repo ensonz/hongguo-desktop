@@ -72,10 +72,35 @@ pub struct SeriesMeta {
     pub pay_info: serde_json::Value,
     /// 上线时间戳（online_time；UTC 毫秒，0=未知）
     pub online_time: i64,
-    /// 官方更新角标（update_tag，"更新至第N集"；空=无）
+    /// 官方统计行原文（episode_right_text：完结「全139集」/ 连载「更新至83集」，
+    /// 2026-10-15 官方实包；旧字段名 update_tag 在真实响应里不存在，留作兜底键）
     pub update_tag: String,
+    /// 追更按钮显隐判定（series_status：0=连载中 1=已完结；与追更列表
+    /// relation/get_user_action 同名同语义。官方详情页只在连载剧出「追更」）
+    pub series_status: i64,
+    /// 更新频率（update_info.show_update_frequency，「每周六更新5集」；
+    /// update_info 对象只在连载剧下发，完结剧为空）
+    pub update_frequency: String,
     /// 全剧总集数（episode_total_cnt；0=未知）
     pub episode_total_cnt: i64,
     /// 服务端续播锚点 vid（latest_consumed_item_id；空=无）
     pub latest_consumed_vid: String,
+    /// 出品方 / 演职员（main_creator_users，2026-10-15 抓 player v1.2.1
+    /// 详情页实包；官方点击走 Lynx 模板页无 JSON 端点，展示 + 跳搜索）
+    #[serde(default)]
+    pub creators: Vec<SeriesCreator>,
+}
+
+/// 出品方 / 演职员条目（main_creator_users[] 摘要）。
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesCreator {
+    /// 官方账号 uid
+    pub user_id: String,
+    /// 名称（出品方名 / 演员名）
+    pub name: String,
+    /// 头像（官方 CDN，直连可渲染）
+    pub avatar: String,
+    /// 角色文案（user_tag.sub_title_list 首项：出品方/主演/配角）
+    pub role: String,
 }

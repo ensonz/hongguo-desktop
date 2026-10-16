@@ -7,11 +7,30 @@ export const interact = {
   /** 发一条弹幕（offsetMs = 视频内位置毫秒），返回服务端 comment_id。 */
   sendDanmaku: (groupId: string, bookId: string, text: string, offsetMs: number) =>
     call('danmaku_send', { groupId, bookId, text, offsetMs }),
-  /** 发一条评论，返回**服务端回显的完整评论对象**（直接插列表顶部）。 */
-  sendComment: (groupId: string, bookId: string, text: string) =>
-    call('comment_send', { groupId, bookId, text }),
-  /** 回复一条评论（reply/add 独立端点）；回复「回复」时传 replyToReplyId。
-   *  返回**服务端回显的完整回复对象**（直接插回复区，hgplayer 同款）。 */
+  /** 发一条播放页评论（单集维度流，与面板同源），返回**服务端回显的
+   *  完整评论对象**（直接插列表顶部）。
+   *  mention 在场 = @小果AI 提及评论（rich_text tp=15 +
+   *  aibot_mention_context=最近评论 id）。⚠️ 键名必须显式对住 registry
+   *  的 mentionUserId——call 不校验入参，键名写错会被 Tauri 静默丢弃、
+   *  提及降级成普通评论（2026-10-16 实锤事故，勿改回展开写法）。 */
+  sendComment: (
+    groupId: string,
+    bookId: string,
+    text: string,
+    mention?: { userId: string; contextCommentIds: string[] },
+  ) =>
+    call('comment_send', {
+      groupId,
+      bookId,
+      text,
+      mentionUserId: mention?.userId,
+      contextCommentIds: mention?.contextCommentIds,
+    }),
+  /** 评论 @ 提及候选（含官方 AI bot「小果」，isAiBot=true）。 */
+  mentionList: (seriesId: string) => call('mention_list', { seriesId }),
+  /** 回复一条评论（reply/add 独立端点；回复流与面板同单集维度）。
+   *  回复「回复」时传 replyToReplyId。返回**服务端回显的完整回复对象**
+   *  （直接插回复区，hgplayer 同款）。 */
   sendReply: (
     groupId: string,
     bookId: string,

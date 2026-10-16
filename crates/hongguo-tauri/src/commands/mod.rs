@@ -3,6 +3,7 @@
 //! 与 `service/` 同名同构，看目录就能定位 command → service 的对应关系。
 
 pub mod app_cmd;
+pub mod boss_key_cmd;
 pub mod capability_cmd;
 // 下载 command 拆成 mod.rs（查询）与 actions.rs（变更）
 pub use download as download_cmd;
@@ -10,6 +11,7 @@ pub mod danmaku_cmd;
 pub mod device_cmd;
 pub mod discover_cmd;
 pub mod download;
+pub mod follow_cmd;
 pub mod history_cmd;
 pub mod incognito_cmd;
 pub mod interact_cmd;

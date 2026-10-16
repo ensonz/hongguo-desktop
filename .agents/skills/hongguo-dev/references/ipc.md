@@ -1,6 +1,6 @@
 # 前后端契约（IPC 命令 / 事件 / 外部 API 端点）
 
-前后端的所有交互形态与新增流程。核心原则：**类型契约两端同步演进**——Rust serde 模型 ↔ 前端 zod schema 是同一契约的两份手写副本，改一头必须改另一头。
+前后端的所有交互形态与新增流程。核心原则：**契约两端同源**（dev-habits『契约两端同源』）——本项目载体是 Rust serde 模型 ↔ 前端 zod schema 两份手写副本，改一头同一 commit 改另一头，漏改由 registry.ts 在编译期拦下。
 
 壳归属：IPC 命令、事件推送（前端 `EVENTS` 映射）、自定义协议是 **Tauri 壳专属**通道；GPUI 壳无 IPC，进程内直调 service、经壳内事件泵消费同一批 `ServiceEvent`（见 `references/gpui.md`）。第四节「外部 API 端点」两壳共用。
 

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useShortcutsStore } from '@/stores/shortcuts';
+import { useUiStore } from '@/stores/ui';
+import { app as appApi } from '@/service/commands';
+import { portraitAspectOf } from '@/features/player/hooks/use-portrait-window';
 
 /**
  * 舞台三套交互裁决：滚轮切换、点击画面、键盘快捷键。
@@ -10,7 +13,6 @@ import { useShortcutsStore } from '@/stores/shortcuts';
  */
 export function usePlayerInteractions(params: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  seriesId: string | null;
   /** 方向信号（1=下一个/向下滚，-1=上一个）由交互写入，过渡动画在装配层读 */
   setSlideDir: (dir: 1 | -1) => void;
   /** 选集浮层打开时不抢滚动 */
@@ -28,7 +30,6 @@ export function usePlayerInteractions(params: {
 }) {
   const {
     videoRef,
-    seriesId,
     setSlideDir,
     seriesPanelOpen,
     downloading,
@@ -76,25 +77,20 @@ export function usePlayerInteractions(params: {
     ],
   );
 
-  // ---- 点击画面：信息流里=选中本剧（进入切集模式）；选中后/播放页=播放/暂停 ----
-  // 第三方同款交互：未选中时单击视频=「选中这部剧」，此后滚轮/↑↓ 切集，
-  // Esc 退出选中回到换剧；选中状态下的单击回归传统的播放/暂停。
+  // ---- 点击画面 = 播放/暂停（选中剧的唯一入口是「观看完整短剧」横条与
+  //      自动连播完成本集，点画面选中剧的旧手势已移除）----
   // 控件/面板/互动栏（data-wheel-block 标记区）里的点击是它们自己的事，
-  // 不冒泡成选中/暂停。
+  // 不冒泡成播放/暂停切换。
   const onStageClick = useCallback(
     (e: React.MouseEvent) => {
       if ((e.target as HTMLElement | null)?.closest?.('[data-wheel-block]')) return;
       wakeChrome();
-      if (onWheelStep && !inBinge) {
-        setBinge(seriesId);
-        return;
-      }
       const video = videoRef.current;
       if (!video) return;
       if (video.paused) void video.play().catch(() => undefined);
       else video.pause();
     },
-    [wakeChrome, onWheelStep, inBinge, setBinge, seriesId, videoRef],
+    [wakeChrome, videoRef],
   );
 
   // 键盘快捷键：映射可在设置页自定义（默认空格 / ←→ / ↑↓，抖音网页版同款）。
@@ -114,6 +110,22 @@ export function usePlayerInteractions(params: {
 
       // Esc 固定管「退出选中」——面板语义按键，不随自定义映射
       if (e.key === 'Escape') {
+        // 竖屏铺满先退铺满回竖条（hgplayer 同序：面板 Esc 之后、退出选中
+        // 之前；面板开着时 Esc 仍归面板）
+        const ui = useUiStore.getState();
+        if (
+          ui.portraitFull &&
+          !seriesPanelOpen &&
+          !commentPanelOpen &&
+          !danmakuPanelOpen &&
+          !volumeOpen
+        ) {
+          ui.setPortraitFull(false);
+          void appApi
+            .setPortraitFull(portraitAspectOf(videoRef.current), false)
+            .catch(() => undefined);
+          return;
+        }
         // 面板（评论/选集/弹幕设置）开着时它们的 Esc 只管关面板；
         // 都没开而处于选中态时，Esc = 退出选中（滚轮/↑↓ 回到换剧）
         if (inBinge && !seriesPanelOpen && !commentPanelOpen && !danmakuPanelOpen && !volumeOpen) {
