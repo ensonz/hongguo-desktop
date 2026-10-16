@@ -189,6 +189,14 @@ mod tests {
                 hongguo_service::login_service::events::LOGIN_MFA_STATE,
                 ServiceEvent::LoginMfa(LoginMfaStateEvent::Success { name: "甲".into() }),
             ),
+            (
+                hongguo_service::follow_service::events::FOLLOW_NOTICES,
+                ServiceEvent::FollowNotices(
+                    hongguo_service::follow_service::events::FollowNoticesEvent {
+                        notices: Vec::new(),
+                    },
+                ),
+            ),
         ];
         // 映射表在 forward() 里；这里锁定「一个变体一个名字」的名字集，
         // 防止将来加变体时只加事件不登记（前端订阅会静默失效）。
@@ -209,6 +217,7 @@ mod tests {
                 "online-play-progress",
                 "compat-play-progress",
                 "login-mfa-state",
+                "follow-notices",
             ]
         );
     }

@@ -86,13 +86,21 @@ export function useFollowCheck() {
   });
 }
 
-/** 新通知到达后的统一失效（事件订阅方调）。 */
+/** 新通知到达后的统一失效（事件订阅方调）：追更列表/角标，加上出新集
+ * 剧的分集缓存——后端虽在线现拉，弹内还有 10-30s 抖动节流，这里失效
+ * 才能让正开着的选集立刻见新集（「追更已知 400 集、选集还是 380」）。 */
 export function useFollowNoticesInvalidator() {
   const qc = useQueryClient();
-  return useCallback(() => {
-    void qc.invalidateQueries({ queryKey: keys.followNotices });
-    void qc.invalidateQueries({ queryKey: keys.followRoot });
-  }, [qc]);
+  return useCallback(
+    (notices: FollowNotice[]) => {
+      void qc.invalidateQueries({ queryKey: keys.followNotices });
+      void qc.invalidateQueries({ queryKey: keys.followRoot });
+      for (const n of notices) {
+        void qc.invalidateQueries({ queryKey: keys.seriesEpisodes(n.seriesId) });
+      }
+    },
+    [qc],
+  );
 }
 
 /** 通知列表里是否还有未读（角标用）。 */

@@ -160,6 +160,7 @@ pub fn prepare() -> tauri::Builder<tauri::Wry> {
             commands::settings_cmd::test_proxy,
             // 剧集
             commands::series_cmd::get_series_episodes,
+            commands::series_cmd::get_series_snapshot,
             commands::series_cmd::resolve_series,
             commands::series_cmd::related_series,
             commands::series_cmd::series_meta,

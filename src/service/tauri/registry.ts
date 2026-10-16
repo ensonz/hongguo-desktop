@@ -400,6 +400,7 @@ export const COMMANDS = {
 
   // ---- 剧集 ---------------------------------------------------------
   get_series_episodes: { args: z.object({ seriesId: z.string() }), response: seriesSchema },
+  get_series_snapshot: { args: z.object({ seriesId: z.string() }), response: seriesSchema },
   resolve_series: { args: z.object({ input: z.string() }), response: seriesSchema },
   related_series: { args: z.object({ seriesId: z.string() }), response: relatedSeriesSchema },
   series_meta: { args: z.object({ seriesId: z.string() }), response: seriesMetaSchema },
