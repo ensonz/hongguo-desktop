@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 
 import { discover } from '../commands';
 import type { FeedItem, FeedPage } from '../schema';
-import { dedupBy, keys, useInfiniteStream } from './common';
+import { dedupBy, fuzzyStaleTime, keys, useInfiniteStream } from './common';
 
 // ---------------------------------------------------------------- 首页推荐流
 
@@ -23,7 +23,7 @@ export function feedItems(pages: FeedPage[]): FeedItem[] {
  * 0→6→12 递进）+ `filterIds`（已下发过的 series_id，服务端排除已见）。
  *
  * pages 存在 Query 缓存里：切到其它路由再回来秒出已拉内容，不闪骨架屏；
- * staleTime 内完全不重打，超时只后台刷新（配合 RefreshShade 无感过渡）。
+ * 抖动节流内不重打，过期只后台刷新（配合 RefreshShade 无感过渡）。
  */
 export function useFeed(tab: string) {
   const queryClient = useQueryClient();
@@ -40,7 +40,7 @@ export function useFeed(tab: string) {
     },
     // 失败 home-page 就地给 ErrorState + 重试，全局不再弹
     meta: { silentOnError: true },
-    staleTime: 5 * 60_000,
+    staleTime: fuzzyStaleTime(keys.feed(tab)),
   });
   const stream = useInfiniteStream(query, feedItems);
   // 换一批：重开会话回第 1 批（hgplayer V() 同款）。reset 会清掉已翻的页，
@@ -55,13 +55,13 @@ export function useFeed(tab: string) {
  * 首页顶栏 tab 列表（服务端下发，bookmall/tab 响应 tab_item[]）。
  *
  * 与推荐流同源但独立缓存：拉取前/失败由壳侧回落三件套渲染，不阻塞首屏。
- * 顶栏属配置数据（tab_type/标题/顺序随运营变化），1 小时内不重打。
+ * 顶栏属配置数据（tab_type/标题/顺序随运营变化），抖动节流内不重打。
  */
 export function useFeedTabs() {
   return useQuery({
     queryKey: keys.feedTabs,
     queryFn: () => discover.recommendTabs(),
-    staleTime: 60 * 60_000,
+    staleTime: fuzzyStaleTime(keys.feedTabs),
     meta: { silentOnError: true },
   });
 }

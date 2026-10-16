@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { watchHistory } from '../commands';
-import { keys } from './common';
+import { fuzzyStaleTime, keys } from './common';
 
 // ---------------------------------------------------------------- 云端观看历史
 
@@ -12,7 +12,7 @@ export function useWatchHistory(enabled = true) {
     queryKey: keys.watchHistory,
     queryFn: () => watchHistory.list(),
     enabled,
-    staleTime: 30_000,
+    staleTime: fuzzyStaleTime(keys.watchHistory),
   });
 }
 
