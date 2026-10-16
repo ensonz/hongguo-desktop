@@ -9,7 +9,7 @@
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Manager};
-use tauri_plugin_global_shortcut::ShortcutState;
+use tauri_plugin_global_shortcut::{Shortcut, ShortcutEvent, ShortcutState};
 
 use hongguo_common::{AppError, AppResult};
 
@@ -21,7 +21,10 @@ pub const BOSS_KEY_HIDDEN: &str = "boss-key-hidden";
 static CURRENT: Mutex<Option<String>> = Mutex::new(None);
 
 /// 注册（或换绑 / 注销）老板键。空串 = 注销现有键。
-/// 注册失败（快捷键被其他程序占用等）返回错误，由调用方决定提示口径。
+/// 注册失败（快捷键被其他程序占用等）返回错误；所有失败路径都把旧键
+/// 回滚注回插件并同步 CURRENT——不留「设置里有键、实际没生效」或
+/// 「插件占着键、CURRENT 却是空」的漂移态（后者会让之后每次换键都撞
+/// already registered，保存永久失败）。
 pub fn apply(app: &AppHandle, shortcut: &str) -> AppResult<()> {
     let shortcut = shortcut.trim().to_string();
     let mut cur = CURRENT
@@ -32,29 +35,54 @@ pub fn apply(app: &AppHandle, shortcut: &str) -> AppResult<()> {
     }
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let gs = app.global_shortcut();
-    if let Some(old) = cur.take() {
-        // 旧键注销失败会让新键注册时撞「already registered」，必须暴露
-        gs.unregister(old.as_str())
-            .map_err(|e| AppError::InvalidArgs(format!("旧老板键「{old}」注销失败: {e}")))?;
+    let old = cur.take();
+    if let Some(o) = &old {
+        // 注销失败说明旧键多半还被插件占着——CURRENT 恢复原值与实态对齐
+        if let Err(e) = gs.unregister(o.as_str()) {
+            *cur = old.clone();
+            return Err(AppError::InvalidArgs(format!(
+                "旧老板键「{o}」注销失败: {e}"
+            )));
+        }
     }
     if shortcut.is_empty() {
         return Ok(());
     }
-    gs.on_shortcut(shortcut.as_str(), |app, _shortcut, event| {
-        if event.state == ShortcutState::Pressed {
-            toggle(app);
-        }
-    })
-    .map_err(|e| AppError::InvalidArgs(format!("老板键「{shortcut}」注册失败: {e}")))?;
+    if let Err(e) = gs.on_shortcut(shortcut.as_str(), boss_key_fired) {
+        *cur = rollback_register(app, old.as_deref());
+        return Err(AppError::InvalidArgs(format!(
+            "老板键「{shortcut}」注册失败: {e}"
+        )));
+    }
     // 注册后显式核对一次，占用/被顶掉时给出可读错误
     if !gs.is_registered(shortcut.as_str()) {
         let _ = gs.unregister(shortcut.as_str());
+        *cur = rollback_register(app, old.as_deref());
         return Err(AppError::InvalidArgs(format!(
             "老板键「{shortcut}」注册后未生效（可能被其他程序占用）"
         )));
     }
     *cur = Some(shortcut);
     Ok(())
+}
+
+/// 老板键触发：按下沿切换窗口可见性。
+fn boss_key_fired(app: &AppHandle, _shortcut: &Shortcut, event: ShortcutEvent) {
+    if event.state == ShortcutState::Pressed {
+        toggle(app);
+    }
+}
+
+/// 新键注册失败时把旧键尽力注回插件，返回实际生效的键（None = 没回滚成）。
+/// 失败不外泄：保存本身已经在报错，回滚失败只让旧老板键失效一次，
+/// 下次保存成功即自愈。
+fn rollback_register(app: &AppHandle, old: Option<&str>) -> Option<String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let restored = old?.trim().to_string();
+    app.global_shortcut()
+        .on_shortcut(restored.as_str(), boss_key_fired)
+        .ok()?;
+    Some(restored)
 }
 
 /// 启动装载后调用：按持久化设置注册。失败只记日志——快捷键被占用不该
