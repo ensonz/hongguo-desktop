@@ -54,6 +54,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.rust_target }}
+          # 钉死版本装的是 minimal profile（rustc+cargo+std）——@stable 时代
+          # 靠 runner 预装组件混过去，钉版本后 clippy 必须显式声明
+          components: clippy
 
       - uses: swatinem/rust-cache@v2
         with:
