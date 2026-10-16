@@ -60,28 +60,33 @@ export function usePlaybackProgress(params: {
       const total = video && Number.isFinite(video.duration) ? video.duration : 0;
       lastKnownRef.current = { key: episodeKey, time, duration: total };
       savePosition({ seriesId, vidIndex, currentTime: time, duration: total });
-      // 观看历史记录（issue #10，节奏对齐参考端 v1.1.6 抓包
-      // flows-20261009-v116-history.jsonl）：起播 5 秒首报
-      // （cloudCounter===1，本集第一次 persist 正好在 ~5s），之后每
-      // ~60 秒一次（×12）；暂停/切集/卸载走 force。本地必记（未登录
-      // 也有历史），登录态顺路上报云端。fire-and-forget（后端失败只
-      // 记日志）。
-      cloudCounter.current += 1;
-      if (force || cloudCounter.current === 1 || cloudCounter.current % 12 === 0) {
-        if (currentVid) {
-          void watchHistory
-            .record({
-              seriesId,
-              vid: currentVid,
-              vidIndex,
-              positionMs: Math.round(time * 1000),
-              durationMs: Math.round(total * 1000),
+      // 观看历史记录（issue #10，节奏对齐参考端 v1.1.6 抓包）：起播
+      // 5 秒首报、之后每 ~60 秒一拍（12 个 5s 节流窗）；暂停/切集/卸载
+      // 走 force。计数只数真正上报的节拍——persist 挂在 timeupdate 上
+      // 逐帧触发，按「第 N 次 persist」计数的话首报会在起播 ~0.2s 就
+      // 打出去（参考端是 5s），快滑一部剧就留一条 1 秒的噪点行。
+      // 本地必记（未登录也有历史），登录态顺路上报云端。fire-and-forget
+      // （后端失败只记日志）。
+      const due =
+        force ||
+        (cloudCounter.current === 0 && time >= 5) ||
+        (cloudCounter.current > 0 && cloudCounter.current % 12 === 0);
+      if (due && currentVid) {
+        cloudCounter.current += 1;
+        void watchHistory
+          .record({
+            seriesId,
+            vid: currentVid,
+            vidIndex,
+            positionMs: Math.round(time * 1000),
+            durationMs: Math.round(total * 1000),
+            meta: {
               title: currentSeries?.title ?? '',
               cover: currentSeries?.cover ?? '',
               episodeCnt: currentSeries?.episodeCount ?? 0,
-            })
-            .catch(() => {});
-        }
+            },
+          })
+          .catch(() => {});
       }
     },
     // ref 形参（videoRef/lastKnownRef/srcKeyRef）按仓库惯例写进依赖：
@@ -116,9 +121,11 @@ export function usePlaybackProgress(params: {
       // key 对不上说明这份位置属于别的集，写进去就是串集。
       if (key !== episodeKey || time <= 0) return;
       savePosition({ seriesId, vidIndex, currentTime: time, duration });
-      // 切集/退出的最后一次也记一条历史（本地必记 + 登录态顺路上报）
+      // 切集/退出的最后一次也记一条历史（本地必记 + 登录态顺路上报）。
+      // 与首报同门槛：<5 秒的掠过不进历史（进度照常落盘）——否则首页
+      // 快滑一路，历史页全是 1 秒的「未知剧集」行。
       const vid = currentSeries?.episodes.find((e) => e.vidIndex === vidIndex)?.vid ?? '';
-      if (vid) {
+      if (vid && time >= 5) {
         void watchHistory
           .record({
             seriesId,
@@ -126,9 +133,11 @@ export function usePlaybackProgress(params: {
             vidIndex,
             positionMs: Math.round(time * 1000),
             durationMs: Math.round(duration * 1000),
-            title: currentSeries?.title ?? '',
-            cover: currentSeries?.cover ?? '',
-            episodeCnt: currentSeries?.episodeCount ?? 0,
+            meta: {
+              title: currentSeries?.title ?? '',
+              cover: currentSeries?.cover ?? '',
+              episodeCnt: currentSeries?.episodeCount ?? 0,
+            },
           })
           .catch(() => {});
       }

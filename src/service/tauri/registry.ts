@@ -433,7 +433,10 @@ export const COMMANDS = {
     args: z.object({ offset: z.number() }),
     response: watchHistoryPageSchema,
   },
-  // 记录观看历史（本地必记 + 登录态顺路上报云端，issue #10）
+  // 记录观看历史（本地必记 + 登录态顺路上报云端，issue #10）。
+  // 展示元数据必须与 Rust 命令同形嵌套在 meta 里：serde 按顶层键找
+  // `meta`，平铺会被 Option 静默吞成 None（剧名/封面/总集数全落空默认），
+  // 历史页整页「未知剧集」——契约表就是这道形状错配的唯一闸门。
   record_watch_history: {
     args: z.object({
       seriesId: z.string(),
@@ -441,9 +444,11 @@ export const COMMANDS = {
       vidIndex: z.number(),
       positionMs: z.number(),
       durationMs: z.number(),
-      title: z.string(),
-      cover: z.string(),
-      episodeCnt: z.number(),
+      meta: z.object({
+        title: z.string(),
+        cover: z.string(),
+        episodeCnt: z.number(),
+      }),
     }),
     response: voidResp,
   },
