@@ -184,13 +184,14 @@ pub async fn prefetch_stream(state: &AppState, vid: &str, progress_key: &str) ->
     Ok(())
 }
 
-/// 连播预取：本集起播成功后排队**下一集**的流预取。
+/// 集间流预取的统一入口：同剧连播（`resolve_play` 起播后向后铺）与换剧
+/// （首页 `play_prefetch` 从入口集起铺）都走这里，铺几集由
+/// `Settings.prefetch_episodes` 统一控制（0=全关）。
 ///
-/// 切剧预取（首页 `play_prefetch`）只覆盖「换一部剧」；同剧的集间切换此前
-/// 完全没有预取，自动连播每集都要冷走一遍取流表+探针链（2026-10-12 实测
-/// 1.4s，正是「下一集黑一两秒」的来源——同现场切剧命中预取只要 20ms）。
+/// 集间切换若不预取，自动连播每集都要冷走一遍取流表+探针链（2026-10-12
+/// 实测 1.4s，正是「下一集黑一两秒」的来源——同现场预取命中只要 20ms）。
 /// 幂等与礼让全部复用 [`prefetch_stream`]（StreamCache 去重 + FillBudget
-/// 让位）。档案里查不到下一集的 vid 就放弃：连播到它时 resolve_play 会
+/// 让位）。档案里查不到该集的 vid 就放弃：播到它时 resolve_play 会
 /// 自行解析（与 compat_prefetch 同款语义）。
 pub fn schedule_next_episode_prefetch(state: AppState, series_id: &str, next_vid_index: u32) {
     let Some(vid) =
@@ -201,7 +202,7 @@ pub fn schedule_next_episode_prefetch(state: AppState, series_id: &str, next_vid
     let progress_key = format!("{series_id}:{next_vid_index}");
     crate::runtime::spawn(async move {
         if let Err(e) = prefetch_stream(&state, &vid, &progress_key).await {
-            log::info!("[Online] 第 {next_vid_index} 集连播预取失败（忽略）: {e}");
+            log::info!("[Online] 第 {next_vid_index} 集预取失败（忽略）: {e}");
         }
     });
 }

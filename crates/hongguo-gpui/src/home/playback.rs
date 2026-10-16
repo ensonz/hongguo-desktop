@@ -10,7 +10,7 @@ use hongguo_api::history::WatchHistoryItem;
 use hongguo_common::AppResult;
 use hongguo_playback::{OpenOptions, PlayerEvent, PlayerHandle};
 use hongguo_service::app_state::AppStateInner;
-use hongguo_service::play_service::online::{prefetch_stream, prepare};
+use hongguo_service::play_service::online::prepare;
 use hongguo_service::play_service::position;
 use tokio::sync::mpsc;
 
@@ -694,6 +694,11 @@ impl super::HomeView {
         series_id: String,
         history: Vec<WatchHistoryItem>,
     ) -> AppResult<()> {
+        // 铺几集跟连播预取同一个设置档（0=全关，连换剧预取也不做）
+        let count = state.settings().prefetch_episodes;
+        if count == 0 {
+            return Ok(());
+        }
         let env = state.api_env();
         let series = match state.store.series_by_id(&series_id)? {
             Some(s) if !s.episodes.is_empty() => s,
@@ -709,19 +714,22 @@ impl super::HomeView {
             &series_id,
             &history,
         )?;
-        let ep = series
-            .episodes
-            .iter()
-            .find(|e| e.vid_index == vid_index)
-            .or_else(|| series.episodes.iter().find(|e| e.vid_index == 1));
-        let Some(ep) = ep else {
-            return Ok(());
+        // 入口集不在分集表（下架/重排）回落第 1 集
+        let entry = if series.episodes.iter().any(|e| e.vid_index == vid_index) {
+            vid_index
+        } else {
+            1
         };
-        if ep.vid.trim().is_empty() {
-            return Ok(());
+        // 与 Tauri 壳 play_prefetch 同一口径：入口集起共 N 集，逐集排队
+        // schedule（幂等/去重/礼让在 schedule 内部）
+        for offset in 0..count {
+            hongguo_service::play_service::online::schedule_next_episode_prefetch(
+                Arc::clone(&state),
+                &series_id,
+                entry + offset,
+            );
         }
-        let progress_key = format!("{series_id}:{}", ep.vid_index);
-        prefetch_stream(&state, &ep.vid, &progress_key).await
+        Ok(())
     }
 
     /// 相邻剧分集档案预取（换剧时 resolve 秒回）。

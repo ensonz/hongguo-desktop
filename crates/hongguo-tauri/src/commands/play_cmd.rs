@@ -18,12 +18,20 @@ pub async fn play_series(
     hongguo_service::play_service::local::resolve_play(state.inner(), &request).await
 }
 
-/// 预取一集的在线流（沉浸流「一切就下一部」）。
+/// 预取一部剧的在线流（沉浸流「一切就下一部」）。
 ///
 /// 幂等且静默：本地没档案就先解析登记（通常前端已预取过分集，这里秒回），
-/// 流已取/在取直接返回；取流表失败不报错——预取是优化，失败大不了现场取。
+/// 流已取/在取直接返回；取流失败不报错——预取是优化，失败大不了现场取。
+/// 铺几集由 `Settings.prefetch_episodes` 决定（0=全关，含换剧预取）：入口
+/// 集起共 N 集，与连播预取走同一条 `schedule_next_episode_prefetch`
+/// （幂等/去重/礼让共用）。只铺流不铺预转——切剧瞬间 N 集转码的 CPU
+/// 代价过高，无 HEVC 机器由取流侧直接选 h264 流覆盖。
 #[tauri::command]
 pub async fn play_prefetch(state: State<'_, AppState>, series_id: String) -> AppResult<()> {
+    let count = state.settings().prefetch_episodes;
+    if count == 0 {
+        return Ok(());
+    }
     let series = match state.store.series_by_id(&series_id)? {
         Some(s) => s,
         None => {
@@ -35,28 +43,23 @@ pub async fn play_prefetch(state: State<'_, AppState>, series_id: String) -> App
         }
     };
     // 起点与首页同一份续播决策（resolve_entry；传空历史 = 只看本地断点）：
-    // 看过 >3 秒的剧预取上次看到的那一集；没看过的（或那一集已不在分集表
-    // 里）回落第 1 集。
-    let vid_index =
-        hongguo_service::play_service::resume::resolve_entry(&state.store, &series_id, &[])
-            .map(|(idx, _)| idx)?;
-    let ep = series
-        .episodes
-        .iter()
-        .find(|e| e.vid_index == vid_index)
-        .or_else(|| series.episodes.iter().find(|e| e.vid_index == 1));
-    let Some(ep) = ep else {
-        return Ok(());
+    // 看过 >3 秒的剧预取上次看到的那一集；没看过的回落第 1 集。入口集
+    // 已不在分集表里（下架/重排）也回落第 1 集。
+    let entry = hongguo_service::play_service::resume::resolve_entry(&state.store, &series_id, &[])
+        .map(|(idx, _)| idx)?;
+    let entry = if series.episodes.iter().any(|e| e.vid_index == entry) {
+        entry
+    } else {
+        1
     };
-    if ep.vid.is_empty() {
-        return Ok(());
+    for offset in 0..count {
+        hongguo_service::play_service::online::schedule_next_episode_prefetch(
+            state.inner().clone(),
+            &series_id,
+            entry + offset,
+        );
     }
-    hongguo_service::play_service::online::prefetch_stream(
-        state.inner(),
-        &ep.vid,
-        &format!("{series_id}:{}", ep.vid_index),
-    )
-    .await
+    Ok(())
 }
 
 /// 同步 command 会占 **Tauri 主线程**——播放时每 5 秒一次的进度保存

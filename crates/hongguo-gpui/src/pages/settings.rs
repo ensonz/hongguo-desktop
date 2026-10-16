@@ -920,7 +920,7 @@ impl SettingsView {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child("起播后自动向后预载接下来几集，切集不用等"),
+                            .child("起播后自动向后预载接下来几集；换剧时同样按此数预载下一部剧"),
                     ),
             )
             .into_any_element()
