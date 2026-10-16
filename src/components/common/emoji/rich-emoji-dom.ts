@@ -1,6 +1,14 @@
 /** 富文本输入框的 DOM 辅助：表情代码/提及段 ↔ 纯文本 的渲染/序列化纯函数。 */
 import { parseEmojiSegments } from '@/utils/danmaku-emoji';
 
+/** 光标锚点字符：垫在不可编辑 img / 提及 chip 之后，给编辑光标一个
+ *  文本节点内的落点（WebKit 光标紧贴不可编辑单元时，后续输入会插到
+ *  单元前面）。必须是 \uFEFF（零宽不换行空格）而非 \u200B——后者紧贴
+ *  光标时会被 macOS 输入法的组合文本（marked text）误纳入，光标被画进
+ *  拼音中间；\uFEFF 是格式字符，IME 组合不理会（ProseMirror 对 WebKit
+ *  的同款选择）。serialize 时剥掉，不进 value。 */
+export const CARET_ANCHOR = '\uFEFF';
+
 /** renderValue 的渲染选项：`aiName` 是 AI bot 的用户名——提及 chip 对它
  *  追加官方同款渐变「Ai」后缀（纯展示，不参与序列化）。 */
 export interface RenderValueOptions {
@@ -52,9 +60,8 @@ export function serialize(el: HTMLElement): string {
   let out = '';
   for (const node of el.childNodes) {
     if (node.nodeType === Node.TEXT_NODE) {
-      // \u200B 是表情后的游标锚点（WebKit 对着不可编辑 img 放光标的垫片），
-      // 不属于用户内容
-      out += (node.textContent ?? '').replace(/\u200B/g, '');
+      // 光标锚点（见 CARET_ANCHOR）是垫给编辑光标的，不属于用户内容
+      out += (node.textContent ?? '').replaceAll(CARET_ANCHOR, '');
     } else if (node instanceof HTMLImageElement) {
       out += node.alt;
     } else if (node instanceof HTMLElement && node.dataset.mention !== undefined) {

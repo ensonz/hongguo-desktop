@@ -2,7 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { parseEmojiSegments } from '@/utils/danmaku-emoji';
 import { isImeComposing } from '@/utils/ime';
 import { cn } from '@/lib/utils';
-import { renderValue, serialize } from './rich-emoji-dom';
+import { CARET_ANCHOR, renderValue, serialize } from './rich-emoji-dom';
 
 /**
  * 富文本输入框：`[名字]` 表情代码即时渲染成内嵌图片（<input> 装不下图，
@@ -122,7 +122,7 @@ export function RichEmojiInput({
       for (const n of [...el.childNodes]) {
         if (
           n.nodeType === Node.TEXT_NODE &&
-          n.textContent === '\u200B' &&
+          n.textContent === CARET_ANCHOR &&
           !(n.previousSibling instanceof HTMLImageElement)
         ) {
           n.remove();
@@ -181,8 +181,8 @@ export function RichEmojiInput({
       range.deleteContents();
       range.insertNode(img);
       // WebKit 痛点：光标紧贴不可编辑 img 时，后续输入会插到 img 前面——
-      // 垫一个零宽空格作游标锚点（serialize 时剥掉，不进 value）
-      const anchor = document.createTextNode('\u200B');
+      // 垫一个零宽锚点作游标落点（serialize 时剥掉，不进 value）
+      const anchor = document.createTextNode(CARET_ANCHOR);
       img.after(anchor);
       range.setStart(anchor, 1);
       range.collapse(true);
@@ -247,8 +247,8 @@ export function RichEmojiInput({
       range.insertNode(span);
       // chip 后带一个可见空格（官方同款：提及与正文的间隔空隙），再垫
       // 零宽锚点稳住光标（WebKit 紧贴不可编辑单元时后续输入会插到前面）；
-      // serialize 剥掉零宽、保留空格 → value 为 `@名字\uFFFC `
-      const anchor = document.createTextNode(' \u200B');
+      // serialize 剥掉锚点、保留空格 → value 为 `@名字\uFFFC `
+      const anchor = document.createTextNode(` ${CARET_ANCHOR}`);
       span.after(anchor);
       range.setStart(anchor, 1);
       range.collapse(true);
@@ -303,7 +303,7 @@ export function RichEmojiInput({
           (node instanceof HTMLElement && node.dataset.mention !== undefined)
             ? node
             : null;
-        const isZWSP = (s: string | undefined) => s === '\u200B';
+        const isAnchor = (s: string | undefined) => s === CARET_ANCHOR;
         const setCaret = (container: Node, offset: number) => {
           e.preventDefault();
           const r = document.createRange();
@@ -326,14 +326,14 @@ export function RichEmojiInput({
               if (node.data.length === 0) continue;
               for (let i = 0; i <= node.data.length; i++) {
                 // 紧贴零宽锚点之后的位置不可见，不放停靠位
-                if (i > 0 && i < node.data.length && node.data.charAt(i - 1) === '\u200B') {
+                if (i > 0 && i < node.data.length && node.data.charAt(i - 1) === CARET_ANCHOR) {
                   continue;
                 }
                 slots.push({ container: node, offset: i });
               }
             } else if (atomicAt(node)) {
               const ns = node.nextSibling;
-              if (!(ns instanceof Text && ns.data.charAt(0) === '\u200B')) {
+              if (!(ns instanceof Text && ns.data.charAt(0) === CARET_ANCHOR)) {
                 const idx = [...el.childNodes].indexOf(node);
                 slots.push({ container: el, offset: idx });
                 slots.push({ container: el, offset: idx + 1 });
@@ -373,18 +373,18 @@ export function RichEmojiInput({
           const forward = e.key === 'Delete';
           let atomic: HTMLElement | null = null;
           /** 需要摘掉的零宽字符（节点 + 下标） */
-          let zwsp: { node: Text; index: number } | null = null;
+          let anchor: { node: Text; index: number } | null = null;
           /** 删完后光标落位；null = 原地 */
           let caret: { container: Node; offset: number } | null = null;
 
           if (c.nodeType === Node.TEXT_NODE) {
             const t = c as Text;
             if (!forward) {
-              if (o > 0 && isZWSP(t.data[o - 1])) {
+              if (o > 0 && isAnchor(t.data[o - 1])) {
                 // 紧前是锚点零宽：原子单元在节点首字符时的 previousSibling
                 if (o - 1 === 0) atomic = atomicAt(t.previousSibling);
                 if (atomic) {
-                  zwsp = { node: t, index: o - 1 };
+                  anchor = { node: t, index: o - 1 };
                   const before = atomic.previousSibling;
                   caret =
                     before && before.nodeType === Node.TEXT_NODE
@@ -394,20 +394,22 @@ export function RichEmojiInput({
               } else if (o === 0 && atomicAt(t.previousSibling)) {
                 atomic = t.previousSibling as HTMLElement;
                 const ps = atomic.previousSibling;
-                zwsp = ps instanceof Text && ps.data === '\u200B' ? { node: ps, index: 0 } : null;
-                caret = zwsp
-                  ? { container: el, offset: [...el.childNodes].indexOf(zwsp.node) }
+                anchor =
+                  ps instanceof Text && ps.data === CARET_ANCHOR ? { node: ps, index: 0 } : null;
+                caret = anchor
+                  ? { container: el, offset: [...el.childNodes].indexOf(anchor.node) }
                   : { container: el, offset: [...el.childNodes].indexOf(atomic) };
               }
             } else {
-              if (o < t.data.length && isZWSP(t.data[o])) {
+              if (o < t.data.length && isAnchor(t.data[o])) {
                 // 向前删先吃掉看不见的零宽：接管掉这次「无操作」
-                zwsp = { node: t, index: o };
+                anchor = { node: t, index: o };
                 caret = { container: t, offset: o };
               } else if (o === t.data.length && atomicAt(t.nextSibling)) {
                 atomic = t.nextSibling as HTMLElement;
                 const ns = atomic.nextSibling;
-                zwsp = ns instanceof Text && ns.data === '\u200B' ? { node: ns, index: 0 } : null;
+                anchor =
+                  ns instanceof Text && ns.data === CARET_ANCHOR ? { node: ns, index: 0 } : null;
                 caret = { container: t, offset: o };
               }
             }
@@ -416,27 +418,29 @@ export function RichEmojiInput({
               atomic = atomicAt(el.childNodes[o] ?? null);
               if (atomic) {
                 const ns = atomic.nextSibling;
-                zwsp = ns instanceof Text && ns.data === '\u200B' ? { node: ns, index: 0 } : null;
+                anchor =
+                  ns instanceof Text && ns.data === CARET_ANCHOR ? { node: ns, index: 0 } : null;
                 caret = { container: el, offset: o };
               }
             } else {
               atomic = atomicAt(el.childNodes[o - 1] ?? null);
               if (atomic) {
                 const ps = atomic.previousSibling;
-                zwsp = ps instanceof Text && ps.data === '\u200B' ? { node: ps, index: 0 } : null;
-                caret = zwsp
-                  ? { container: el, offset: [...el.childNodes].indexOf(zwsp.node) }
+                anchor =
+                  ps instanceof Text && ps.data === CARET_ANCHOR ? { node: ps, index: 0 } : null;
+                caret = anchor
+                  ? { container: el, offset: [...el.childNodes].indexOf(anchor.node) }
                   : { container: el, offset: [...el.childNodes].indexOf(atomic) };
               }
             }
           }
 
-          if (atomic || zwsp) {
+          if (atomic || anchor) {
             e.preventDefault();
             atomic?.remove();
-            if (zwsp) {
-              zwsp.node.deleteData(zwsp.index, 1);
-              if (zwsp.node.data === '' && zwsp.node.parentNode === el) zwsp.node.remove();
+            if (anchor) {
+              anchor.node.deleteData(anchor.index, 1);
+              if (anchor.node.data === '' && anchor.node.parentNode === el) anchor.node.remove();
             }
             if (caret) setCaret(caret.container, caret.offset);
             const next = serialize(el);
