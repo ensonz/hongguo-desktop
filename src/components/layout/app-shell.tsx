@@ -42,14 +42,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   // 追更更新提醒到达（后端定时检查出新集）：弹 **OS 系统通知**（非应用内
-  // toast）+ 刷新角标/列表缓存。弹出开关（aibotPopupOn）控制是否弹。
+  // toast）+ 刷新角标/列表缓存 + 出新集剧的分集缓存（档案已随通知刷新）。
+  // 弹出开关（aibotPopupOn）控制是否弹。
   const refreshFollow = useFollowNoticesInvalidator();
   const aibotPopupOn = useUiStore((s) => s.aibotPopupOn);
   useEvent(
     EVENTS.followNotices,
     useCallback(
       (payload) => {
-        refreshFollow();
+        refreshFollow(payload.notices);
         if (!aibotPopupOn) return;
         for (const n of payload.notices) {
           try {
@@ -144,11 +145,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 居中」会明显偏右。inset-x-0 + mx-auto + w-fit 居中且不用
                 transform（半像素平移会让文字发糊）。
                 容器 pointer-events-none：空白带不拦截、仍可拖窗；
-                tab 内容自己在 portal wrapper 里开 auto */}
-          <div
-            id={TOP_BAR_SLOT_ID}
-            className="pointer-events-none absolute inset-x-0 mx-auto flex w-fit items-center justify-center"
-          />
+                tab 内容自己在 portal wrapper 里开 auto。
+
+                竖屏时不渲染插槽：窄条（~390px）里整排 tab 与右侧置顶/
+                主题/窗口钮必然叠压（绝对定位 w-fit 不收缩）；竖屏=沉浸
+                看剧，切 tab 退出竖屏再说。容器缺席时 portal 侧
+                useSyncExternalStore 自动渲染 null，退出竖屏容器回来
+                MutationObserver 即时跟上，tab 无需自己感知竖屏。 */}
+          {!portrait && (
+            <div
+              id={TOP_BAR_SLOT_ID}
+              className="pointer-events-none absolute inset-x-0 mx-auto flex w-fit items-center justify-center"
+            />
+          )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {/* 置顶（hgplayer 标题栏同款）：钉住/取消整个窗口 */}
             <Button
